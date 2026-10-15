@@ -21,6 +21,10 @@ jobs:
       - name: Validate packs against the ontology-skill contract
         run: |
           uv run oss pack validate packs/base --manifest
+      - name: Dependency audit
+        run: |
+          uv export --all-packages --no-dev --format requirements-txt > /tmp/requirements.txt
+          uv run --with pip-audit pip-audit -r /tmp/requirements.txt --strict || echo "::warning::audit found issues"
       - name: Clean-room similarity check
         run: uv run python scripts/cleanroom_check.py --help
 
