@@ -254,6 +254,15 @@ def demo(
 
 
 @app.command()
+def reindex(collection: str = typer.Option(..., help="Collection slug")) -> None:
+    """Replay enrichment and indexing for a collection from stored text (no Tika)."""
+
+    with _api() as api:
+        _check(api.post(f"/collections/{collection}/reindex"))
+    console.print(f"queued a reindex of {collection}")
+
+
+@app.command()
 def search(
     q: str = typer.Argument("*:*"),
     collection: str | None = typer.Option(None),

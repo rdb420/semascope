@@ -88,7 +88,9 @@
   <fieldType name="knn_vector_384" class="solr.DenseVectorField" vectorDimension="384"
              similarityFunction="cosine" knnAlgorithm="hnsw" hnswMaxConnections="16" hnswBeamWidth="100"/>
 
-  <!-- Language-neutral text: used for every document regardless of language -->
+  <!-- Language-neutral text: used for every document regardless of language.
+       English stop words are dropped at query time only, so "Ulysses and Minerva"
+       neither requires nor highlights "and"; the index keeps every token for phrases. -->
   <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100">
     <analyzer type="index">
       <tokenizer name="standard"/>
@@ -97,6 +99,7 @@
     </analyzer>
     <analyzer type="query">
       <tokenizer name="standard"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
       <filter name="lowercase"/>
       <filter name="asciiFolding" preserveOriginal="false"/>
     </analyzer>

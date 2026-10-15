@@ -81,6 +81,17 @@ def get_collection(request: HttpRequest, slug: str) -> CollectionOut:
     )
 
 
+@api.post("/collections/{slug}/reindex", response={202: dict[str, int]}, tags=["collections"])
+def reindex_collection_view(request: HttpRequest, slug: str) -> tuple[int, dict[str, int]]:
+    """Replay enrichment and indexing for every indexed document from stored text."""
+
+    from oss_server.pipeline.tasks import reindex_collection
+
+    get_object_or_404(Collection, slug=slug)
+    reindex_collection.delay(slug)
+    return 202, {"queued": 1}
+
+
 @api.delete("/collections/{slug}", response={204: None}, tags=["collections"])
 def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
     c = get_object_or_404(Collection, slug=slug)
