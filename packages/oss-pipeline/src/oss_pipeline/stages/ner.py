@@ -36,6 +36,22 @@ def _load(model: str) -> Any:
     return spacy.load(model, disable=["lemmatizer", "textcat"])
 
 
+def looks_like_name(value: str, min_len: int = 3) -> bool:
+    """Reject what small models mistake for names: lowercase words, digits, long spans, junk."""
+
+    if len(value) < min_len or len(value) > 80 or value.isdigit():
+        return False
+    words = value.split()
+    if len(words) > 6:
+        return False
+    alpha = [c for c in value if c.isalpha()]
+    if len(alpha) < 2 or not any(c.isupper() for c in alpha):
+        return False
+    if sum(c.isalpha() or c in " '-." for c in value) < len(value) * 0.8:
+        return False
+    return not all(w.isupper() for w in words) or len(words) > 1  # "WAINAMOINEN" alone is a heading
+
+
 class NerStage:
     name = "ner"
     version = "1"
@@ -69,7 +85,7 @@ class NerStage:
                 continue
             cls, facet = mapped
             value = " ".join(ent.text.split()).strip(" .,;:'\"")
-            if len(value) < min_len or value.isdigit():
+            if not looks_like_name(value, min_len):
                 continue
             key = f"{cls}/{value.lower()}"
             tag = found.get(key)

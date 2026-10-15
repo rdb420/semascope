@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "oss_server.catalogue",
     "oss_server.knowledge",
+    "oss_server.curation",
 ]
 
 MIDDLEWARE = [

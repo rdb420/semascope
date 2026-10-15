@@ -13,7 +13,7 @@ from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
 from oss_core import __version__
-from oss_server.api import accounts, graph, knowledge, reconcile
+from oss_server.api import accounts, curation, graph, knowledge, reconcile
 from oss_server.api import search as search_mod
 from oss_server.api.auth import AUTH
 from oss_server.api.schemas import (
@@ -37,6 +37,7 @@ api.add_router("/auth", accounts.router)
 api.add_router("/knowledge", knowledge.router)
 api.add_router("/reconcile", reconcile.router)
 api.add_router("/graph", graph.router)
+api.add_router("/curation", curation.router)
 
 
 # --- collections ------------------------------------------------------------------------------

@@ -169,13 +169,19 @@ def shared(
     kind: str = "Entity",
     min_docs: int = 2,
     limit: int = 50,
+    linked_only: bool = True,
 ) -> list[dict[str, Any]]:
     """Concepts or entities that connect the most documents: the hubs of a collection."""
 
     if kind not in ("Entity", "Concept"):
         raise HttpError(422, "kind must be Entity or Concept")
     rel = "MENTIONS" if kind == "Entity" else "TAGGED"
-    where = "WHERE d.collection = $collection" if collection else ""
+    clauses = []
+    if collection:
+        clauses.append("d.collection = $collection")
+    if kind == "Entity" and linked_only:
+        clauses.append("x.class = 'Individual'")
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     cypher = (
         f"MATCH (d:Document)-[:{rel}]->(x:{kind}) {where} "
         f"WITH x, count(DISTINCT d) AS docs WHERE docs >= $min_docs "

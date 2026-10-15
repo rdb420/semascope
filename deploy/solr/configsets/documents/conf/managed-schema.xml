@@ -43,6 +43,7 @@
   <field name="entity_iris_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
   <field name="entity_labels_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
   <field name="pack_versions_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="curated_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
 
   <!-- Generic entities from pattern extraction and NER -->
   <field name="emails_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>

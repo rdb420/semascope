@@ -177,3 +177,20 @@ def test_solr_document_carries_pack_tags() -> None:
         "Odysseus"
     ]
     assert out["pack_versions_ss"] == ["p@1"]
+
+
+def test_ner_name_filter() -> None:
+    from oss_pipeline.stages.ner import looks_like_name
+
+    assert (
+        looks_like_name("Odysseus")
+        and looks_like_name("Mount Olympus")
+        and looks_like_name("A. T. Bartholomew")
+    )
+    assert (
+        not looks_like_name("thou")
+        and not looks_like_name("bush")
+        and not looks_like_name("2.6.19")
+    )
+    assert not looks_like_name("--with-autologon") and not looks_like_name("/dev/ scd0")
+    assert not looks_like_name("a " * 10)

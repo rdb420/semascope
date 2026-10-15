@@ -246,6 +246,7 @@ def tick() -> dict[str, int]:
         if is_due(source.schedule, source.last_run_at, now):
             discover_source.delay(source.id)
             started += 1
+    deliver_webhooks.delay()
     return {"started": started}
 
 
@@ -284,6 +285,24 @@ def _store(row: Document, work: WorkingDocument) -> None:
     row.error = "; ".join(f"{r.stage}: {r.message}" for r in failed)[:2000]
     row.indexed_at = datetime.now(UTC) if indexed else None
     row.save()
+    if indexed:
+        try:
+            from oss_server.curation.services import emit, queue_reviews
+
+            opened = queue_reviews(row)
+            emit(
+                "document.indexed",
+                collection=row.collection.slug,
+                subject=row.id,
+                payload={
+                    "uri": row.uri,
+                    "title": row.title,
+                    "tags": len(row.tags),
+                    "reviews_opened": opened,
+                },
+            )
+        except Exception:  # noqa: BLE001 - never fail indexing on curation bookkeeping
+            log.exception("review queue failed for %s", row.id)
 
 
 def _jsonable(value: Any) -> Any:
@@ -296,3 +315,53 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, str | int | float | bool) or value is None:
         return value
     return str(value)
+
+
+@shared_task(name="semascope.deliver_webhooks", queue="io")
+def deliver_webhooks() -> int:
+    """Send outbox events to every enabled webhook, in order, with an HMAC signature."""
+
+    import hashlib
+    import hmac
+    import json
+
+    import httpx
+
+    from oss_server.curation.models import Event, Webhook
+
+    sent = 0
+    for hook in Webhook.objects.filter(enabled=True):
+        events = Event.objects.filter(pk__gt=hook.last_event_id).order_by("pk")[:100]
+        for event in events:
+            if hook.kinds and not any(event.kind.startswith(k) for k in hook.kinds):
+                hook.last_event_id = event.pk
+                continue
+            body = json.dumps(
+                {
+                    "id": event.pk,
+                    "kind": event.kind,
+                    "collection": event.collection,
+                    "subject": event.subject,
+                    "payload": event.payload,
+                    "created_at": event.created_at.isoformat(),
+                },
+                default=str,
+            ).encode()
+            headers = {"Content-Type": "application/json", "X-Semascope-Event": event.kind}
+            if hook.secret:
+                headers["X-Semascope-Signature"] = (
+                    "sha256=" + hmac.new(hook.secret.encode(), body, hashlib.sha256).hexdigest()
+                )
+            try:
+                resp = httpx.post(hook.url, content=body, headers=headers, timeout=15.0)
+                if resp.status_code >= 400:
+                    hook.last_error = f"{resp.status_code} on event {event.pk}"
+                    break
+                hook.last_event_id = event.pk
+                hook.last_error = ""
+                sent += 1
+            except httpx.HTTPError as exc:
+                hook.last_error = f"{type(exc).__name__} on event {event.pk}"
+                break
+        hook.save(update_fields=["last_event_id", "last_error"])
+    return sent
