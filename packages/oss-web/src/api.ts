@@ -205,6 +205,13 @@ export const api = {
   stats: () => request<Stats>("/api/stats"),
   graphNeighbours: (id: string, depth = 1) =>
     request<GraphOut>(`/api/graph/neighbours?id=${encodeURIComponent(id)}&depth=${depth}`),
+  graphPath: (a: string, b: string) =>
+    request<GraphOut>(`/api/graph/path?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  listSearch: (names: string[], collection?: string) =>
+    request<Record<string, { total: number; hits: SearchHit[] }>>("/api/search/list", {
+      method: "POST",
+      body: JSON.stringify({ names, collection: collection ?? null }),
+    }),
   graphShared: (collection?: string, kind = "Entity") =>
     request<Hub[]>(`/api/graph/shared?kind=${kind}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`),
   reviews: (q: { collection?: string; kind?: string }) =>

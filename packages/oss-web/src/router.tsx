@@ -14,6 +14,7 @@ import { ConceptPage } from "./pages/ConceptPage";
 import { GraphPage } from "./pages/GraphPage";
 import { ReviewPage } from "./pages/ReviewPage";
 import { MapPage } from "./pages/MapPage";
+import { ListSearchPage } from "./pages/ListSearchPage";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -65,7 +66,9 @@ const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/revie
 
 const mapRoute = createRoute({ getParentRoute: () => rootRoute, path: "/map", component: MapPage });
 
-const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute]);
+const listRoute = createRoute({ getParentRoute: () => rootRoute, path: "/list", component: ListSearchPage });
+
+const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute]);
 
 export const router = createRouter({ routeTree });
 

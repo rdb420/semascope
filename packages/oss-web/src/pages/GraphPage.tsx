@@ -10,6 +10,14 @@ export function GraphPage() {
   const user = useUser();
   const navigate = useNavigate({ from: "/graph" });
   const [depth, setDepth] = useState(1);
+  const [other, setOther] = useState("");
+  const [pathTarget, setPathTarget] = useState<string | null>(null);
+  const hubsAll = useQuery({ queryKey: ["graph-hubs-all", collection], queryFn: () => api.graphShared(collection || undefined), enabled: user.isSuccess && !!id });
+  const pathQ = useQuery({
+    queryKey: ["graph-path", id, pathTarget],
+    queryFn: () => api.graphPath(id, pathTarget!),
+    enabled: user.isSuccess && !!id && !!pathTarget,
+  });
   const hubs = useQuery({
     queryKey: ["graph-hubs", collection],
     queryFn: () => api.graphShared(collection || undefined),
@@ -46,6 +54,26 @@ export function GraphPage() {
             <button onClick={() => navigate({ search: { id: "", collection } })} className="text-sm text-blue-700 hover:underline dark:text-blue-400">
               Back to hubs
             </button>
+            <span className="ml-auto flex items-center gap-1 text-sm">
+              <span className="text-zinc-500">path to</span>
+              <select value={other} onChange={(e) => setOther(e.target.value)} className="rounded border border-zinc-300 bg-transparent px-1 dark:border-zinc-700">
+                <option value="">choose…</option>
+                {hubsAll.data?.map((h) => {
+                  const hid = `${h.labels.includes("Concept") ? "Concept" : "Entity"}:${h.key}`;
+                  return hid === id ? null : (
+                    <option key={hid} value={hid}>{h.label}</option>
+                  );
+                })}
+              </select>
+              <button disabled={!other} onClick={() => setPathTarget(other)} className="rounded border px-2 py-0.5 disabled:opacity-40">
+                Find
+              </button>
+              {pathTarget && (
+                <button onClick={() => setPathTarget(null)} className="text-zinc-500 hover:underline">
+                  clear
+                </button>
+              )}
+            </span>
           </>
         )}
       </div>
@@ -66,6 +94,14 @@ export function GraphPage() {
             ))}
           </ul>
         </section>
+      )}
+      {id && pathTarget && pathQ.data && (
+        <>
+          <p className="text-sm text-zinc-500">
+            {pathQ.data.nodes.length ? `shortest path: ${pathQ.data.nodes.map((n) => n.label).join(" → ")}` : "no path within 4 steps"}
+          </p>
+          {pathQ.data.nodes.length > 0 && <GraphView graph={pathQ.data} onSelect={select} height={260} />}
+        </>
       )}
       {id && graph.data && (
         <>
