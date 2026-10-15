@@ -269,13 +269,13 @@ def search(
     collection: str | None = typer.Option(None),
     rows: int = typer.Option(10),
     facets: bool = typer.Option(True),
+    mode: str = typer.Option("keyword", help="keyword | semantic | hybrid"),
 ) -> None:
-    """Search the index and print hits with snippets."""
+    """Search the index and print hits with snippets (passages in semantic modes)."""
 
     with _api() as api:
-        out = _check(
-            api.post("/search", json={"q": q, "collection": collection, "page_size": rows})
-        )
+        body = {"q": q, "collection": collection, "page_size": rows, "mode": mode}
+        out = _check(api.post("/search", json=body))
     console.print(f"{out['total']} hits in {out['took_ms']} ms")
     for hit in out["hits"]:
         console.print(f"[bold]{hit['title']}[/bold]  [dim]{hit['uri']}[/dim]")
@@ -283,6 +283,8 @@ def search(
             console.print(
                 "   " + snippet.replace("<mark>", "[yellow]").replace("</mark>", "[/yellow]")
             )
+        for passage in (hit.get("passages") or [])[:2]:
+            console.print("   [dim]" + passage[:300] + "[/dim]")
     if facets and out.get("facets"):
         table = Table("facet", "values")
         for field, values in out["facets"].items():
