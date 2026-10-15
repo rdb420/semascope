@@ -289,11 +289,12 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
         errors = "; ".join(f.message for f in info.findings if f.severity == "error")
         raise ValueError(f"pack {pack_dir.name} is not valid: {errors}")
     existing = Pack.objects.filter(pack_id=info.id, version=info.version).first()
-    if (
-        existing
+    unchanged = (
+        existing is not None
         and existing.manifest_hash == info.manifest_hash
         and existing.status != Pack.Status.FAILED
-    ):
+    )
+    if existing is not None and unchanged and not force:
         log.info("pack %s@%s unchanged; skipping import", info.id, info.version)
         return existing
 

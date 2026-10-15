@@ -55,8 +55,12 @@ def test_import_base_pack_runs_cq_tests_and_builds_dictionary(
     tree = hierarchy(pack, "classes")
     entity = next(n for n in tree if n["label"] == "Entity")
     assert any(child["label"] == "Person" for child in entity["children"])
-    # a second import of the same bundle is a no-op
+    # a second import of the same bundle is a no-op, unless forced
+    first_concept_ids = set(Concept.objects.filter(pack=pack).values_list("id", flat=True))
     assert import_pack(BASE).pk == pack.pk
+    assert set(Concept.objects.filter(pack=pack).values_list("id", flat=True)) == first_concept_ids
+    assert import_pack(BASE, force=True).pk == pack.pk
+    assert set(Concept.objects.filter(pack=pack).values_list("id", flat=True)) != first_concept_ids
 
 
 _MEM: object | None = None
