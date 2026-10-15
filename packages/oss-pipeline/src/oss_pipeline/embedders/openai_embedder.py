@@ -1,7 +1,4 @@
-"""Any OpenAI-compatible /embeddings endpoint.
-
-Configured by SEMASCOPE_EMBED_BASE_URL and SEMASCOPE_EMBED_API_KEY.
-"""
+"""Any OpenAI-compatible /embeddings endpoint (SEMASCOPE_EMBED_BASE_URL and _API_KEY)."""
 
 from __future__ import annotations
 
@@ -13,25 +10,34 @@ import httpx
 class OpenAICompatibleEmbedder:
     name = "openai"
 
-    def __init__(self, model: str, dimensions: int = 384) -> None:
+    def __init__(
+        self,
+        model: str,
+        base_url: str | None = None,
+        api_key: str = "",
+        dimensions: int = 384,
+        *,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self.model_name = model
         self.dimensions = dimensions
-        self._base = (os.environ.get("SEMASCOPE_EMBED_BASE_URL") or "").rstrip("/")
-        self._key = os.environ.get("SEMASCOPE_EMBED_API_KEY") or ""
-        if not self._base:
+        base = base_url or os.environ.get("SEMASCOPE_EMBED_BASE_URL") or ""
+        key = api_key or os.environ.get("SEMASCOPE_EMBED_API_KEY") or ""
+        if not base:
             raise ValueError("SEMASCOPE_EMBED_BASE_URL is not set")
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        self._client = httpx.Client(
+            base_url=base.rstrip("/"), headers=headers, timeout=300.0, transport=transport
+        )
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        headers = {"Authorization": f"Bearer {self._key}"} if self._key else {}
-        resp = httpx.post(
-            f"{self._base}/embeddings",
-            json={"model": self.model_name, "input": texts},
-            headers=headers,
-            timeout=120.0,
-        )
+        resp = self._client.post("/embeddings", json={"model": self.model_name, "input": texts})
         resp.raise_for_status()
         data = sorted(resp.json()["data"], key=lambda d: d["index"])
-        return [d["embedding"] for d in data]
+        vectors = [[float(x) for x in d["embedding"]] for d in data]
+        if vectors:
+            self.dimensions = len(vectors[0])
+        return vectors
 
     def embed_query(self, text: str) -> list[float]:
         return self.embed([text])[0]

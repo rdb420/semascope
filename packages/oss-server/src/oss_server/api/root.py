@@ -86,15 +86,31 @@ def get_collection(request: HttpRequest, slug: str) -> CollectionOut:
     )
 
 
+def _stage_list(stages: str | None) -> list[str]:
+    from oss_pipeline.registry import PROFILES
+
+    known = {name for names in PROFILES.values() for name in names}
+    wanted = [s.strip() for s in (stages or "").split(",") if s.strip()]
+    unknown = [s for s in wanted if s not in known]
+    if unknown:
+        raise HttpError(400, f"unknown stages: {', '.join(unknown)}")
+    return wanted
+
+
 @api.post("/collections/{slug}/reindex", response={202: dict[str, int]}, tags=["collections"])
-def reindex_collection_view(request: HttpRequest, slug: str) -> tuple[int, dict[str, int]]:
-    """Replay enrichment and indexing for every indexed document from stored text."""
+def reindex_collection_view(
+    request: HttpRequest, slug: str, stages: str | None = None
+) -> tuple[int, dict[str, int]]:
+    """Replay enrichment and indexing for every indexed document from stored text.
+
+    `stages=embed` (a comma list) replays only those stages, in profile order.
+    """
 
     from oss_server.pipeline.tasks import reindex_collection
 
     get_object_or_404(Collection, slug=slug)
     check(request, "editor", slug)
-    reindex_collection.delay(slug)
+    reindex_collection.delay(slug, _stage_list(stages) or None)
     return 202, {"queued": 1}
 
 
@@ -280,11 +296,13 @@ def get_preview(request: HttpRequest, doc_id: str, page: int) -> FileResponse:
 
 
 @api.post("/documents/{doc_id}/reindex", response={202: dict[str, str]}, tags=["documents"])
-def reindex_document(request: HttpRequest, doc_id: str) -> tuple[int, dict[str, str]]:
+def reindex_document(
+    request: HttpRequest, doc_id: str, stages: str | None = None
+) -> tuple[int, dict[str, str]]:
     from oss_server.pipeline.tasks import reindex_document as task
 
     d = get_object_or_404(Document, pk=doc_id)
-    result = task.delay(d.id)
+    result = task.delay(d.id, _stage_list(stages) or None)
     return 202, {"task_id": str(result.id)}
 
 
@@ -354,4 +372,25 @@ def stats(request: HttpRequest) -> StatsOut:
         sources=Source.objects.count(),
         documents=by_status,
         solr_documents=solr_count,
+        chunk_models=chunk_models(),
+        embed_model=search_mod.current_embed_model(),
     )
+
+
+def chunk_models() -> dict[str, int]:
+    """How many chunk vectors each embedding model produced; a reindex is due when they differ."""
+
+    from oss_server.services import solr_chunks_collection
+
+    try:
+        body = solr_client().select(
+            solr_chunks_collection(),
+            q="*:*",
+            rows=0,
+            facet=True,
+            **{"facet.field": "model_s", "facet.mincount": 1},
+        )
+    except Exception:  # noqa: BLE001
+        return {}
+    flat = body.get("facet_counts", {}).get("facet_fields", {}).get("model_s", [])
+    return {str(flat[i]): int(flat[i + 1]) for i in range(0, len(flat), 2)}

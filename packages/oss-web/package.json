@@ -2,7 +2,7 @@
   "name": "oss-web",
   "license": "Apache-2.0",
   "private": true,
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "packageManager": "pnpm@12.10.1",
   "type": "module",
   "scripts": {

@@ -1,0 +1,39 @@
+# The GPU runtime: the application image plus CUDA builds of the in-process models.
+# syntax=docker/dockerfile:1.7
+#
+# FastEmbed moves to ONNX Runtime's CUDA provider and GLiNER2 (zero-shot named entities)
+# runs on the card through PyTorch. The CUDA and cuDNN libraries come from PyTorch's
+# pip packages and are registered with the dynamic loader, so no CUDA base image is
+# needed; the host only needs the NVIDIA driver and container toolkit.
+#
+#   docker compose -f compose.yaml -f compose.gpu.yaml up -d     (via SEMASCOPE_RUNTIME=gpu)
+
+ARG BASE_IMAGE=ghcr.io/rdb420/semascope:main
+FROM ${BASE_IMAGE}
+USER root
+ENV UV_LINK_MODE=copy
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip uninstall --python /app/.venv/bin/python fastembed onnxruntime && \
+    uv pip install --python /app/.venv/bin/python \
+        "fastembed-gpu>=0.9,<1" "gliner2[local]>=2.1,<3" "torch>=2.8,<3" && \
+    /app/.venv/bin/python - <<'PY'
+import glob, os, pathlib
+import nvidia  # the pip-distributed CUDA runtime, cuBLAS, cuDNN, ... that torch depends on
+libs = sorted(glob.glob(os.path.join(os.path.dirname(nvidia.__path__[0]), "nvidia", "*", "lib")))
+pathlib.Path("/etc/ld.so.conf.d/nvidia-pip.conf").write_text("\n".join(libs) + "\n")
+print("\n".join(libs))
+PY
+RUN ldconfig
+
+# The entity model is fetched at build time so the worker starts without a network.
+ENV HF_HOME=/app/models/hf HF_HUB_DISABLE_TELEMETRY=1
+ARG GLINER_MODEL=fastino/gliner2-large-v1
+RUN /app/.venv/bin/python -c "from gliner2 import GLiNER2; GLiNER2.from_pretrained('${GLINER_MODEL}')" \
+    && chown -R semascope /app/models \
+    || echo "entity model not baked (no network?)"
+
+USER semascope
+# Baked models only: no call to the Hub at start-up (rebuild with network if the bake failed).
+ENV HF_HUB_OFFLINE=1 \
+    SEMASCOPE_EMBED_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider \
+    SEMASCOPE_NER_PROVIDER=gliner

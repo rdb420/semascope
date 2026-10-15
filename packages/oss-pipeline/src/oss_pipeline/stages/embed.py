@@ -44,6 +44,8 @@ class EmbedStage:
             embedder = get_embedder(
                 str(ctx.settings.get("embedder", "fastembed")),
                 str(ctx.settings.get("embed_model", "BAAI/bge-small-en-v1.5")),
+                ctx.settings.get("embed_base_url") or None,
+                str(ctx.settings.get("embed_api_key") or ""),
             )
         except Exception as exc:  # noqa: BLE001 - model missing or endpoint unset
             raise SkipStageError(f"embedder unavailable: {exc}") from exc

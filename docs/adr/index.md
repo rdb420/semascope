@@ -12,3 +12,4 @@ instead). Template: context, decision, consequences, alternatives.
 | 0005 | Public-domain demo corpus from Project Gutenberg | accepted 2026-10-15 |
 | 0006 | The rest of the stack | proposed |
 | 0007 | The pack contract is the ontology skill's bundle | proposed |
+| 0008 | Runtimes and per-stage model providers | accepted 2026-10-16 |

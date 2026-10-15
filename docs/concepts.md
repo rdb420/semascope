@@ -62,7 +62,8 @@ Stages: `fetch` (store the original under its content hash), `extract`
 detection), `structure` (pages and chunks), `patterns` (email addresses,
 links, phone numbers, amounts, hashtags), `tag` (dictionary tagging against
 the active packs through Solr's Tagger, with a hierarchical facet per
-scheme), `ner` (spaCy named entities), `link` (NER entities to pack
+scheme), `ner` (named entities: spaCy, GLiNER2 or a remote service, see
+the runtimes in [operations](operations.md#runtimes)), `link` (NER entities to pack
 individuals by label), `validate` (SHACL over the document's metadata graph,
 `full` profile), `preview` (PDF page images and image thumbnails), `index`
 (Solr). Every run is recorded on the document with
@@ -98,9 +99,11 @@ Cypher console.
 highlighting). `semantic` embeds the query with the bundled FastEmbed model
 and ranks documents by their best-matching chunks, returning the passages.
 `hybrid` fuses both rankings with reciprocal rank fusion. Every document's
-chunks are embedded by the `embed` stage into the `chunks` collection; an
-OpenAI-compatible `/embeddings` endpoint can replace the bundled model
-(`SEMASCOPE_EMBEDDER=openai`).
+chunks are embedded by the `embed` stage into the `chunks` collection, each
+chunk recording its model; the embedder is a runtime choice (bundled
+FastEmbed on CPU or CUDA, an embedding sidecar, or any OpenAI-compatible
+`/embeddings` endpoint), and only chunks of the current model take part in
+a search.
 
 ## Roles
 
@@ -123,6 +126,8 @@ volume (originals, previews, uploads, the pack store) into
 
 `compose.observe.yaml` adds an OpenTelemetry collector, Prometheus and
 Grafana (on `127.0.0.1:3000`); the server and workers export traces and
-metrics when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. `compose.gpu.yaml` gives
-the worker an NVIDIA GPU and tells FastEmbed to use CUDA. `compose.dev.yaml`
-exposes every service on loopback with hot reload.
+metrics when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. `compose.gpu.yaml` is the
+`gpu` runtime: the worker runs from the `-gpu` image on an NVIDIA card, with
+FastEmbed on CUDA and GLiNER2 for entities (`./oss up` adds it when
+`SEMASCOPE_RUNTIME=gpu`). `compose.dev.yaml` exposes every service on
+loopback with hot reload.

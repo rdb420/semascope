@@ -9,6 +9,62 @@ laptop or a first look. Medium suits a team server with tens of thousands
 of documents; large is for hundreds of thousands. Worker concurrency is
 `--concurrency` on `oss-worker` in `compose.yaml` (default 2).
 
+## Runtimes
+
+Three heavy stages carry models: `extract` (OCR), `ner` (named entities)
+and `embed` (chunk vectors). `oss init --runtime` chooses where they run and
+writes one provider per stage into `.env`; each can be overridden
+(`--embed`, `--ner`, `--extract`) and changed later by editing `.env` and
+restarting the workers.
+
+| runtime | embed | ner | extract | needs |
+|---|---|---|---|---|
+| `cpu` (default) | `fastembed`, bge-small in the image | `spacy` | `tika` with Tesseract | nothing |
+| `gpu` | `fastembed` on ONNX Runtime CUDA | `gliner` (GLiNER2 zero-shot, in process) | `tika` | an NVIDIA card, driver and container toolkit; `./oss up` adds `compose.gpu.yaml`, which runs the worker from the `-gpu` image (about 15 GB, amd64) |
+| `remote` | `sidecar` or `openai` service | `remote` entity service | `mineru` parse server (PDF, Office, images; Tika keeps the rest) | the service URLs and, usually, a token |
+
+The remote contracts are small and any service can implement them:
+
+- embeddings, `sidecar`: `POST {url}/embed/dense {"texts": [...]}` answering
+  `{"vectors": [[...]], "model": "..."}`; `openai`: `POST {url}/embeddings`
+  with the OpenAI body. Health: `GET {url}/health` and `GET {url}/models`.
+- entities, `remote`: `POST {url}/entities {"texts": [...], "labels": {label:
+  description}, "threshold": 0.5}` answering `{"results": [[{"label", "text",
+  "start", "end", "confidence"}, ...], ...]}` (GLiNER2's shape, flat or
+  nested). Health: `GET {url}/health`.
+- extraction, `mineru`: MinerU's v1 jobs API (`/v1/parse/jobs`, polled, with
+  the Markdown fetched from `/v1/files`). Health: `GET {url}/v1/health`.
+
+`--remote-token` (or `SEMASCOPE_REMOTE_API_KEY`) is sent as a bearer token to
+every remote service, which is what a GPU router in front of them checks;
+`SEMASCOPE_<STAGE>_API_KEY` overrides it per stage. `./oss doctor` lists the
+configured services with their health status.
+
+Zero-shot entity providers (`gliner`, `remote`) are asked for the four base
+classes and for every class of the active packs, using the class's
+definition as the description, so a mythology pack finds deities and a
+property pack finds easements without any training (the base pack's own
+classes are skipped; a pack can restrict the list with
+`semascope.entity_classes` in its `requirements.yaml`). On the `gpu` runtime
+each worker process holds GLiNER2-large and the embedding model on the
+card, 5 to 11 GB at peak; size `--concurrency` on `oss-worker` to the free
+memory, because a full card fails the stage instead of falling back. Found entities of pack
+classes land in a `x_<class>_entities_ss` facet; the base four fill the
+persons, organisations, places and events facets as spaCy does.
+
+**Changing the embedding model.** Every chunk records the model that
+embedded it, and semantic search only reads chunks of the current model,
+so after switching the embed provider or model run
+`./oss reindex --collection <slug> --stage embed` for each collection; until
+it finishes the semantic and hybrid modes see the re-embedded documents
+only. A stage list replays those stages, what they need (`structure` before
+`embed`), the stages they feed (`link` after `tag` or `ner`) and the `index`
+and `graph` stages that publish the result; tags of the other stages are
+kept, and a failed replayed stage publishes nothing. `./oss stats` shows the chunk count per model, which is how you know
+when it is done. A remote service that is down fails the stage and the task
+retries; nothing falls back to the CPU model, because a mixed index is worse
+than a late one.
+
 ## Upgrade
 
 ```bash

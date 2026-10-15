@@ -152,8 +152,19 @@ def scheme_facets() -> list[str]:
     return [f"{slug}_paths" for slug in sorted(set(slugs))]
 
 
+def entity_class_facets() -> list[str]:
+    """One `x_<class>_entities_ss` facet per class of the active packs (zero-shot providers)."""
+
+    from oss_pipeline.stages.ner import facet_for
+    from oss_server.pipeline.tasks import active_entity_labels
+
+    return sorted(
+        {facet_for(label, spec["class"]) for label, spec in active_entity_labels().items()}
+    )
+
+
 def search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
-    extra = [f for f in scheme_facets() if f not in req.facets]
+    extra = [f for f in [*scheme_facets(), *entity_class_facets()] if f not in req.facets]
     if extra:
         req = req.model_copy(update={"facets": [*req.facets, *extra]})
     if req.mode in ("semantic", "hybrid") and req.q.strip() and req.q.strip() != "*:*":
@@ -162,18 +173,47 @@ def search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut
     return parse_response(req, body)
 
 
-def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any]]:
-    """Top-k chunks by vector similarity, with their passage text."""
+def query_embedder() -> Any:
+    """The embedder search shares with the embed stage (same provider, model and endpoint)."""
 
     from oss_core.config import get_settings
     from oss_pipeline.embedders import get_embedder
-    from oss_server.services import solr_chunks_collection
 
     s = get_settings()
-    embedder = get_embedder(s.semascope_embedder, s.semascope_embed_model)
+    return get_embedder(
+        s.semascope_embedder,
+        s.semascope_embed_model,
+        s.semascope_embed_base_url,
+        s.remote_key("embed"),
+    )
+
+
+def current_embed_model() -> str:
+    try:
+        return str(getattr(query_embedder(), "model_name", "") or "")
+    except Exception:  # noqa: BLE001 - endpoint unset or model missing
+        from oss_core.config import get_settings
+
+        return get_settings().semascope_embed_model
+
+
+def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any]]:
+    """Top-k chunks by vector similarity, with their passage text.
+
+    Only chunks embedded by the current model take part: vectors of different
+    models are not comparable, so after a provider change the semantic modes
+    see the re-embedded documents only until `reindex --stage embed` is done.
+    """
+
+    from oss_server.services import solr_chunks_collection
+
+    embedder = query_embedder()
     query_vec = getattr(embedder, "embed_query", None)
     vector = query_vec(req.q) if query_vec else embedder.embed([req.q])[0]
     fq = [f'collection_s:"{req.collection}"'] if req.collection else []
+    model = str(getattr(embedder, "model_name", "") or "")
+    if model:
+        fq.append(f'model_s:"{model}"')
     body = client.select(
         solr_chunks_collection(),
         q="{!knn f=vector topK=" + str(k) + "}" + "[" + ",".join(f"{x:.6f}" for x in vector) + "]",

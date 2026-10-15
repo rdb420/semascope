@@ -39,6 +39,17 @@ def init(
     size: str = typer.Option("small", help="small | medium | large"),
     import_dir: str = typer.Option("./data/import", help="Host folder the workers may read"),
     https_port: int = typer.Option(8443, help="Host port Caddy listens on"),
+    runtime: str = typer.Option(
+        "cpu", help="cpu (bundled models) | gpu (local NVIDIA card) | remote (HTTP services)"
+    ),
+    embed: str | None = typer.Option(None, help="fastembed | openai | sidecar; default by runtime"),
+    ner: str | None = typer.Option(None, help="spacy | gliner | remote; default by runtime"),
+    extract: str | None = typer.Option(None, help="tika | mineru; default by runtime"),
+    embed_url: str = typer.Option("", help="Base URL of the openai or sidecar embedding service"),
+    embed_model: str | None = typer.Option(None, help="Embedding model name the service expects"),
+    ner_url: str = typer.Option("", help="Base URL of the remote entity service (POST /entities)"),
+    extract_url: str = typer.Option("", help="Base URL of the MinerU parse server"),
+    remote_token: str = typer.Option("", help="Bearer token sent to every remote service"),
     force: bool = typer.Option(False, help="Overwrite an existing file"),
 ) -> None:
     """Write an environment file with generated secrets."""
@@ -48,6 +59,17 @@ def init(
     heaps = {"small": "1g", "medium": "2g", "large": "4g"}
     if size not in heaps:
         raise typer.BadParameter("size must be small, medium or large")
+    providers = runtime_providers(runtime, embed=embed, ner=ner, extract=extract)
+    for stage, url, flag in (
+        ("embed", embed_url, "--embed-url"),
+        ("ner", ner_url, "--ner-url"),
+        ("extract", extract_url, "--extract-url"),
+    ):
+        if providers[stage] in REMOTE_PROVIDERS and not url:
+            raise typer.BadParameter(f"{providers[stage]} {stage} needs {flag}")
+    if providers["embed"] == "openai" and not embed_model:
+        raise typer.BadParameter("openai embeddings need --embed-model")
+    model = embed_model or EMBED_MODELS[providers["embed"]]
     lines = [
         f"SEMASCOPE_HOST={host}",
         f"SEMASCOPE_HTTPS_PORT={https_port}",
@@ -62,6 +84,15 @@ def init(
         f"SOLR_HEAP={heaps[size]}",
         f"NEO4J_HEAP={heaps[size]}",
         f"TIKA_HEAP={heaps[size]}",
+        f"SEMASCOPE_RUNTIME={runtime}",
+        f"SEMASCOPE_EMBEDDER={providers['embed']}",
+        f"SEMASCOPE_EMBED_MODEL={model}",
+        f"SEMASCOPE_EMBED_BASE_URL={embed_url}",
+        f"SEMASCOPE_NER_PROVIDER={providers['ner']}",
+        f"SEMASCOPE_NER_BASE_URL={ner_url}",
+        f"SEMASCOPE_EXTRACT_PROVIDER={providers['extract']}",
+        f"SEMASCOPE_EXTRACT_BASE_URL={extract_url}",
+        f"SEMASCOPE_REMOTE_API_KEY={remote_token}",
         "SEMASCOPE_LLM_BASE_URL=",
         "SEMASCOPE_LLM_API_KEY=",
         "SEMASCOPE_LLM_MODEL=",
@@ -70,6 +101,43 @@ def init(
     env_file.chmod(0o600)
     console.print(f"wrote {env_file} (secrets generated; keep it out of git)")
     console.print("admin login: user 'admin', password SEMASCOPE_ADMIN_PASSWORD in that file")
+    console.print(
+        f"runtime {runtime}: embed={providers['embed']} ner={providers['ner']} "
+        f"extract={providers['extract']}"
+    )
+
+
+RUNTIME_DEFAULTS = {
+    "cpu": {"embed": "fastembed", "ner": "spacy", "extract": "tika"},
+    "gpu": {"embed": "fastembed", "ner": "gliner", "extract": "tika"},
+    "remote": {"embed": "sidecar", "ner": "remote", "extract": "mineru"},
+}
+PROVIDERS = {
+    "embed": ("fastembed", "openai", "sidecar"),
+    "ner": ("spacy", "gliner", "remote"),
+    "extract": ("tika", "mineru"),
+}
+REMOTE_PROVIDERS = ("openai", "sidecar", "remote", "mineru")
+EMBED_MODELS = {
+    "fastembed": "BAAI/bge-small-en-v1.5",
+    "sidecar": "sentence-transformers/all-MiniLM-L6-v2",
+    "openai": "",
+}
+
+
+def runtime_providers(runtime: str, **chosen: str | None) -> dict[str, str]:
+    """The provider of each heavy stage: the runtime's defaults, overridden per stage."""
+
+    if runtime not in RUNTIME_DEFAULTS:
+        raise typer.BadParameter("runtime must be cpu, gpu or remote")
+    out = dict(RUNTIME_DEFAULTS[runtime])
+    for stage, value in chosen.items():
+        if value is None:
+            continue
+        if value not in PROVIDERS[stage]:
+            raise typer.BadParameter(f"{stage} must be one of {', '.join(PROVIDERS[stage])}")
+        out[stage] = value
+    return out
 
 
 @app.command()
@@ -78,17 +146,18 @@ def doctor() -> None:
 
     settings = get_settings()
     table = Table("service", "endpoint", "status")
-    checks = {
+    checks: dict[str, tuple[str, dict[str, str] | None]] = {
         "server": ("http://server:8000/healthz", None),
         "solr": (f"{settings.solr_url}/admin/info/system?wt=json", None),
         "tika": (f"{settings.tika_url}/version", None),
         "neo4j": (settings.neo4j_uri.replace("bolt://", "http://").replace(":7687", ":7474"), None),
     }
+    checks.update(remote_checks(settings))
     failures = 0
     with httpx.Client(timeout=5.0) as client:
-        for name, (url, _) in checks.items():
+        for name, (url, headers) in checks.items():
             try:
-                resp = client.get(url)
+                resp = client.get(url, headers=headers or {})
                 status = f"{resp.status_code}"
                 if resp.status_code >= 400 and name != "solr":
                     failures += 1
@@ -97,8 +166,35 @@ def doctor() -> None:
                 failures += 1
             table.add_row(name, url, status)
     console.print(table)
+    console.print(
+        f"runtime {settings.semascope_runtime}: embed={settings.semascope_embedder} "
+        f"ner={settings.semascope_ner_provider} extract={settings.semascope_extract_provider}"
+    )
     if failures:
         raise typer.Exit(code=1)
+
+
+def remote_checks(settings: Any) -> dict[str, tuple[str, dict[str, str] | None]]:
+    """Health URLs of the configured remote services, with their bearer token."""
+
+    out: dict[str, tuple[str, dict[str, str] | None]] = {}
+
+    def auth(stage: Any) -> dict[str, str] | None:
+        key = settings.remote_key(stage)
+        return {"Authorization": f"Bearer {key}"} if key else None
+
+    base = (settings.semascope_embed_base_url or "").rstrip("/")
+    if settings.semascope_embedder == "sidecar" and base:
+        out["embed (sidecar)"] = (f"{base}/health", auth("embed"))
+    elif settings.semascope_embedder == "openai" and base:
+        out["embed (openai)"] = (f"{base}/models", auth("embed"))
+    base = (settings.semascope_ner_base_url or "").rstrip("/")
+    if settings.semascope_ner_provider == "remote" and base:
+        out["ner (remote)"] = (f"{base}/health", auth("ner"))
+    base = (settings.semascope_extract_base_url or "").rstrip("/")
+    if settings.semascope_extract_provider == "mineru" and base:
+        out["extract (mineru)"] = (f"{base}/v1/health", auth("extract"))
+    return out
 
 
 # --- API-backed commands -----------------------------------------------------------------------
@@ -255,12 +351,18 @@ def demo(
 
 
 @app.command()
-def reindex(collection: str = typer.Option(..., help="Collection slug")) -> None:
+def reindex(
+    collection: str = typer.Option(..., help="Collection slug"),
+    stage: list[str] = typer.Option(
+        [], help="Only these stages, e.g. --stage embed after a change of embedding model"
+    ),
+) -> None:
     """Replay enrichment and indexing for a collection from stored text (no Tika)."""
 
+    params = {"stages": ",".join(stage)} if stage else {}
     with _api() as api:
-        _check(api.post(f"/collections/{collection}/reindex"))
-    console.print(f"queued a reindex of {collection}")
+        _check(api.post(f"/collections/{collection}/reindex", params=params))
+    console.print(f"queued a reindex of {collection}" + (f" ({', '.join(stage)})" if stage else ""))
 
 
 @app.command()

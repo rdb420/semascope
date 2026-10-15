@@ -296,6 +296,10 @@ export function SearchPage() {
 function facetTitle(field: string): string {
   if (FACET_LABELS[field]) return FACET_LABELS[field];
   if (field.endsWith("_paths")) return field.slice(0, -6).replace(/-/g, " ");
+  if (field.endsWith("_entities_ss")) {
+    const cls = field.replace(/^x_/, "").slice(0, -"_entities_ss".length).replace(/_/g, " ");
+    return cls.charAt(0).toUpperCase() + cls.slice(1) + " (found)";
+  }
   return field;
 }
 

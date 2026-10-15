@@ -46,10 +46,33 @@ class Settings(BaseSettings):
     neo4j_password: SecretStr = Field(default=SecretStr("change-me"))
     tika_url: str = "http://localhost:9998"
 
-    # Embeddings: fastembed (bundled, CPU) or openai (any /embeddings endpoint)
-    semascope_embedder: Literal["fastembed", "openai"] = "fastembed"
+    # Runtime: which models run where. `cpu` is the bundled default, `gpu` the same models on
+    # a local NVIDIA card (compose.gpu.yaml), `remote` HTTP services for the heavy stages. The
+    # per-stage provider settings below are what the code reads; the runtime only sets their
+    # defaults at `oss init` and picks the compose overlay in `./oss up`.
+    semascope_runtime: Literal["cpu", "gpu", "remote"] = "cpu"
+    semascope_remote_api_key: SecretStr | None = None  # bearer token every remote service gets
+
+    # Embeddings: fastembed (bundled; CUDA with SEMASCOPE_EMBED_PROVIDERS), openai (any
+    # /embeddings endpoint) or sidecar (POST /embed/dense {"texts": [...]} -> {"vectors": [...]})
+    semascope_embedder: Literal["fastembed", "openai", "sidecar"] = "fastembed"
     semascope_embed_model: str = "BAAI/bge-small-en-v1.5"
+    semascope_embed_base_url: str | None = None
+    semascope_embed_api_key: SecretStr | None = None
     semascope_model_cache: Path = Path("/app/models")
+
+    # Named entities: spacy (bundled), gliner (GLiNER2 in-process, needs the gpu image) or
+    # remote (POST /entities {"texts", "labels", "threshold"} -> {"results": [[span, ...]]})
+    semascope_ner_provider: Literal["spacy", "gliner", "remote"] = "spacy"
+    semascope_ner_model: str = "fastino/gliner2-large-v1"
+    semascope_ner_base_url: str | None = None
+    semascope_ner_api_key: SecretStr | None = None
+
+    # Text extraction: tika (bundled, with Tesseract OCR) or mineru (a MinerU parse server for
+    # PDF, Office and images; Tika still reads metadata and every other format)
+    semascope_extract_provider: Literal["tika", "mineru"] = "tika"
+    semascope_extract_base_url: str | None = None
+    semascope_extract_api_key: SecretStr | None = None
 
     # Optional answer generation through any OpenAI-compatible endpoint
     semascope_llm_base_url: str | None = None
@@ -59,6 +82,13 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return bool(self.semascope_llm_base_url and self.semascope_llm_model)
+
+    def remote_key(self, stage: Literal["embed", "ner", "extract"]) -> str:
+        """The bearer token for a remote stage: its own key, else the shared remote key."""
+
+        own = getattr(self, f"semascope_{stage}_api_key")
+        key = own or self.semascope_remote_api_key
+        return key.get_secret_value() if key else ""
 
 
 def get_settings() -> Settings:

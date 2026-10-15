@@ -2672,7 +2672,7 @@ wheels = [
 
 [[package]]
 name = "oss-cli"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 source = { editable = "packages/oss-cli" }
 dependencies = [
     { name = "httpx" },
@@ -2691,7 +2691,7 @@ requires-dist = [
 
 [[package]]
 name = "oss-core"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 source = { editable = "packages/oss-core" }
 dependencies = [
     { name = "pydantic" },
@@ -2710,7 +2710,7 @@ requires-dist = [
 
 [[package]]
 name = "oss-pipeline"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 source = { editable = "packages/oss-pipeline" }
 dependencies = [
     { name = "boto3" },
@@ -2762,7 +2762,7 @@ provides-extras = ["pst"]
 
 [[package]]
 name = "oss-server"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 source = { editable = "packages/oss-server" }
 dependencies = [
     { name = "croniter" },

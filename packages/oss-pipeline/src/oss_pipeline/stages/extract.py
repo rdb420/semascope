@@ -1,14 +1,22 @@
-"""extract: text and metadata through Tika, with OCR when the format needs it."""
+"""extract: text and metadata through Tika, with OCR when the format needs it.
+
+With `extract_provider: mineru`, PDF, Office and image files are parsed by a
+MinerU server (layout-aware Markdown, GPU OCR) and Tika only reads their
+metadata; every other format still goes through Tika.
+"""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from oss_core.contracts import StageContext, WorkingDocument
+from oss_pipeline.clients.mineru import MineruClient, MineruError
 from oss_pipeline.clients.tika import TikaClient
 from oss_pipeline.media import content_type_group
 
 _TITLE_KEYS = ("dc:title", "title", "pdf:docinfo:title", "og:title")
+MINERU_GROUPS = ("pdf", "office", "image")
 
 
 class ExtractStage:
@@ -18,8 +26,19 @@ class ExtractStage:
     requires = ("blob_path",)
     provides = ("text", "media_type", "language", "title", "metadata")
 
-    def __init__(self, tika: TikaClient | None = None) -> None:
+    def __init__(self, tika: TikaClient | None = None, mineru: MineruClient | None = None) -> None:
         self._tika = tika
+        self._mineru = mineru
+
+    def _mineru_client(self, ctx: StageContext) -> MineruClient | None:
+        if str(ctx.settings.get("extract_provider", "tika")) != "mineru":
+            return None
+        if self._mineru is None:
+            base = ctx.settings.get("extract_base_url")
+            if not base:
+                return None
+            self._mineru = MineruClient(str(base), str(ctx.settings.get("extract_api_key") or ""))
+        return self._mineru
 
     def _client(self, ctx: StageContext) -> TikaClient:
         if self._tika is None:
@@ -29,7 +48,19 @@ class ExtractStage:
     def run(self, doc: WorkingDocument, ctx: StageContext) -> WorkingDocument:
         path = Path(str(doc.fields["blob_path"]))
         ocr = bool(ctx.settings.get("ocr", True))
-        result = self._client(ctx).extract(path, ocr=ocr)
+        mineru = self._mineru_client(ctx)
+        # a MinerU server does the heavy parsing; Tika then only reads metadata (no OCR)
+        probe = self._client(ctx).extract(path, ocr=ocr and mineru is None)
+        media_type = probe.media_type or doc.media_type or ""
+        result = probe
+        extractor = "tika"
+        if mineru is not None and content_type_group(media_type) in MINERU_GROUPS:
+            try:
+                markdown = mineru.parse(path, media_type, ocr_mode="auto" if ocr else "txt")
+            except (MineruError, OSError) as exc:
+                raise RuntimeError(f"mineru failed: {exc}") from exc
+            result = replace(probe, text=markdown, ocr_used=ocr)
+            extractor = "mineru"
         doc.text = result.text
         doc.media_type = result.media_type or doc.media_type
         language = (result.language or doc.language or "").lower()[:2] or None
@@ -46,6 +77,7 @@ class ExtractStage:
                 "ocr": result.ocr_used,
                 "content_type_group": content_type_group(doc.media_type),
                 "embedded_count": len(result.embedded),
+                "extractor": extractor,
                 "tika": {
                     k: v
                     for k, v in result.metadata.items()

@@ -133,3 +133,5 @@ class StatsOut(Schema):
     sources: int
     documents: dict[str, int]
     solr_documents: int | None
+    chunk_models: dict[str, int] = {}
+    embed_model: str = ""

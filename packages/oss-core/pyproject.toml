@@ -1,6 +1,6 @@
 [project]
 name = "oss-core"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 description = "Semascope core: shared models, configuration, plugin protocols and the pack contract"
 readme = "README.md"
 requires-python = ">=3.12"

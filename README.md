@@ -40,6 +40,9 @@ The admin site is at `https://localhost:8443/admin/` (user `admin`, password in
 `.env`) and the OpenAPI document at `https://localhost:8443/api/docs`.
 
 Everything runs on a laptop with no cloud account, no API key and no GPU.
+With a GPU, `./oss init --runtime gpu` moves entity recognition and
+embeddings onto the card; `--runtime remote` points those stages at your own
+inference services instead (see [operations](docs/operations.md#runtimes)).
 
 ## Principles
 

@@ -3,6 +3,35 @@
 All notable changes are recorded here. The format follows Keep a Changelog
 and the project follows semantic versioning.
 
+## [1.0.0-rc.2] - 2026-10-16
+
+### Added
+
+- Runtimes (ADR-0008): `oss init --runtime cpu|gpu|remote` with a provider
+  per heavy stage (`--embed`, `--ner`, `--extract`). `gpu` runs the worker
+  from a new `-gpu` image (`deploy/docker/Dockerfile.gpu`: FastEmbed on
+  ONNX Runtime CUDA, GLiNER2 zero-shot entities) that the release workflow
+  publishes for amd64. `remote` calls HTTP services: an embedding sidecar
+  (`/embed/dense`) or OpenAI `/embeddings`, a GLiNER-shaped `/entities`
+  service, and a MinerU parse server for PDF, Office and images.
+- Zero-shot entity providers are asked for every class of the active packs,
+  with the class definition as the description; pack-class entities get
+  their own facet.
+- Chunks are searched only for the current embedding model;
+  `oss reindex --stage embed` (or any stage list) replays part of the
+  profile, keeping the other stages' tags and publishing nothing when a
+  replayed stage fails; a reindex also retries failed documents that have
+  text; `oss stats` reports chunk counts per model; `oss doctor` checks
+  the configured remote services.
+
+### Changed
+
+- The NER stage cuts text into paragraph-bounded windows and runs spaCy's
+  pipeline with only tok2vec and ner (about a quarter faster on book-length
+  texts); the stage version is 2.
+- `compose.gpu.yaml` now builds from a real Dockerfile (rc.1 referenced one
+  that did not exist) and `./oss up` adds it when the runtime is `gpu`.
+
 ## [1.0.0-rc.1] - 2026-10-15
 
 First release candidate: every phase of the development plan is

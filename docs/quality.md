@@ -41,4 +41,23 @@ Named-entity recognition and embedding dominate on book-length texts
 (spaCy's small English model over up to 300,000 characters; FastEmbed on up
 to 800 chunks on CPU). Ordinary documents of a few pages take well under a
 second per stage. Both caps are per-collection settings (`ner_max_chars`,
-`embed_max_chunks`), and the GPU profile moves embeddings to CUDA.
+`embed_max_chunks`).
+
+rc.2 (2026-10-16) cut the text into paragraph windows and dropped the
+tagger and parser from the spaCy pipeline. Replaying only the NER stage over
+the demo collection (22 documents, 16 of them capped at 300,000 characters)
+on the same host took **5.4 s median, 6.5 s p95, 8.9 s at most** per
+document. Part of the difference from rc.1's 28 s is that the rc.1 figure
+was measured during full indexing, with embedding running alongside on the
+same cores; the windowed pipeline alone measured about a quarter faster
+than the whole-text call in isolation.
+
+The `gpu` runtime, measured on an RTX 3090 with two worker processes
+replaying the same 22 documents (`reindex --stage ner,embed`): **embed 0.6 s
+median, 1.7 s at most** per document (against 117 s median on CPU), and
+GLiNER2-large zero-shot entities **15.8 s median, 32 s at most** per
+document, slower than spaCy's small model on CPU but asked for the packs'
+classes as well as the base four (the Odyssey gained hero, deity and
+teacher facets without training). The two processes held 22 GB of the card
+at peak. `remote` moves the same stages to services; see
+[operations](operations.md#runtimes).

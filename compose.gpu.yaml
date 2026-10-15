@@ -1,14 +1,26 @@
-# Optional GPU profile for the embed and OCR stages (NVIDIA, through the container toolkit).
-# Usage: docker compose -f compose.yaml -f compose.gpu.yaml up -d
-# FastEmbed picks the CUDA execution provider when SEMASCOPE_EMBED_PROVIDERS names it and
-# the `fastembed-gpu` package is installed in the image (see deploy/docker/Dockerfile.gpu).
+# The GPU runtime (SEMASCOPE_RUNTIME=gpu, chosen by `oss init --runtime gpu`): the worker runs
+# the GPU image, which embeds with ONNX Runtime CUDA and finds named entities with GLiNER2 on
+# the card. The server keeps the CPU image: query embeddings are one short text at a time.
+# Needs the NVIDIA driver and container toolkit on the host.
+#
+#   ./oss up                                   # the shim adds this file when the runtime is gpu
+#   docker compose -f compose.yaml -f compose.gpu.yaml up -d
 
 services:
   worker:
+    image: ghcr.io/rdb420/semascope-gpu:${SEMASCOPE_IMAGE_TAG:-main}
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.gpu
+      args:
+        BASE_IMAGE: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-main}
     environment:
-      SEMASCOPE_EMBED_PROVIDERS: CUDAExecutionProvider,CPUExecutionProvider
+      SEMASCOPE_EMBED_PROVIDERS: ${SEMASCOPE_EMBED_PROVIDERS:-CUDAExecutionProvider,CPUExecutionProvider}
+      SEMASCOPE_NER_PROVIDER: ${SEMASCOPE_NER_PROVIDER:-gliner}
     deploy:
       resources:
+        limits:
+          memory: 8g
         reservations:
           devices:
             - driver: nvidia

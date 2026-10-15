@@ -8,6 +8,7 @@ collection's profile and stores the result. Both are idempotent.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,7 +17,14 @@ from django.db import transaction
 from django.utils import timezone
 
 from oss_core.config import get_settings
-from oss_core.contracts import Cursor, SourceConfig, SourceItem, StageContext, WorkingDocument
+from oss_core.contracts import (
+    Cursor,
+    SourceConfig,
+    SourceItem,
+    StageContext,
+    Tag,
+    WorkingDocument,
+)
 from oss_pipeline.registry import connectors, profile
 from oss_pipeline.stages.base import run_profile
 from oss_server.catalogue.models import Collection, Document, Source, document_id
@@ -63,6 +71,16 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "solr_chunks": "chunks",
         "embedder": s.semascope_embedder,
         "embed_model": s.semascope_embed_model,
+        "embed_base_url": s.semascope_embed_base_url,
+        "embed_api_key": s.remote_key("embed"),
+        "ner_provider": s.semascope_ner_provider,
+        "ner_model": s.semascope_ner_model,
+        "ner_base_url": s.semascope_ner_base_url,
+        "ner_api_key": s.remote_key("ner"),
+        "ner_labels": active_entity_labels(),
+        "extract_provider": s.semascope_extract_provider,
+        "extract_base_url": s.semascope_extract_base_url,
+        "extract_api_key": s.remote_key("extract"),
         "neo4j_uri": s.neo4j_uri,
         "neo4j_user": s.neo4j_user,
         "neo4j_password": s.neo4j_password.get_secret_value() if s.neo4j_password else "",
@@ -73,6 +91,40 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
     base["shapes_ttl"] = active_shapes()
     base.update(collection.settings.get("pipeline", {}))
     return base
+
+
+BASE_PACK_ID = "semascope-base"  # its classes are the product's own model, not things to find
+
+
+def active_entity_labels() -> dict[str, dict[str, str]]:
+    """Zero-shot entity labels from the active packs' classes: label -> class and description.
+
+    Only the spaCy provider ignores these; GLiNER (local or remote) asks for every class a
+    pack declares, so a mythology pack finds deities and a property pack finds easements.
+    The base pack is skipped: Document, Chunk, Source and the four base entity classes are
+    the product's structure, and the base four are always asked for anyway.
+    """
+
+    from oss_server.knowledge.models import Concept, Pack
+
+    out: dict[str, dict[str, str]] = {}
+    packs = Pack.objects.filter(status=Pack.Status.ACTIVE).exclude(pack_id=BASE_PACK_ID)
+    rows = Concept.objects.filter(pack__in=packs, kind=Concept.Kind.CLASS).values_list(
+        "pack__requirements", "iri", "pref_label", "definition"
+    )
+    for requirements, iri, label, definition in rows:
+        name = str(label or "").strip()
+        if not name:
+            continue
+        local = re.split(r"[#/]", str(iri))[-1] or name
+        # a pack may name the classes worth looking for (`semascope.entity_classes`); the
+        # default is every class it declares
+        chosen = ((requirements or {}).get("semascope") or {}).get("entity_classes")
+        if chosen is not None and local not in chosen and name not in chosen:
+            continue
+        cls = "".join(part[:1].upper() + part[1:] for part in re.split(r"[\s_-]+", local) if part)
+        out[name.lower()] = {"class": cls, "description": (definition or name).strip()[:300]}
+    return out
 
 
 def active_shapes() -> str:
@@ -201,9 +253,33 @@ def process_document(doc_id: str, item: dict[str, Any]) -> str:
     return doc_row.status
 
 
+PREREQS = {"embed": ("structure",)}  # not stored on the row, so recomputed for the replayed stage
+FOLLOWERS = {"tag": ("link",), "ner": ("link",)}  # stages whose output the replayed one feeds
+PUBLISH = ("index", "graph")  # always rerun after a partial replay: they publish the result
+
+
+def replay_set(stages: list[str] | None) -> set[str]:
+    """The stages a partial replay runs: the requested ones, what they need, what they feed, and
+    the publishers."""
+
+    wanted = {s for s in (stages or []) if s}
+    if not wanted:
+        return set()
+    for name in list(wanted):
+        wanted.update(PREREQS.get(name, ()))
+        wanted.update(FOLLOWERS.get(name, ()))
+    wanted.update(PUBLISH)
+    return wanted
+
+
 @shared_task(name="semascope.reindex_document", queue="cpu")
-def reindex_document(doc_id: str) -> str:
-    """Replay enrichment and indexing from the stored extraction; no Tika."""
+def reindex_document(doc_id: str, stages: list[str] | None = None) -> str:
+    """Replay enrichment and indexing from the stored extraction; no Tika.
+
+    `stages` limits the replay to those stages of the profile (plus the stages they feed and
+    the index and graph stages that publish the result), in profile order: after a change of
+    embedding model only `["embed"]` has to be recomputed.
+    """
 
     doc_row = Document.objects.select_related("collection", "source").get(pk=doc_id)
     Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
@@ -222,23 +298,37 @@ def reindex_document(doc_id: str) -> str:
         fields={k: v for k, v in doc_row.fields.items() if k != "indexed"},
     )
     ctx = build_context(doc_row.collection)
-    stages = [s for s in profile(ctx.profile) if s.name not in ("fetch", "extract")]
-    work = run_profile(stages, work, ctx)
+    wanted = replay_set(stages)
+    if wanted:
+        # a partial replay keeps the tags of the stages it does not run and recomputes the rest
+        work.tags = [Tag(**t) for t in doc_row.tags if t.get("stage") not in wanted]
+    todo = [
+        s
+        for s in profile(ctx.profile)
+        if s.name not in ("fetch", "extract") and (not wanted or s.name in wanted)
+    ]
+    # a partial replay publishes nothing when a replayed stage fails: the published result
+    # stays as it was and the document reports the failure
+    work = run_profile(todo, work, ctx, stop_on_failure=tuple(wanted - set(PUBLISH)))
     _store(doc_row, work)
     return doc_row.status
 
 
 @shared_task(name="semascope.reindex_collection", queue="io")
-def reindex_collection(slug: str) -> int:
+def reindex_collection(slug: str, stages: list[str] | None = None) -> int:
     """Queue a reindex of every indexed document in a collection (after a pack change)."""
 
+    # indexed documents, and failed ones whose extraction succeeded (a replay may fix them)
     ids = list(
-        Document.objects.filter(collection__slug=slug, status=Document.Status.INDEXED).values_list(
-            "id", flat=True
+        Document.objects.filter(
+            collection__slug=slug,
+            status__in=(Document.Status.INDEXED, Document.Status.FAILED),
         )
+        .exclude(text="")
+        .values_list("id", flat=True)
     )
     for doc_id in ids:
-        reindex_document.delay(doc_id)
+        reindex_document.delay(doc_id, stages or None)
     return len(ids)
 
 
