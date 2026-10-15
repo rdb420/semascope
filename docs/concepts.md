@@ -69,9 +69,25 @@ individuals by label), `validate` (SHACL over the document's metadata graph,
 its outcome and duration, and `reindex` replays everything after `extract`
 from the stored text without touching Tika.
 
-## Proposal
+## Review and proposal
 
-The record of a curation decision: accept or reject a machine tag, add a
-synonym, propose a concept, merge entities, add a note. Proposals are applied
-to Semascope's own stores at once and exported through the outbox so an
-external system of record can mirror, reject or audit them.
+The pipeline opens **review items** where a person should look: a named
+entity the model found that resembles a pack individual (link it, or
+reject), a tag matched on a less certain label, a SHACL violation on the
+document's metadata. A decision on a review item, or directly on a
+document's tags, becomes a **proposal**: the record of the decision with a
+stable `external_ref`. Proposals are applied at once to Semascope's stores
+(Postgres, the Solr facets, a `CURATED` edge in the graph) and written to
+the **outbox** (`/api/curation/events`, read by cursor) so an external
+system of record can mirror, reject or audit them. Webhooks deliver outbox
+events with an HMAC signature. A reindex never undoes a decision.
+
+## Graph
+
+Every indexed document is projected into Neo4j: `Document`, `Source`,
+`Collection`, `Concept` (pack concepts, `TAGGED`), `Entity` (pack
+individuals and named entities, `MENTIONS`), `Pack`, and `CURATED` edges for
+human decisions. A collection can pseudonymise named-entity keys. The UI
+graph page shows the hubs of a collection and expands neighbourhoods;
+`/api/graph` offers neighbours, shortest paths and a staff-only read-only
+Cypher console.
