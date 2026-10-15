@@ -1,0 +1,16 @@
+# Optional GPU profile for the embed and OCR stages (NVIDIA, through the container toolkit).
+# Usage: docker compose -f compose.yaml -f compose.gpu.yaml up -d
+# FastEmbed picks the CUDA execution provider when SEMASCOPE_EMBED_PROVIDERS names it and
+# the `fastembed-gpu` package is installed in the image (see deploy/docker/Dockerfile.gpu).
+
+services:
+  worker:
+    environment:
+      SEMASCOPE_EMBED_PROVIDERS: CUDAExecutionProvider,CPUExecutionProvider
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

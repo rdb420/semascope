@@ -118,3 +118,11 @@ volume (originals, previews, uploads, the pack store) into
 `data/backups/<stamp>`; `--with-graph` also dumps Neo4j (which otherwise
 `./oss reindex` rebuilds). `./oss restore <dir>` loads a backup back. Keep
 `.env` with the backup: it holds the secrets the data was written with.
+
+## Operations profiles
+
+`compose.observe.yaml` adds an OpenTelemetry collector, Prometheus and
+Grafana (on `127.0.0.1:3000`); the server and workers export traces and
+metrics when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. `compose.gpu.yaml` gives
+the worker an NVIDIA GPU and tells FastEmbed to use CUDA. `compose.dev.yaml`
+exposes every service on loopback with hot reload.

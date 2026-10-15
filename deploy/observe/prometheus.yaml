@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: semascope
+    static_configs:
+      - targets: ["otel-collector:8889"]
+  - job_name: solr
+    metrics_path: /solr/admin/metrics
+    params: { wt: [prometheus] }
+    static_configs:
+      - targets: ["solr:8983"]

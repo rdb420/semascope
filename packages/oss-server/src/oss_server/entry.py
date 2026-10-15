@@ -15,6 +15,35 @@ def _django() -> None:
     import django
 
     django.setup()
+    _telemetry()
+
+
+def _telemetry() -> None:
+    """Export traces and metrics over OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set."""
+
+    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.celery import CeleryInstrumentor
+        from opentelemetry.instrumentation.django import DjangoInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    except ImportError:
+        log.warning("OTEL endpoint set but the opentelemetry packages are not installed")
+        return
+    provider = TracerProvider(
+        resource=Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", "semascope")})
+    )
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+    DjangoInstrumentor().instrument()
+    CeleryInstrumentor().instrument()  # type: ignore[no-untyped-call]
+    HTTPXClientInstrumentor().instrument()
+    log.info("telemetry: exporting to %s", os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"])
 
 
 def prepare() -> None:

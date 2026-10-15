@@ -16,6 +16,7 @@ nav:
   - Development plan: plan.md
   - Quality numbers: quality.md
   - Security: security.md
+  - Operations: operations.md
   - Decisions:
       - adr/index.md
       - adr/0001-clean-room-apache-2.md

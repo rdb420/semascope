@@ -14,6 +14,9 @@ class FastEmbedEmbedder:
 
         cache = os.environ.get("FASTEMBED_CACHE_PATH") or os.environ.get("SEMASCOPE_MODEL_CACHE")
         kwargs: dict[str, Any] = {"cache_dir": cache} if cache else {}
+        providers = os.environ.get("SEMASCOPE_EMBED_PROVIDERS")
+        if providers:
+            kwargs["providers"] = [p.strip() for p in providers.split(",") if p.strip()]
         self.model_name = model
         self._model = TextEmbedding(model_name=model, **kwargs)
         self.dimensions = (
