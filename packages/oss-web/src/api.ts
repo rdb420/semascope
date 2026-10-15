@@ -112,6 +112,11 @@ export type Concept = {
   pack_version: string;
 };
 
+export type GraphNode = { id: string; label: string; kind: string; properties: Record<string, unknown> };
+export type GraphEdge = { source: string; target: string; type: string; properties: Record<string, unknown> };
+export type GraphOut = { nodes: GraphNode[]; edges: GraphEdge[] };
+export type Hub = { label: string; key: string; labels: string[]; docs: number };
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -167,6 +172,10 @@ export const api = {
   document: (id: string) => request<Document>(`/api/documents/${id}`),
   documentText: (id: string) => request<DocumentText>(`/api/documents/${id}/text`),
   stats: () => request<Stats>("/api/stats"),
+  graphNeighbours: (id: string, depth = 1) =>
+    request<GraphOut>(`/api/graph/neighbours?id=${encodeURIComponent(id)}&depth=${depth}`),
+  graphShared: (collection?: string, kind = "Entity") =>
+    request<Hub[]>(`/api/graph/shared?kind=${kind}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`),
   packs: () => request<Pack[]>("/api/knowledge/packs"),
   pack: (packId: string) => request<PackDetail>(`/api/knowledge/packs/${packId}`),
   packTree: (packId: string, scheme?: string) =>

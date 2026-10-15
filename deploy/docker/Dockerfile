@@ -3,7 +3,7 @@
 
 FROM node:22-alpine AS web
 WORKDIR /web
-RUN npm install -g pnpm@10 >/dev/null 2>&1
+RUN npm install -g pnpm@12 >/dev/null 2>&1
 COPY packages/oss-web/package.json packages/oss-web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY packages/oss-web/ ./

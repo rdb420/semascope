@@ -8,7 +8,7 @@ themes should be found, and which must not.
 
 | Date | Pack | Precision (vs absent lists) | Recall | Notes |
 |---|---|---|---|---|
-| 2026-10-15 | semascope-demo 0.1.0 | 1.00 | 0.96 | 55 expected tags found, 2 missed: "epic" in the Iliad (the text never uses the word), Väinämöinen in the Kalevala (see issue below). |
+| 2026-10-15 | semascope-demo 0.1.0 | 1.00 | 0.98 | 56 of 57 expected tags found; the miss is "epic" in the Iliad, whose text never uses the word. |
 
 How to reproduce on a running stack with the demo loaded (`./oss demo`):
 

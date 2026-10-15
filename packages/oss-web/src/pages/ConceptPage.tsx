@@ -44,6 +44,9 @@ export function ConceptPage() {
           <p className="text-xs text-zinc-500">{c.kind}{c.type_label ? ` · ${c.type_label}` : ""}{c.scheme_slug ? ` · ${c.scheme_slug}` : ""} · {c.iri}</p>
         </div>
         {c.definition && <p>{c.definition}</p>}
+        <Link to="/graph" search={{ id: `${c.kind === "concept" ? "Concept" : "Entity"}:${c.iri}`, collection: "" }} className="text-sm text-blue-700 hover:underline dark:text-blue-400">
+          Show in graph
+        </Link>
         {(c.alt_labels.length > 0 || c.hidden_labels.length > 0) && (
           <p className="text-sm">
             <span className="text-zinc-500">Also: </span>

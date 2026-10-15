@@ -11,6 +11,7 @@ import { DocumentPage } from "./pages/DocumentPage";
 import { PacksPage } from "./pages/PacksPage";
 import { PackPage } from "./pages/PackPage";
 import { ConceptPage } from "./pages/ConceptPage";
+import { GraphPage } from "./pages/GraphPage";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -48,7 +49,17 @@ const conceptRoute = createRoute({
   component: ConceptPage,
 });
 
-const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute]);
+const graphRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/graph",
+  validateSearch: (raw: Record<string, unknown>) => ({
+    id: typeof raw.id === "string" ? raw.id : "",
+    collection: typeof raw.collection === "string" ? raw.collection : "",
+  }),
+  component: GraphPage,
+});
+
+const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute]);
 
 export const router = createRouter({ routeTree });
 

@@ -36,6 +36,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <nav className="ml-auto flex items-center gap-4 text-sm">
             {loggedIn ? (
               <>
+                <Link to="/graph" search={{ id: "", collection: "" }} className="hover:underline">
+                  Graph
+                </Link>
                 <Link to="/packs" className="hover:underline">
                   Knowledge models
                 </Link>

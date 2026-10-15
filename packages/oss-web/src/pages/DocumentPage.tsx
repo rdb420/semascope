@@ -23,6 +23,9 @@ export function DocumentPage() {
           ← Back to search
         </Link>
         <h1 className="mt-2 text-xl font-semibold">{d.title || d.uri}</h1>
+        <Link to="/graph" search={{ id: `Document:${d.id}`, collection: d.collection }} className="text-sm text-blue-700 hover:underline dark:text-blue-400">
+          Show in graph
+        </Link>
         <p className="truncate text-xs text-zinc-500">{d.uri}</p>
         {previewPages > 0 && (
           <div className="mt-4 flex gap-2 overflow-x-auto pb-2">
