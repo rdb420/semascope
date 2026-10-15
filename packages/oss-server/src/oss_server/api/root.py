@@ -8,7 +8,7 @@ from typing import Any
 from django.db.models import Count
 from django.http import FileResponse, HttpRequest
 from django.shortcuts import get_object_or_404
-from ninja import File, NinjaAPI
+from ninja import File, NinjaAPI, Schema
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
@@ -274,13 +274,17 @@ def search(request: HttpRequest, payload: SearchIn) -> SearchOut:
     return search_mod.search(solr_client(), solr_documents_collection(), payload)
 
 
+class TagQueryIn(Schema):
+    q: str
+
+
 @api.post("/search/tag-query", response=list[dict[str, Any]], tags=["search"])
-def tag_query(request: HttpRequest, payload: dict[str, str]) -> list[dict[str, Any]]:
+def tag_query(request: HttpRequest, payload: TagQueryIn) -> list[dict[str, Any]]:
     """Concepts and entities a query names, for facet suggestions."""
 
     from oss_server.api.reconcile import reconcile_one
 
-    q = str(payload.get("q") or "").strip()
+    q = payload.q.strip()
     if not q:
         return []
     found: list[dict[str, Any]] = []

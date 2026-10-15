@@ -14,9 +14,11 @@ export function PackPage() {
     queryFn: () => api.packTree(packId, scheme),
     enabled: user.isSuccess && !!pack.data,
   });
+  const deltas = useQuery({ queryKey: ["deltas", packId], queryFn: () => api.deltas(packId), enabled: user.isSuccess });
   if (!user.isSuccess) return null;
   if (!pack.data) return <p className="text-zinc-500">Loading…</p>;
   const p = pack.data;
+  const pending = (deltas.data ?? []).filter((d) => d.status === "draft");
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_20rem]">
       <div className="space-y-4">
@@ -63,6 +65,22 @@ export function PackPage() {
               );
             })}
           </ul>
+        </section>
+        <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Proposed changes ({pending.length})</h2>
+          <ul className="space-y-1">
+            {pending.map((d) => (
+              <li key={d.id}>
+                <span className="font-medium">{d.kind.replace(/_/g, " ")}</span> {String(d.params.label ?? d.params.text ?? "")}{" "}
+                <span className="text-zinc-500">{d.reason}</span>
+              </li>
+            ))}
+          </ul>
+          {pending.length > 0 && (
+            <a href={`/api/knowledge/packs/${p.pack_id}/deltas/export`} className="mt-2 inline-block text-blue-700 hover:underline dark:text-blue-400">
+              Export as a bundle delta
+            </a>
+          )}
         </section>
         <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Sources</h2>

@@ -68,6 +68,7 @@ class ImportIn(Schema):
     path: str
     activate: bool = True
     reindex: bool = True
+    force: bool = False
 
 
 class SparqlIn(Schema):
@@ -139,7 +140,7 @@ def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Pack
     if not (path / "requirements.yaml").exists():
         raise HttpError(422, "no requirements.yaml at that path")
     try:
-        pack = import_pack(path, activate=payload.activate)
+        pack = import_pack(path, activate=payload.activate, force=payload.force)
     except ValueError as exc:
         raise HttpError(422, str(exc)) from exc
     sync_dictionary(pack.pack_id, pack.version)

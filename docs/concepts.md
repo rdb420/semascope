@@ -15,10 +15,12 @@ schedule (`every 15m`, `every 2h`, or a cron expression). Each run
 re-discovers the source, re-queues only new or changed items (by content
 hash), and marks items the source no longer yields as deleted.
 
-Connectors in Phase 1: `filesystem` (a folder under the import directory,
-include and exclude globs), `web` (pages, a sitemap, or a bounded same-host
-crawl that respects robots.txt and refuses private addresses), `upload`
-(files sent through the API or `oss upload`).
+Connectors: `filesystem` (a folder under the import directory, include and
+exclude globs), `web` (pages, a sitemap, or a bounded same-host crawl that
+respects robots.txt and refuses private addresses), `upload` (files sent
+through the API or `oss upload`), `feed` (RSS and Atom), `mail` (mbox and
+eml, attachments as child documents), `archive` (zip and tar with member,
+size, ratio and depth limits), `table` (CSV, TSV and XLSX rows as documents).
 
 ## Pack
 
@@ -34,6 +36,17 @@ edits one silently. SKOS concepts and, when the pack opts in, named individuals 
 graph labels; shapes validate extracted metadata; competency questions run
 at import against the pack's triples in the embedded store.
 
+A pack can be **reconciled against**: `/api/reconcile` is a W3C
+Reconciliation Service (0.2) over the active packs' concepts and
+individuals, so OpenRefine and similar tools resolve names to pack IRIs.
+
+Curators **propose changes** (`PackDelta`): another name for a concept, a new
+concept in a scheme, a label to retire, or a note. A proposed name tags the
+proposing collection at once as a draft dictionary entry; the pending deltas
+export as `taxonomy.delta.ttl` and `model.delta.yaml`, terms marked `draft`
+and `proposed`, for the ontology-skill workflow to accept into the next pack
+version. The imported pack itself is never edited.
+
 ## Profile
 
 An ordered list of pipeline stages for a collection, validated as a DAG of
@@ -44,11 +57,15 @@ product.
 
 One step of the pipeline, declared with the queue it runs on and the fields
 it reads and writes. Stages are plugins registered through entry points.
-Phase 1 stages: `fetch` (store the original under its content hash),
-`extract` (Tika text and metadata, OCR for images and scanned PDFs, language
+Stages: `fetch` (store the original under its content hash), `extract`
+(Tika text and metadata, OCR for images and scanned PDFs, language
 detection), `structure` (pages and chunks), `patterns` (email addresses,
-links, phone numbers, amounts, hashtags), `preview` (PDF page images and
-image thumbnails), `index` (Solr). Every run is recorded on the document with
+links, phone numbers, amounts, hashtags), `tag` (dictionary tagging against
+the active packs through Solr's Tagger, with a hierarchical facet per
+scheme), `ner` (spaCy named entities), `link` (NER entities to pack
+individuals by label), `validate` (SHACL over the document's metadata graph,
+`full` profile), `preview` (PDF page images and image thumbnails), `index`
+(Solr). Every run is recorded on the document with
 its outcome and duration, and `reindex` replays everything after `extract`
 from the stored text without touching Tika.
 

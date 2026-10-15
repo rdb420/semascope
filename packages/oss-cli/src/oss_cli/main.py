@@ -292,13 +292,14 @@ def stats() -> None:
 def pack_import(
     path: Path = typer.Argument(..., exists=True, file_okay=False),
     activate: bool = typer.Option(True, help="Make this version the active one"),
+    reindex: bool = typer.Option(True, help="Reindex the collections that use this pack"),
+    force: bool = typer.Option(False, help="Re-import even if the bundle is unchanged"),
 ) -> None:
     """Import a bundle directory into the running Semascope (path as seen by the server)."""
 
+    body = {"path": str(path), "activate": activate, "reindex": reindex, "force": force}
     with _api() as api:
-        out = _check(
-            api.post("/knowledge/packs/import", json={"path": str(path), "activate": activate})
-        )
+        out = _check(api.post("/knowledge/packs/import", json=body))
     terms = out["counts"].get("terms")
     label = f"{out['pack_id']}@{out['version']}"
     console.print(f"[green]imported[/green] {label} status={out['status']} terms={terms}")

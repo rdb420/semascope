@@ -58,6 +58,12 @@ export function SearchPage() {
   const filters = params.f ?? {};
 
   const collections = useQuery({ queryKey: ["collections"], queryFn: api.collections, enabled: user.isSuccess });
+  const suggestions = useQuery({
+    queryKey: ["tag-query", params.q],
+    enabled: user.isSuccess && !!params.q && params.q !== "*:*",
+    queryFn: () => api.tagQuery(params.q ?? ""),
+    staleTime: 60_000,
+  });
   const results = useQuery({
     queryKey: ["search", params],
     enabled: user.isSuccess,
@@ -118,6 +124,23 @@ export function SearchPage() {
         <button className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Search</button>
       </form>
 
+      {suggestions.data && suggestions.data.length > 0 && (
+        <p className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-zinc-500">Your query names:</span>
+          {suggestions.data.map((s) => (
+            <Link
+              key={s.id}
+              to="/concepts"
+              search={{ iri: s.id }}
+              className="rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
+              title={s.phrase}
+            >
+              {s.name}
+              {s.type[0]?.name ? <span className="ml-1 text-xs text-zinc-500">{s.type[0].name}</span> : null}
+            </Link>
+          ))}
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[16rem_1fr]">
         <aside className="space-y-5">
           {data &&

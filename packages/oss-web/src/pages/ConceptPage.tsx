@@ -1,5 +1,6 @@
 import { Link, useSearch } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
 import { api } from "../api";
 import { useUser } from "../components/Shell";
 
@@ -8,6 +9,27 @@ export function ConceptPage() {
   const user = useUser();
   const concept = useQuery({ queryKey: ["concept", iri], queryFn: () => api.concept(iri), enabled: user.isSuccess && !!iri });
   const docs = useQuery({ queryKey: ["concept-docs", iri], queryFn: () => api.conceptDocuments(iri), enabled: user.isSuccess && !!iri });
+  const collections = useQuery({ queryKey: ["collections"], queryFn: api.collections, enabled: user.isSuccess });
+  const [label, setLabel] = useState("");
+  const [reason, setReason] = useState("");
+  const [collection, setCollection] = useState("");
+  const propose = useMutation({
+    mutationFn: () =>
+      api.proposeDelta(concept.data!.pack_id, {
+        collection: collection || collections.data?.[0]?.slug || "",
+        kind: "add_label",
+        params: { iri, label, label_type: "alt" },
+        reason,
+      }),
+    onSuccess: () => {
+      setLabel("");
+      setReason("");
+    },
+  });
+  function submitProposal(e: FormEvent) {
+    e.preventDefault();
+    if (label.trim()) propose.mutate();
+  }
   if (!user.isSuccess) return null;
   if (!iri) return <p className="text-zinc-500">No concept selected.</p>;
   if (concept.isError) return <p className="text-red-600">{String(concept.error)}</p>;
@@ -48,6 +70,23 @@ export function ConceptPage() {
           {c.term_status && <div className="flex justify-between py-0.5"><dt className="text-zinc-500">Status</dt><dd>{c.term_status}</dd></div>}
           {c.path && <div className="flex justify-between py-0.5"><dt className="text-zinc-500">Path</dt><dd className="truncate">{c.path}</dd></div>}
         </dl>
+        {c.taggable && (
+          <form onSubmit={submitProposal} className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Propose another name</h2>
+            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. a spelling a translation uses" className="mb-2 w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (optional)" className="mb-2 w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+            <select value={collection} onChange={(e) => setCollection(e.target.value)} className="mb-2 w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+              {collections.data?.map((col) => (
+                <option key={col.slug} value={col.slug}>{col.name}</option>
+              ))}
+            </select>
+            <button disabled={propose.isPending || !label.trim()} className="w-full rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50">
+              {propose.isPending ? "Proposing…" : "Propose"}
+            </button>
+            {propose.isSuccess && <p className="mt-2 text-xs text-green-600">Proposed. It tags this collection now and goes to the pack's next version as a draft.</p>}
+            {propose.isError && <p className="mt-2 text-xs text-red-600">{String(propose.error)}</p>}
+          </form>
+        )}
         {c.broader.length > 0 && (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="mb-1 text-xs font-semibold uppercase text-zinc-500">Broader</h2>

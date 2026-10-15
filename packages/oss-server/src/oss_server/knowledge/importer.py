@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,10 @@ _SLUG = re.compile(r"[^a-z0-9]+")
 
 
 def slugify(value: str) -> str:
-    return _SLUG.sub("-", value.lower()).strip("-")[:64] or "x"
+    """ASCII slug: accents folded (Väinämöinen -> vainamoinen), everything else to hyphens."""
+
+    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return _SLUG.sub("-", folded.lower()).strip("-")[:64] or "x"
 
 
 def local_name(iri: str) -> str:
@@ -272,8 +276,12 @@ def run_cq_tests(pack_dir: Path, pack_id: str, version: str) -> dict[str, Any]:
 
 
 @transaction.atomic
-def import_pack(pack_dir: Path, *, activate: bool = True) -> Pack:
-    """Validate and import a bundle directory; returns the Pack row. Raises on structural errors."""
+def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -> Pack:
+    """Validate and import a bundle directory; returns the Pack row. Raises on structural errors.
+
+    An unchanged bundle (same manifest hash) is skipped unless `force`, which
+    re-derives the vocabulary, for example after an importer change.
+    """
 
     pack_dir = pack_dir.resolve()
     info = load_pack(pack_dir)

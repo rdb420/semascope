@@ -7,6 +7,14 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Phase 2 knowledge model: pack registry and importer on an embedded
+  Oxigraph store with competency tests at import; Solr `entities`
+  dictionary and Tagger; tag, ner, link and validate stages; hierarchical
+  facets per scheme; knowledge-model, pack and concept pages; query
+  tagging; W3C Reconciliation API; curator deltas exported as bundle
+  fragments; feed, mail, archive and table connectors; the demo pack and
+  `oss demo`
+
 - Phase 1 exit test passed on 2026-10-15: fresh clone, `./oss init`, `./oss up`,
   `./oss index`, `./oss search`, UI and API docs answering through Caddy
 

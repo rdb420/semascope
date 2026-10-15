@@ -205,3 +205,10 @@ def test_deltas_export_as_bundle_fragment(client: Client, monkeypatch: pytest.Mo
         d["status"] == "exported"
         for d in client.get("/api/knowledge/packs/semascope-demo/deltas", headers=auth).json()
     )
+
+
+def test_slugify_folds_accents() -> None:
+    from oss_server.knowledge.importer import slugify
+
+    assert slugify("Väinämöinen") == "vainamoinen"
+    assert slugify("Hero's journey") == "hero-s-journey"

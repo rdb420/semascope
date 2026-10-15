@@ -172,6 +172,20 @@ export const api = {
   packTree: (packId: string, scheme?: string) =>
     request<TreeNode[]>(`/api/knowledge/packs/${packId}/tree${scheme ? `?scheme=${encodeURIComponent(scheme)}` : ""}`),
   concept: (iri: string) => request<Concept>(`/api/knowledge/concepts?iri=${encodeURIComponent(iri)}`),
+  tagQuery: (q: string) =>
+    request<{ phrase: string; id: string; name: string; type: { id: string; name: string }[] }[]>(
+      "/api/search/tag-query",
+      { method: "POST", body: JSON.stringify({ q }) },
+    ),
+  proposeDelta: (packId: string, payload: { collection: string; kind: string; params: Record<string, unknown>; reason?: string }) =>
+    request<{ id: number; status: string }>(`/api/knowledge/packs/${packId}/deltas`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deltas: (packId: string) =>
+    request<{ id: number; kind: string; params: Record<string, unknown>; reason: string; status: string; collection: string; created_at: string }[]>(
+      `/api/knowledge/packs/${packId}/deltas`,
+    ),
   conceptDocuments: (iri: string) =>
     request<{ total: number; docs: { id: string; title_txt?: string; uri_s: string }[] }>(
       `/api/knowledge/concepts/documents?iri=${encodeURIComponent(iri)}`,

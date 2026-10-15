@@ -1,0 +1,40 @@
+# Expected tags for the demo corpus, used by scripts/tag_quality.py to report
+# precision and recall of dictionary tagging. Document level: which individuals
+# and concepts should be found; "absent" lists what must not be tagged.
+texts:
+  odyssey:
+    entities: [odysseus, athena, zeus, poseidon, hermes, troy, ithaca, mount-olympus, achilles, helen]
+    traditions: [greek]
+    text_types: [epic]
+    absent: [buddha, krishna, moses, noah, vainamoinen, kurukshetra, pohjola]
+  iliad:
+    entities: [achilles, hector, helen, zeus, hera, athena, troy, mount-olympus, odysseus]
+    traditions: [greek]
+    text_types: [epic]
+    absent: [buddha, krishna, moses, arthur, vainamoinen]
+  bulfinch-mythology:
+    entities: [zeus, hera, athena, poseidon, hermes, odin, thor, loki, asgard, arthur, deucalion, troy]
+    traditions: [greek, roman, norse]
+    absent: [kurukshetra, pohjola]
+  kjv-bible:
+    entities: [moses, noah, jerusalem, mount-sinai]
+    traditions: [judaism]
+    themes: [flood]
+    absent: [odysseus, buddha, krishna, troy, odin]  # Jupiter is named in Acts 14, so Zeus is right
+  song-celestial:
+    entities: [krishna, arjuna, kurukshetra]
+    traditions: [hinduism]
+    absent: [zeus, moses, odysseus, odin]
+  dhammapada:
+    entities: [buddha]
+    traditions: [buddhism]
+    absent: [zeus, moses, odysseus, krishna, odin, troy]
+  kalevala:
+    entities: [vainamoinen, ilmarinen, pohjola]
+    traditions: [finnish]
+    text_types: [epic]
+    absent: [buddha, moses, krishna, troy]
+  mabinogion:
+    entities: [arthur]
+    traditions: [celtic]
+    absent: [buddha, krishna, troy, odysseus]
