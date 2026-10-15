@@ -24,6 +24,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Source layer.
 COPY packages/ packages/
 COPY packs/ packs/
+COPY deploy/solr/ deploy/solr/
 COPY --from=web /web/dist packages/oss-server/src/oss_server/static/web
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --all-packages

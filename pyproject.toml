@@ -26,6 +26,10 @@ dev = [
     "mypy>=1.13",
     "mkdocs-material>=9.5",
     "types-PyYAML",
+    "django-stubs[compatible-mypy]>=5.1",
+    "pytest-django>=4.9",
+    "celery-types>=0.22",
+    "types-gunicorn",
 ]
 
 [tool.ruff]
@@ -43,9 +47,18 @@ ignore = ["S101"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+plugins = ["mypy_django_plugin.main"]
 mypy_path = "packages/oss-core/src:packages/oss-server/src:packages/oss-pipeline/src:packages/oss-cli/src"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["kombu.*", "gunicorn.*"]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "oss_server.settings"
 
 [tool.pytest.ini_options]
 testpaths = ["packages"]
 addopts = "-q"
+DJANGO_SETTINGS_MODULE = "oss_server.settings_test"

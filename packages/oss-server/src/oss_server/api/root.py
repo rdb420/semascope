@@ -1,0 +1,239 @@
+"""API routes. Every state change is a POST, PUT, PATCH or DELETE."""
+
+from __future__ import annotations
+
+from django.db.models import Count
+from django.http import HttpRequest
+from django.shortcuts import get_object_or_404
+from ninja import NinjaAPI
+from ninja.errors import HttpError
+
+from oss_core import __version__
+from oss_server.api import search as search_mod
+from oss_server.api.auth import AUTH
+from oss_server.api.schemas import (
+    CollectionIn,
+    CollectionOut,
+    DocumentOut,
+    DocumentTextOut,
+    RunOut,
+    SearchIn,
+    SearchOut,
+    SourceIn,
+    SourceOut,
+    StatsOut,
+    SuggestOut,
+)
+from oss_server.catalogue.models import Collection, Document, Source
+from oss_server.services import solr_client, solr_documents_collection
+
+api = NinjaAPI(title="Semascope", version=__version__, auth=AUTH, urls_namespace="api")
+
+
+# --- collections ------------------------------------------------------------------------------
+
+
+def _collection_out(c: Collection) -> CollectionOut:
+    return CollectionOut(
+        slug=c.slug,
+        name=c.name,
+        description=c.description,
+        profile=c.profile,
+        settings=c.settings,
+        created_at=c.created_at,
+        document_count=getattr(c, "document_count", 0),
+    )
+
+
+@api.get("/collections", response=list[CollectionOut], tags=["collections"])
+def list_collections(request: HttpRequest) -> list[CollectionOut]:
+    return [
+        _collection_out(c) for c in Collection.objects.annotate(document_count=Count("documents"))
+    ]
+
+
+@api.post("/collections", response={201: CollectionOut}, tags=["collections"])
+def create_collection(request: HttpRequest, payload: CollectionIn) -> tuple[int, CollectionOut]:
+    if Collection.objects.filter(slug=payload.slug).exists():
+        raise HttpError(409, f"collection {payload.slug} exists")
+    c = Collection.objects.create(
+        slug=payload.slug,
+        name=payload.name or payload.slug,
+        description=payload.description,
+        profile=payload.profile,
+        settings=payload.settings,
+    )
+    return 201, _collection_out(c)
+
+
+@api.get("/collections/{slug}", response=CollectionOut, tags=["collections"])
+def get_collection(request: HttpRequest, slug: str) -> CollectionOut:
+    return _collection_out(
+        get_object_or_404(Collection.objects.annotate(document_count=Count("documents")), slug=slug)
+    )
+
+
+@api.delete("/collections/{slug}", response={204: None}, tags=["collections"])
+def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
+    c = get_object_or_404(Collection, slug=slug)
+    solr_client().delete_by_query(solr_documents_collection(), f'collection_s:"{slug}"')
+    c.delete()
+    return 204, None
+
+
+# --- sources ----------------------------------------------------------------------------------
+
+
+def _source_out(s: Source) -> SourceOut:
+    return SourceOut(
+        id=s.id,
+        collection=s.collection.slug,
+        name=s.name,
+        connector=s.connector,
+        settings=s.settings,
+        enabled=s.enabled,
+        schedule=s.schedule,
+        status=s.status,
+        last_run_at=s.last_run_at,
+        last_error=s.last_error,
+        document_count=getattr(s, "document_count", 0),
+    )
+
+
+@api.get("/collections/{slug}/sources", response=list[SourceOut], tags=["sources"])
+def list_sources(request: HttpRequest, slug: str) -> list[SourceOut]:
+    c = get_object_or_404(Collection, slug=slug)
+    return [
+        _source_out(s)
+        for s in c.sources.select_related("collection").annotate(document_count=Count("documents"))
+    ]
+
+
+@api.post("/collections/{slug}/sources", response={201: SourceOut}, tags=["sources"])
+def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[int, SourceOut]:
+    from oss_pipeline.registry import connectors
+
+    c = get_object_or_404(Collection, slug=slug)
+    if payload.connector not in connectors():
+        raise HttpError(
+            422, f"unknown connector {payload.connector}; known: {sorted(connectors())}"
+        )
+    s, created = Source.objects.get_or_create(
+        collection=c,
+        name=payload.name,
+        defaults={
+            "connector": payload.connector,
+            "settings": payload.settings,
+            "enabled": payload.enabled,
+            "schedule": payload.schedule,
+        },
+    )
+    if not created:
+        raise HttpError(409, f"source {payload.name} exists in {slug}")
+    return 201, _source_out(s)
+
+
+@api.post("/sources/{source_id}/run", response={202: RunOut}, tags=["sources"])
+def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
+    from oss_server.pipeline.tasks import discover_source
+
+    s = get_object_or_404(Source, pk=source_id)
+    result = discover_source.delay(s.id)
+    return 202, RunOut(source_id=s.id, task_id=str(result.id))
+
+
+@api.delete("/sources/{source_id}", response={204: None}, tags=["sources"])
+def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
+    s = get_object_or_404(Source, pk=source_id)
+    solr_client().delete_by_query(solr_documents_collection(), f"source_id_s:{s.id}")
+    s.delete()
+    return 204, None
+
+
+# --- documents --------------------------------------------------------------------------------
+
+
+def _document_out(d: Document) -> DocumentOut:
+    return DocumentOut(
+        id=d.id,
+        collection=d.collection.slug,
+        source_id=d.source_id,
+        uri=d.uri,
+        title=d.title,
+        media_type=d.media_type,
+        language=d.language,
+        size=d.size,
+        status=d.status,
+        error=d.error,
+        modified_at=d.modified_at,
+        indexed_at=d.indexed_at,
+        metadata=d.metadata,
+        fields=d.fields,
+        stage_runs=d.stage_runs,
+    )
+
+
+@api.get("/documents/{doc_id}", response=DocumentOut, tags=["documents"])
+def get_document(request: HttpRequest, doc_id: str) -> DocumentOut:
+    return _document_out(
+        get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    )
+
+
+@api.get("/documents/{doc_id}/text", response=DocumentTextOut, tags=["documents"])
+def get_document_text(request: HttpRequest, doc_id: str) -> DocumentTextOut:
+    d = get_object_or_404(Document, pk=doc_id)
+    return DocumentTextOut(id=d.id, text=d.text, pages=d.pages)
+
+
+@api.post("/documents/{doc_id}/reindex", response={202: dict[str, str]}, tags=["documents"])
+def reindex_document(request: HttpRequest, doc_id: str) -> tuple[int, dict[str, str]]:
+    from oss_server.pipeline.tasks import reindex_document as task
+
+    d = get_object_or_404(Document, pk=doc_id)
+    result = task.delay(d.id)
+    return 202, {"task_id": str(result.id)}
+
+
+# --- search -----------------------------------------------------------------------------------
+
+
+@api.post("/search", response=SearchOut, tags=["search"])
+def search(request: HttpRequest, payload: SearchIn) -> SearchOut:
+    return search_mod.search(solr_client(), solr_documents_collection(), payload)
+
+
+@api.get("/suggest", response=SuggestOut, tags=["search"])
+def suggest(request: HttpRequest, q: str, collection: str | None = None) -> SuggestOut:
+    client = solr_client()
+    params: dict[str, object] = {
+        "q": q,
+        "rows": 8,
+        "fl": "title_txt",
+        "hl": False,
+        "qf": "title_txt^4 text_txt",
+    }
+    if collection:
+        params["fq"] = [f'collection_s:"{collection}"']
+    body = client.select(solr_documents_collection(), **params)
+    titles = [
+        d.get("title_txt") for d in body.get("response", {}).get("docs", []) if d.get("title_txt")
+    ]
+    return SuggestOut(suggestions=list(dict.fromkeys(titles)))
+
+
+@api.get("/stats", response=StatsOut, tags=["admin"])
+def stats(request: HttpRequest) -> StatsOut:
+    by_status = {
+        row["status"]: row["n"] for row in Document.objects.values("status").annotate(n=Count("id"))
+    }
+    try:
+        solr_count: int | None = solr_client().count(solr_documents_collection())
+    except Exception:  # noqa: BLE001
+        solr_count = None
+    return StatsOut(
+        collections=Collection.objects.count(),
+        sources=Source.objects.count(),
+        documents=by_status,
+        solr_documents=solr_count,
+    )

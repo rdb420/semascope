@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import secrets
 from pathlib import Path
+from typing import Any
 
 import httpx
 import typer
@@ -36,6 +37,7 @@ def init(
     env_file: Path = typer.Option(Path(".env"), help="Where to write the environment file"),
     host: str = typer.Option("localhost", help="Host name the reverse proxy answers for"),
     size: str = typer.Option("small", help="small | medium | large"),
+    import_dir: str = typer.Option("./data/import", help="Host folder the workers may read"),
     force: bool = typer.Option(False, help="Overwrite an existing file"),
 ) -> None:
     """Write an environment file with generated secrets."""
@@ -53,6 +55,9 @@ def init(
         f"POSTGRES_PASSWORD={secrets.token_urlsafe(24)}",
         f"NEO4J_PASSWORD={secrets.token_urlsafe(24)}",
         f"SOLR_PASSWORD={secrets.token_urlsafe(24)}",
+        f"SEMASCOPE_ADMIN_PASSWORD={secrets.token_urlsafe(18)}",
+        f"SEMASCOPE_API_TOKEN=oss_{secrets.token_urlsafe(32)}",
+        f"SEMASCOPE_IMPORT_DIR={import_dir}",
         f"SOLR_HEAP={heaps[size]}",
         f"NEO4J_HEAP={heaps[size]}",
         f"TIKA_HEAP={heaps[size]}",
@@ -63,6 +68,7 @@ def init(
     env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     env_file.chmod(0o600)
     console.print(f"wrote {env_file} (secrets generated; keep it out of git)")
+    console.print("admin login: user 'admin', password SEMASCOPE_ADMIN_PASSWORD in that file")
 
 
 @app.command()
@@ -92,6 +98,131 @@ def doctor() -> None:
     console.print(table)
     if failures:
         raise typer.Exit(code=1)
+
+
+# --- API-backed commands -----------------------------------------------------------------------
+
+
+def _api() -> httpx.Client:
+    settings = get_settings()
+    token = settings.semascope_api_token.get_secret_value() if settings.semascope_api_token else ""
+    if not token:
+        raise typer.BadParameter(
+            "SEMASCOPE_API_TOKEN is not set; run `oss init` or create a token in the admin"
+        )
+    return httpx.Client(
+        base_url=f"{settings.semascope_api_url.rstrip('/')}/api",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=60.0,
+    )
+
+
+def _check(resp: httpx.Response) -> Any:
+    if resp.status_code >= 400:
+        console.print(f"[red]{resp.status_code}[/red] {resp.text[:500]}")
+        raise typer.Exit(code=1)
+    return resp.json() if resp.content else {}
+
+
+@app.command()
+def index(
+    path: Path = typer.Argument(..., exists=True, help="File or directory to index"),
+    collection: str = typer.Option("default", help="Collection slug (created if missing)"),
+    name: str | None = typer.Option(None, help="Source name (defaults to the path's name)"),
+    include: list[str] = typer.Option([], help="Include globs, e.g. --include '*.pdf'"),
+    wait: bool = typer.Option(True, help="Poll until the source run finishes"),
+) -> None:
+    """Index a directory into a collection through the filesystem connector."""
+
+    path = path.resolve()
+    directory = path if path.is_dir() else path.parent
+    settings: dict[str, Any] = {"path": str(directory)}
+    if path.is_file():
+        settings["include"] = [path.name]
+    elif include:
+        settings["include"] = include
+    with _api() as api:
+        if api.get(f"/collections/{collection}").status_code == 404:
+            _check(api.post("/collections", json={"slug": collection}))
+            console.print(f"created collection {collection}")
+        source_name = name or path.name
+        sources = _check(api.get(f"/collections/{collection}/sources"))
+        existing = next(
+            (s for s in sources if isinstance(sources, list) and s["name"] == source_name), None
+        )
+        if existing is None:
+            created = _check(
+                api.post(
+                    f"/collections/{collection}/sources",
+                    json={"name": source_name, "connector": "filesystem", "settings": settings},
+                )
+            )
+            source_id = int(created["id"])
+        else:
+            source_id = int(existing["id"])
+        run = _check(api.post(f"/sources/{source_id}/run"))
+        console.print(
+            f"queued source {source_id} (task {run['task_id'] if isinstance(run, dict) else '?'})"
+        )
+        if not wait:
+            return
+        import time
+
+        last = ""
+        for _ in range(600):
+            time.sleep(2)
+            src = next(
+                s
+                for s in _check(api.get(f"/collections/{collection}/sources"))
+                if s["id"] == source_id
+            )
+            stats = _check(api.get("/stats"))
+            docs = stats["documents"]
+            line = f"{src['status']}  documents={docs}"
+            if line != last:
+                console.print(line)
+                last = line
+            if src["status"] != "running" and src["last_run_at"]:
+                if not docs.get("queued") and not docs.get("processing"):
+                    break
+        if src["status"] == "failed":
+            console.print(f"[red]{src['last_error']}[/red]")
+            raise typer.Exit(code=1)
+
+
+@app.command()
+def search(
+    q: str = typer.Argument("*:*"),
+    collection: str | None = typer.Option(None),
+    rows: int = typer.Option(10),
+    facets: bool = typer.Option(True),
+) -> None:
+    """Search the index and print hits with snippets."""
+
+    with _api() as api:
+        out = _check(
+            api.post("/search", json={"q": q, "collection": collection, "page_size": rows})
+        )
+    console.print(f"{out['total']} hits in {out['took_ms']} ms")
+    for hit in out["hits"]:
+        console.print(f"[bold]{hit['title']}[/bold]  [dim]{hit['uri']}[/dim]")
+        for snippet in hit["snippets"][:2]:
+            console.print(
+                "   " + snippet.replace("<mark>", "[yellow]").replace("</mark>", "[/yellow]")
+            )
+    if facets and out.get("facets"):
+        table = Table("facet", "values")
+        for field, values in out["facets"].items():
+            table.add_row(field, ", ".join(f"{v['value']} ({v['count']})" for v in values[:8]))
+        console.print(table)
+
+
+@app.command()
+def stats() -> None:
+    """Counts of collections, sources and documents by status."""
+
+    with _api() as api:
+        console.print(_check(api.get("/stats")))
 
 
 @pack_app.command("validate")

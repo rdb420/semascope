@@ -13,7 +13,17 @@ case "$cmd" in
     exec docker compose down ;;
   logs)
     shift; exec docker compose logs -f "$@" ;;
-  doctor|demo|index|reindex|backup|restore|version)
+  index)
+    shift
+    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' .env 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//')"
+    import_dir="$(cd "${import_dir:-./data/import}" 2>/dev/null && pwd -P || echo "")"
+    target="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/$(basename "$1")"
+    case "$target" in
+      "$import_dir"|"$import_dir"/*) inside="/import${target#"$import_dir"}" ;;
+      *) echo "$1 is outside SEMASCOPE_IMPORT_DIR ($import_dir); move it there or change the setting in .env" >&2; exit 2 ;;
+    esac
+    exec docker compose run --rm cli oss index "$inside" "${@:2}" ;;
+  doctor|demo|reindex|backup|restore|version|search|stats)
     exec docker compose run --rm cli oss "$@" ;;
   help|-h|--help)
     cat <<'USAGE'

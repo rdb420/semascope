@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Semascope "documents" collection, written for Apache Solr 10.
+  Nothing removed in Solr 10 is used: no <lib>, no managed synonyms, no
+  language-specific response writers. Schemaless mode is off; every field
+  is declared in managed-schema.xml or matches a declared dynamic field.
+-->
+<config>
+  <luceneMatchVersion>10.0</luceneMatchVersion>
+
+  <dataDir>${solr.data.dir:}</dataDir>
+  <directoryFactory name="DirectoryFactory" class="${solr.directoryFactory:solr.NRTCachingDirectoryFactory}"/>
+  <codecFactory class="solr.SchemaCodecFactory"/>
+
+  <schemaFactory class="ManagedIndexSchemaFactory">
+    <bool name="mutable">true</bool>
+    <str name="managedSchemaResourceName">managed-schema.xml</str>
+  </schemaFactory>
+
+  <indexConfig>
+    <lockType>${solr.lock.type:native}</lockType>
+  </indexConfig>
+
+  <updateHandler class="solr.DirectUpdateHandler2">
+    <updateLog>
+      <str name="dir">${solr.ulog.dir:}</str>
+      <int name="numVersionBuckets">${solr.ulog.numVersionBuckets:65536}</int>
+    </updateLog>
+    <autoCommit>
+      <maxTime>${solr.autoCommit.maxTime:15000}</maxTime>
+      <openSearcher>false</openSearcher>
+    </autoCommit>
+    <autoSoftCommit>
+      <maxTime>${solr.autoSoftCommit.maxTime:2000}</maxTime>
+    </autoSoftCommit>
+  </updateHandler>
+
+  <query>
+    <maxBooleanClauses>${solr.max.booleanClauses:1024}</maxBooleanClauses>
+    <filterCache size="512" initialSize="512" autowarmCount="0"/>
+    <queryResultCache size="512" initialSize="512" autowarmCount="0"/>
+    <documentCache size="512" initialSize="512" autowarmCount="0"/>
+    <enableLazyFieldLoading>true</enableLazyFieldLoading>
+    <queryResultWindowSize>50</queryResultWindowSize>
+    <queryResultMaxDocsCached>200</queryResultMaxDocsCached>
+    <useColdSearcher>false</useColdSearcher>
+  </query>
+
+  <requestDispatcher>
+    <httpCaching never304="true"/>
+  </requestDispatcher>
+
+  <!-- The one query handler the API uses. Defaults are overridden per request. -->
+  <requestHandler name="/select" class="solr.SearchHandler">
+    <lst name="defaults">
+      <str name="echoParams">none</str>
+      <str name="wt">json</str>
+      <str name="defType">edismax</str>
+      <str name="qf">title_txt^4 text_txt^1 uri_s^0.2</str>
+      <str name="pf">title_txt^6 text_txt^2</str>
+      <str name="ps">3</str>
+      <str name="mm">2&lt;-1 5&lt;80%</str>
+      <str name="q.alt">*:*</str>
+      <str name="fl">id,collection_s,source_id_s,uri_s,title_txt,media_type_s,content_type_group_s,language_s,size_l,modified_dt,indexed_dt,page_count_i,score</str>
+      <int name="rows">10</int>
+      <str name="hl">true</str>
+      <str name="hl.method">unified</str>
+      <str name="hl.fl">text_txt,title_txt</str>
+      <int name="hl.snippets">3</int>
+      <int name="hl.fragsize">160</int>
+      <str name="hl.tag.pre">&lt;mark&gt;</str>
+      <str name="hl.tag.post">&lt;/mark&gt;</str>
+      <str name="hl.defaultSummary">true</str>
+    </lst>
+  </requestHandler>
+
+  <!-- Suggest titles while typing. -->
+  <searchComponent name="suggest" class="solr.SuggestComponent">
+    <lst name="suggester">
+      <str name="name">titles</str>
+      <str name="lookupImpl">FuzzyLookupFactory</str>
+      <str name="dictionaryImpl">DocumentDictionaryFactory</str>
+      <str name="field">title_s</str>
+      <str name="suggestAnalyzerFieldType">text_suggest</str>
+      <str name="buildOnCommit">false</str>
+      <str name="buildOnStartup">false</str>
+    </lst>
+  </searchComponent>
+  <requestHandler name="/suggest" class="solr.SearchHandler" startup="lazy">
+    <lst name="defaults">
+      <str name="suggest">true</str>
+      <str name="suggest.dictionary">titles</str>
+      <str name="suggest.count">10</str>
+    </lst>
+    <arr name="components">
+      <str>suggest</str>
+    </arr>
+  </requestHandler>
+
+  <searchComponent name="terms" class="solr.TermsComponent"/>
+  <requestHandler name="/terms" class="solr.SearchHandler" startup="lazy">
+    <lst name="defaults">
+      <bool name="terms">true</bool>
+      <bool name="distrib">false</bool>
+    </lst>
+    <arr name="components">
+      <str>terms</str>
+    </arr>
+  </requestHandler>
+
+  <!-- Every update passes through this chain. No field guessing, ever. -->
+  <updateRequestProcessorChain name="semascope" default="true">
+    <processor class="solr.LogUpdateProcessorFactory"/>
+    <processor class="solr.DistributedUpdateProcessorFactory"/>
+    <processor class="solr.RunUpdateProcessorFactory"/>
+  </updateRequestProcessorChain>
+</config>

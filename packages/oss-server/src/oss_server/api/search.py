@@ -1,0 +1,112 @@
+"""Search: turn an API request into a Solr query and back."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from oss_pipeline.clients.solr import SolrClient
+from oss_server.api.schemas import FacetValue, SearchHit, SearchIn, SearchOut
+
+ALLOWED_FACETS = {
+    "content_type_group_s",
+    "language_s",
+    "media_type_s",
+    "source_id_s",
+    "collection_s",
+    "ocr_b",
+    "emails_ss",
+    "urls_ss",
+    "phones_ss",
+    "money_ss",
+    "hashtags_ss",
+    "persons_ss",
+    "organisations_ss",
+    "places_ss",
+    "concept_labels_ss",
+}
+ALLOWED_SORTS = {
+    "score desc",
+    "modified_dt desc",
+    "modified_dt asc",
+    "indexed_dt desc",
+    "title_s asc",
+    "size_l desc",
+}
+
+
+def _escape(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def build_params(req: SearchIn) -> dict[str, Any]:
+    fq: list[str] = []
+    if req.collection:
+        fq.append(f"collection_s:{_escape(req.collection)}")
+    for field, values in req.filters.items():
+        if not values or not (
+            field in ALLOWED_FACETS or field.endswith(("_s", "_ss", "_b", "_paths"))
+        ):
+            continue
+        fq.append(
+            "{!tag=" + field + "}" + field + ":(" + " OR ".join(_escape(v) for v in values) + ")"
+        )
+    facets = [f for f in req.facets if f in ALLOWED_FACETS or f.endswith(("_ss", "_paths"))]
+    params: dict[str, Any] = {
+        "q": req.q.strip() or "*:*",
+        "fq": fq,
+        "start": (max(req.page, 1) - 1) * req.page_size,
+        "rows": min(max(req.page_size, 1), 100),
+        "hl": req.highlight,
+    }
+    if req.sort and req.sort in ALLOWED_SORTS:
+        params["sort"] = req.sort
+    if facets:
+        params["facet"] = True
+        params["facet.mincount"] = 1
+        params["facet.limit"] = min(req.facet_limit, 100)
+        params["facet.field"] = ["{!ex=" + f + "}" + f for f in facets]
+    return params
+
+
+def parse_response(req: SearchIn, body: dict[str, Any]) -> SearchOut:
+    response = body.get("response", {})
+    highlighting = body.get("highlighting", {})
+    hits: list[SearchHit] = []
+    for doc in response.get("docs", []):
+        snippets = highlighting.get(doc["id"], {}).get("text_txt", []) if req.highlight else []
+        hits.append(
+            SearchHit(
+                id=doc["id"],
+                score=doc.get("score"),
+                title=doc.get("title_txt") or doc.get("uri_s", ""),
+                uri=doc.get("uri_s", ""),
+                collection=doc.get("collection_s", ""),
+                source_id=doc.get("source_id_s", ""),
+                media_type=doc.get("media_type_s"),
+                content_type_group=doc.get("content_type_group_s"),
+                language=doc.get("language_s"),
+                size=doc.get("size_l"),
+                page_count=doc.get("page_count_i"),
+                modified_at=doc.get("modified_dt"),
+                indexed_at=doc.get("indexed_dt"),
+                snippets=snippets,
+            )
+        )
+    facets: dict[str, list[FacetValue]] = {}
+    for field, flat in body.get("facet_counts", {}).get("facet_fields", {}).items():
+        facets[field] = [
+            FacetValue(value=str(flat[i]), count=int(flat[i + 1])) for i in range(0, len(flat), 2)
+        ]
+    return SearchOut(
+        total=int(response.get("numFound", 0)),
+        page=req.page,
+        page_size=req.page_size,
+        took_ms=int(body.get("responseHeader", {}).get("QTime", 0)),
+        hits=hits,
+        facets=facets,
+    )
+
+
+def search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
+    body = client.select(collection_name, **build_params(req))
+    return parse_response(req, body)

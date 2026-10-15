@@ -20,10 +20,6 @@ nlp = ["spacy>=3.8,<3.9"]
 embed = ["fastembed>=0.5"]
 pst = ["pypff"]
 
-[project.scripts]
-oss-worker = "oss_pipeline.entry:worker"
-oss-beat = "oss_pipeline.entry:beat"
-
 [project.entry-points."oss.connectors"]
 [project.entry-points."oss.stages"]
 

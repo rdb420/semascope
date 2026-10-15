@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Semascope "documents" collection schema for Apache Solr 10.
+  Field naming: a suffix states the type (see the dynamic fields at the end),
+  so a pack-derived field such as `tradition_path` or `owner_s` needs no
+  schema change. Schemaless mode is off: an unknown field without a declared
+  suffix is rejected, which is the point.
+-->
+<schema name="semascope-documents" version="1.7">
+
+  <uniqueKey>id</uniqueKey>
+
+  <!-- Identity and provenance -->
+  <field name="id" type="string" indexed="true" stored="true" required="true"/>
+  <field name="_version_" type="plong" indexed="false" stored="false"/>
+  <field name="collection_s" type="string" indexed="true" stored="true" required="true" docValues="true"/>
+  <field name="source_id_s" type="string" indexed="true" stored="true" required="true" docValues="true"/>
+  <field name="uri_s" type="string" indexed="true" stored="true" required="true"/>
+  <field name="content_hash_s" type="string" indexed="true" stored="true" required="true"/>
+  <field name="parent_id_s" type="string" indexed="true" stored="true" docValues="true"/>
+
+  <!-- Content -->
+  <field name="title_txt" type="text_general" indexed="true" stored="true"/>
+  <field name="title_s" type="string" indexed="true" stored="true" docValues="true"/>
+  <field name="text_txt" type="text_general" indexed="true" stored="true" termVectors="true" termPositions="true" termOffsets="true"/>
+  <field name="text_txt_en" type="text_en" indexed="true" stored="false"/>
+  <field name="language_s" type="string" indexed="true" stored="true" docValues="true"/>
+  <field name="media_type_s" type="string" indexed="true" stored="true" docValues="true"/>
+  <field name="content_type_group_s" type="string" indexed="true" stored="true" docValues="true"/>
+  <field name="size_l" type="plong" indexed="true" stored="true" docValues="true"/>
+  <field name="page_count_i" type="pint" indexed="true" stored="true" docValues="true"/>
+  <field name="ocr_b" type="boolean" indexed="true" stored="true" docValues="true"/>
+
+  <!-- Dates -->
+  <field name="modified_dt" type="pdate" indexed="true" stored="true" docValues="true"/>
+  <field name="created_dt" type="pdate" indexed="true" stored="true" docValues="true"/>
+  <field name="indexed_dt" type="pdate" indexed="true" stored="true" docValues="true"/>
+  <field name="dates_dts" type="pdate" indexed="true" stored="true" docValues="true" multiValued="true"/>
+
+  <!-- Pack tags (Phase 2). Each tag field is multi-valued and faceted. -->
+  <field name="concept_iris_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="concept_labels_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="entity_iris_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="entity_labels_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="pack_versions_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+
+  <!-- Generic entities from pattern extraction and NER -->
+  <field name="emails_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="urls_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="phones_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="money_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="hashtags_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="persons_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="organisations_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <field name="places_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+
+  <copyField source="title_txt" dest="title_s" maxChars="256"/>
+  <copyField source="text_txt" dest="text_txt_en"/>
+
+  <!-- Dynamic fields: one suffix per type -->
+  <dynamicField name="*_s" type="string" indexed="true" stored="true" docValues="true"/>
+  <dynamicField name="*_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <dynamicField name="*_t" type="text_general" indexed="true" stored="true"/>
+  <dynamicField name="*_txt" type="text_general" indexed="true" stored="true" multiValued="true"/>
+  <dynamicField name="*_txt_en" type="text_en" indexed="true" stored="true"/>
+  <dynamicField name="*_i" type="pint" indexed="true" stored="true" docValues="true"/>
+  <dynamicField name="*_is" type="pint" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <dynamicField name="*_l" type="plong" indexed="true" stored="true" docValues="true"/>
+  <dynamicField name="*_d" type="pdouble" indexed="true" stored="true" docValues="true"/>
+  <dynamicField name="*_b" type="boolean" indexed="true" stored="true" docValues="true"/>
+  <dynamicField name="*_dt" type="pdate" indexed="true" stored="true" docValues="true"/>
+  <dynamicField name="*_dts" type="pdate" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <!-- Hierarchical facets: the index stage writes every ancestor as its own value
+       ("a", "a/b", "a/b/c") so the JSON Facet API can count each level with docValues. -->
+  <dynamicField name="*_paths" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
+  <dynamicField name="*_pt" type="location" indexed="true" stored="true"/>
+  <dynamicField name="*_vec384" type="knn_vector_384" indexed="true" stored="false"/>
+
+  <!-- Types -->
+  <fieldType name="string" class="solr.StrField" sortMissingLast="true" docValues="true"/>
+  <fieldType name="boolean" class="solr.BoolField" sortMissingLast="true"/>
+  <fieldType name="pint" class="solr.IntPointField" docValues="true"/>
+  <fieldType name="plong" class="solr.LongPointField" docValues="true"/>
+  <fieldType name="pdouble" class="solr.DoublePointField" docValues="true"/>
+  <fieldType name="pdate" class="solr.DatePointField" docValues="true"/>
+  <fieldType name="location" class="solr.LatLonPointSpatialField" docValues="true"/>
+
+  <fieldType name="knn_vector_384" class="solr.DenseVectorField" vectorDimension="384"
+             similarityFunction="cosine" knnAlgorithm="hnsw" hnswMaxConnections="16" hnswBeamWidth="100"/>
+
+  <!-- Language-neutral text: used for every document regardless of language -->
+  <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100">
+    <analyzer type="index">
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="asciiFolding" preserveOriginal="false"/>
+    </analyzer>
+    <analyzer type="query">
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="asciiFolding" preserveOriginal="false"/>
+    </analyzer>
+  </fieldType>
+
+  <!-- English: stop words and light stemming -->
+  <fieldType name="text_en" class="solr.TextField" positionIncrementGap="100">
+    <analyzer type="index">
+      <tokenizer name="standard"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
+      <filter name="lowercase"/>
+      <filter name="englishPossessive"/>
+      <filter name="keywordMarker" protected="protwords.txt"/>
+      <filter name="englishMinimalStem"/>
+    </analyzer>
+    <analyzer type="query">
+      <tokenizer name="standard"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
+      <filter name="lowercase"/>
+      <filter name="englishPossessive"/>
+      <filter name="keywordMarker" protected="protwords.txt"/>
+      <filter name="englishMinimalStem"/>
+    </analyzer>
+  </fieldType>
+
+  <!-- Suggester analysis -->
+  <fieldType name="text_suggest" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="asciiFolding"/>
+    </analyzer>
+  </fieldType>
+
+</schema>
