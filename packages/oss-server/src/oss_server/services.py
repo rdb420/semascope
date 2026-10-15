@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
 from oss_core.config import get_settings
 from oss_pipeline.clients.solr import SolrClient
+
+log = logging.getLogger(__name__)
 
 CONFIGSETS = Path(__file__).resolve().parents[4] / "deploy" / "solr" / "configsets"
 
@@ -33,11 +36,14 @@ def configset_dir(name: str) -> Path:
 
 
 def bootstrap_solr() -> list[str]:
-    """Upload every configset and create the collections that are missing."""
+    """Upload every configset, reload existing collections, create missing ones."""
 
     created: list[str] = []
     client = solr_client()
     for name in ("documents",):
         if client.ensure_collection(name, f"semascope-{name}", configset_dir(name)):
             created.append(name)
+            log.info("solr: created collection %s", name)
+        else:
+            log.info("solr: configset semascope-%s uploaded and collection reloaded", name)
     return created

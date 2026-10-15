@@ -14,5 +14,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "oss_server.settings")
 from oss_pipeline.celery_app import app  # noqa: E402
 
 app.autodiscover_tasks(["oss_server.pipeline"])
+app.conf.beat_schedule = {
+    "tick": {"task": "semascope.tick", "schedule": 60.0, "options": {"queue": "io"}},
+}
 
 __all__ = ["app"]

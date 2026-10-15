@@ -24,6 +24,10 @@ ALLOWED_FACETS = {
     "places_ss",
     "concept_labels_ss",
 }
+HIT_FIELDS = (
+    "id,collection_s,source_id_s,uri_s,title_txt,media_type_s,content_type_group_s,language_s,"
+    "size_l,modified_dt,indexed_dt,page_count_i,preview_pages_i,score"
+)
 ALLOWED_SORTS = {
     "score desc",
     "modified_dt desc",
@@ -53,6 +57,7 @@ def build_params(req: SearchIn) -> dict[str, Any]:
     facets = [f for f in req.facets if f in ALLOWED_FACETS or f.endswith(("_ss", "_paths"))]
     params: dict[str, Any] = {
         "q": req.q.strip() or "*:*",
+        "fl": HIT_FIELDS,
         "fq": fq,
         "start": (max(req.page, 1) - 1) * req.page_size,
         "rows": min(max(req.page_size, 1), 100),

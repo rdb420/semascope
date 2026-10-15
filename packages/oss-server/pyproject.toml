@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn>=0.32",
     "django-allauth>=65",
     "defusedxml>=0.7",
+    "croniter>=5",
 ]
 
 [project.scripts]

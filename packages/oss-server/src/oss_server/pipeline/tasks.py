@@ -176,6 +176,25 @@ def reindex_document(doc_id: str) -> str:
     return doc_row.status
 
 
+@shared_task(name="semascope.tick", queue="io")
+def tick() -> dict[str, int]:
+    """Once a minute: start every enabled, scheduled source that is due."""
+
+    from oss_server.pipeline.schedule import is_due
+
+    now = timezone.now()
+    started = 0
+    for source in (
+        Source.objects.filter(enabled=True)
+        .exclude(schedule="")
+        .exclude(status=Source.Status.RUNNING)
+    ):
+        if is_due(source.schedule, source.last_run_at, now):
+            discover_source.delay(source.id)
+            started += 1
+    return {"started": started}
+
+
 @shared_task(name="semascope.delete_document", queue="io")
 def delete_document(doc_id: str) -> None:
     solr_client().delete_by_id(solr_documents_collection(), [doc_id])

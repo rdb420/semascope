@@ -113,3 +113,19 @@ def test_session_login_and_me(client: Client, db: None) -> None:
     assert client.get("/api/auth/me").json()["username"] == "ui"
     assert client.post("/api/auth/logout").status_code == 204
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_schedules() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from oss_server.pipeline.schedule import is_due, next_run
+
+    t0 = datetime(2026, 10, 15, 10, 0, tzinfo=UTC)
+    assert next_run("every 15m", t0) == t0 + timedelta(minutes=15)
+    assert next_run("every 2 hours", t0) == t0 + timedelta(hours=2)
+    assert next_run("0 3 * * *", t0) == datetime(2026, 10, 16, 3, 0, tzinfo=UTC)
+    assert next_run("nonsense", t0) is None and next_run("", t0) is None
+    assert is_due("every 15m", None, t0)
+    assert not is_due("every 15m", t0, t0 + timedelta(minutes=5))
+    assert is_due("every 15m", t0, t0 + timedelta(minutes=15))
+    assert not is_due("", None, t0)
