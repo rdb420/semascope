@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from oss_core.config import get_settings
 from oss_pipeline.clients.solr import SolrClient
@@ -101,3 +102,12 @@ def _dictionary_present(pack_id: str, version: str) -> bool:
         )
     except Exception:  # noqa: BLE001
         return False
+
+
+@lru_cache(maxsize=1)
+def graph_client() -> Any:
+    from oss_pipeline.clients.neo4j import GraphClient
+
+    s = get_settings()
+    password = s.neo4j_password.get_secret_value() if s.neo4j_password else ""
+    return GraphClient(s.neo4j_uri, s.neo4j_user, password)

@@ -60,6 +60,11 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "solr_password": s.solr_password.get_secret_value() if s.solr_password else None,
         "solr_documents": solr_documents_collection(),
         "solr_entities": "entities",
+        "neo4j_uri": s.neo4j_uri,
+        "neo4j_user": s.neo4j_user,
+        "neo4j_password": s.neo4j_password.get_secret_value() if s.neo4j_password else "",
+        "pseudonymise": bool(collection.settings.get("pseudonymise", False)),
+        "pseudonymise_secret": s.semascope_secret_key.get_secret_value(),
         "ocr": True,
     }
     base["shapes_ttl"] = active_shapes()
@@ -247,6 +252,16 @@ def tick() -> dict[str, int]:
 @shared_task(name="semascope.delete_document", queue="io")
 def delete_document(doc_id: str) -> None:
     solr_client().delete_by_id(solr_documents_collection(), [doc_id])
+    try:
+        from oss_server.services import graph_client
+
+        graph_client().execute(
+            "MATCH (d:Document {id: $id}) OPTIONAL MATCH (d)-[r]-() WHERE type(r) <> 'CURATED' "
+            "DELETE r WITH d WHERE NOT (d)--() DELETE d",
+            id=doc_id,
+        )
+    except Exception:  # noqa: BLE001 - the graph is a projection; Solr and Postgres are the record
+        log.exception("graph delete failed for %s", doc_id)
     Document.objects.filter(pk=doc_id).update(
         status=Document.Status.DELETED, text="", pages=[], indexed_at=None
     )

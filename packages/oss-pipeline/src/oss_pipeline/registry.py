@@ -22,8 +22,21 @@ PROFILES: dict[str, list[str]] = {
         "link",
         "preview",
         "index",
+        "graph",
     ],
-    "full": ["fetch", "extract", "structure", "patterns", "tag", "ner", "link", "preview", "index"],
+    "full": [
+        "fetch",
+        "extract",
+        "structure",
+        "patterns",
+        "tag",
+        "ner",
+        "link",
+        "validate",
+        "preview",
+        "index",
+        "graph",
+    ],
 }
 
 
@@ -62,6 +75,7 @@ def connectors() -> dict[str, Connector]:
 def stages() -> dict[str, Stage]:
     from oss_pipeline.stages.extract import ExtractStage
     from oss_pipeline.stages.fetch import FetchStage
+    from oss_pipeline.stages.graph import GraphStage
     from oss_pipeline.stages.index import IndexStage
     from oss_pipeline.stages.link import LinkStage
     from oss_pipeline.stages.ner import NerStage
@@ -82,6 +96,7 @@ def stages() -> dict[str, Stage]:
         "validate": ValidateStage,
         "preview": PreviewStage,
         "index": IndexStage,
+        "graph": GraphStage,
     }
     found.update(_load("oss.stages"))
     return {name: cls() for name, cls in found.items()}
