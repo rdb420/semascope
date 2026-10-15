@@ -14,7 +14,7 @@ from ninja.errors import HttpError
 from oss_core.config import get_settings
 from oss_server.knowledge import store
 from oss_server.knowledge.importer import activate_pack, hierarchy, import_pack
-from oss_server.knowledge.models import Concept, Pack
+from oss_server.knowledge.models import Concept, Pack, PackDelta
 
 router = Router(tags=["knowledge"])
 
@@ -267,3 +267,139 @@ def sparql(request: HttpRequest, pack_id: str, payload: SparqlIn) -> list[dict[s
         return store.query(q, pack_id=p.pack_id, version=p.version, limit=min(payload.limit, 1000))
     except Exception as exc:  # noqa: BLE001
         raise HttpError(422, str(exc)[:300]) from exc
+
+
+# --- curator deltas ---------------------------------------------------------------------------
+
+
+class DeltaIn(Schema):
+    collection: str
+    kind: str
+    params: dict[str, Any]
+    reason: str = ""
+
+
+class DeltaOut(Schema):
+    id: int
+    pack_id: str
+    pack_version: str
+    collection: str
+    kind: str
+    params: dict[str, Any]
+    reason: str
+    status: str
+    created_at: datetime
+
+
+def _delta_out(d: PackDelta) -> DeltaOut:
+    return DeltaOut(
+        id=d.id,
+        pack_id=d.pack_id,
+        pack_version=d.pack_version,
+        collection=d.collection.slug,
+        kind=d.kind,
+        params=d.params,
+        reason=d.reason,
+        status=d.status,
+        created_at=d.created_at,
+    )
+
+
+@router.get("/packs/{pack_id}/deltas", response=list[DeltaOut])
+def list_deltas(request: HttpRequest, pack_id: str, status: str | None = None) -> list[DeltaOut]:
+    qs = PackDelta.objects.filter(pack_id=pack_id).select_related("collection")
+    if status:
+        qs = qs.filter(status=status)
+    return [_delta_out(d) for d in qs]
+
+
+@router.post("/packs/{pack_id}/deltas", response={201: DeltaOut})
+def create_delta(request: HttpRequest, pack_id: str, payload: DeltaIn) -> tuple[int, DeltaOut]:
+    """Propose a change to a pack: add_label, new_concept, retire_label or note."""
+
+    from oss_server.catalogue.models import Collection
+
+    pack = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
+    collection = get_object_or_404(Collection, slug=payload.collection)
+    if payload.kind not in PackDelta.Kind.values:
+        raise HttpError(422, f"kind must be one of {PackDelta.Kind.values}")
+    required = {
+        "add_label": ("iri", "label"),
+        "new_concept": ("label", "scheme_slug"),
+        "retire_label": ("iri", "label"),
+        "note": ("iri", "text"),
+    }[payload.kind]
+    missing = [k for k in required if not payload.params.get(k)]
+    if missing:
+        raise HttpError(422, f"params missing {missing}")
+    if (
+        "iri" in payload.params
+        and not Concept.objects.filter(pack=pack, iri=payload.params["iri"]).exists()
+    ):
+        raise HttpError(422, "iri is not a concept of this pack")
+    delta = PackDelta.objects.create(
+        pack_id=pack.pack_id,
+        pack_version=pack.version,
+        collection=collection,
+        kind=payload.kind,
+        params=payload.params,
+        reason=payload.reason,
+        proposed_by=_user_or_none(request),
+    )
+    if payload.kind == "add_label":
+        _apply_draft_label(pack, collection.slug, payload.params)
+    return 201, _delta_out(delta)
+
+
+def _user_or_none(request: HttpRequest) -> Any:
+    user = getattr(request, "user", None)
+    return user if user is not None and getattr(user, "is_authenticated", False) else None
+
+
+def _apply_draft_label(pack: Pack, collection_slug: str, params: dict[str, Any]) -> None:
+    """A proposed label tags the proposing collection at once, as a draft dictionary entry."""
+
+    from oss_server.services import solr_client, solr_entities_collection
+
+    c = Concept.objects.get(pack=pack, iri=params["iri"])
+    if not c.taggable:
+        return
+    label = str(params["label"]).strip()
+    entry = {
+        "id": f"{pack}|{c.iri}|draft|{collection_slug}|{label.lower()}",
+        "iri": c.iri,
+        "pack_id": pack.pack_id,
+        "pack_version": pack.version,
+        "label": label,
+        "pref_label": c.pref_label,
+        "label_type": "draft",
+        "lang": str(params.get("lang") or c.lang or "und"),
+        "kind": c.kind,
+        "type_iri": c.type_iri,
+        "scheme": c.scheme_slug,
+        "path": c.path,
+        "case_sensitive": False,
+    }
+    solr_client().add(solr_entities_collection(), [entry], commit_within_ms=1000)
+
+
+@router.get("/packs/{pack_id}/deltas/export", response=dict[str, str])
+def export_deltas(request: HttpRequest, pack_id: str, mark: bool = False) -> dict[str, str]:
+    """The pending deltas as a bundle fragment (taxonomy.delta.ttl, model.delta.yaml)."""
+
+    from django.utils import timezone
+
+    from oss_server.knowledge.deltas import build_delta
+
+    pack = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
+    deltas = list(
+        PackDelta.objects.filter(pack_id=pack_id, status=PackDelta.Status.DRAFT).select_related(
+            "collection"
+        )
+    )
+    files = build_delta(pack, deltas)
+    if mark:
+        PackDelta.objects.filter(pk__in=[d.pk for d in deltas]).update(
+            status=PackDelta.Status.EXPORTED, exported_at=timezone.now()
+        )
+    return files

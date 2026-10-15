@@ -142,3 +142,66 @@ def test_reconciliation_api(client: Client, monkeypatch: pytest.MonkeyPatch) -> 
     assert out["q2"]["result"] == []
     form = client.post("/api/reconcile", data={"queries": '{"a": {"query": "Troy"}}'})
     assert form.json()["a"]["result"][0]["id"].endswith("#troy")
+
+
+@pytest.mark.django_db
+def test_deltas_export_as_bundle_fragment(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pyoxigraph as ox
+
+    from oss_server.api import knowledge as kapi
+    from oss_server.catalogue.models import Collection
+    from oss_server.knowledge import store as store_mod
+
+    monkeypatch.setattr(store_mod, "store", lambda: _memory_store(ox))
+    monkeypatch.setattr(kapi, "_apply_draft_label", lambda *a, **k: None)
+    user = User.objects.create_user("cur", password="w" * 16)
+    auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
+    import_pack(REPO / "packs" / "demo" / "pack")
+    Collection.objects.create(slug="texts", name="texts")
+    r = client.post(
+        "/api/knowledge/packs/semascope-demo/deltas",
+        data={
+            "collection": "texts",
+            "kind": "add_label",
+            "params": {"iri": "https://semascope.dev/ontology/demo#odysseus", "label": "Odusseus"},
+            "reason": "Chapman's spelling",
+        },
+        content_type="application/json",
+        headers=auth,
+    )
+    assert r.status_code == 201, r.content
+    r = client.post(
+        "/api/knowledge/packs/semascope-demo/deltas",
+        data={
+            "collection": "texts",
+            "kind": "new_concept",
+            "params": {
+                "label": "Oracle",
+                "scheme_slug": "themes",
+                "definition": "Prophecy and its interpreters.",
+            },
+        },
+        content_type="application/json",
+        headers=auth,
+    )
+    assert r.status_code == 201, r.content
+    bad = client.post(
+        "/api/knowledge/packs/semascope-demo/deltas",
+        data={"collection": "texts", "kind": "note", "params": {"iri": "https://nope"}},
+        content_type="application/json",
+        headers=auth,
+    )
+    assert bad.status_code == 422
+    files = client.get(
+        "/api/knowledge/packs/semascope-demo/deltas/export?mark=true", headers=auth
+    ).json()
+    assert 'skos:altLabel "Odusseus"@en' in files["taxonomy.delta.ttl"]
+    assert "themes#oracle> a skos:Concept" in files["taxonomy.delta.ttl"]
+    import yaml
+
+    model = yaml.safe_load(files["model.delta.yaml"])
+    assert model["terms"][0]["status"] == "draft" and model["terms"][0]["support"] == "proposed"
+    assert all(
+        d["status"] == "exported"
+        for d in client.get("/api/knowledge/packs/semascope-demo/deltas", headers=auth).json()
+    )

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from oss_server.knowledge.models import Concept, Pack, PackBinding
+from oss_server.knowledge.models import Concept, Pack, PackBinding, PackDelta
 
 
 @admin.register(Pack)
@@ -28,3 +28,9 @@ class ConceptAdmin(admin.ModelAdmin[Concept]):
 @admin.register(PackBinding)
 class PackBindingAdmin(admin.ModelAdmin[PackBinding]):
     list_display = ("collection", "pack_id", "precedence", "enabled")
+
+
+@admin.register(PackDelta)
+class PackDeltaAdmin(admin.ModelAdmin[PackDelta]):
+    list_display = ("kind", "pack_id", "collection", "status", "proposed_by", "created_at")
+    list_filter = ("kind", "status", "pack_id")
