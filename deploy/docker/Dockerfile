@@ -3,10 +3,12 @@
 
 FROM node:22-alpine AS web
 WORKDIR /web
-COPY packages/oss-web/package.json packages/oss-web/pnpm-lock.yaml* ./
-RUN corepack enable && if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; fi
+RUN npm install -g pnpm@10 >/dev/null 2>&1
+COPY packages/oss-web/package.json packages/oss-web/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY packages/oss-web/ ./
-RUN if [ -f pnpm-lock.yaml ]; then pnpm build; else mkdir -p dist; fi
+# vite.config.ts writes into ../oss-server/...; inside the image that is /web-out
+RUN pnpm exec tsc -b && pnpm exec vite build --outDir /web-out --emptyOutDir
 
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS python
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
@@ -25,7 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY packages/ packages/
 COPY packs/ packs/
 COPY deploy/solr/ deploy/solr/
-COPY --from=web /web/dist packages/oss-server/src/oss_server/static/web
+COPY --from=web /web-out packages/oss-server/src/oss_server/static/web
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --all-packages
 

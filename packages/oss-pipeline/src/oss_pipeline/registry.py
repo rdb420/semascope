@@ -29,8 +29,9 @@ def _load(group: str) -> dict[str, Any]:
 
 def connectors() -> dict[str, Connector]:
     from oss_pipeline.connectors.filesystem import FilesystemConnector
+    from oss_pipeline.connectors.web import WebConnector
 
-    found: dict[str, Any] = {"filesystem": FilesystemConnector}
+    found: dict[str, Any] = {"filesystem": FilesystemConnector, "web": WebConnector}
     found.update(_load("oss.connectors"))
     return {name: cls() for name, cls in found.items()}
 

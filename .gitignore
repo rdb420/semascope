@@ -12,6 +12,7 @@ build/
 # Node
 node_modules/
 packages/oss-web/dist/
+packages/oss-server/src/oss_server/static/web/
 
 # Local configuration and data
 .env

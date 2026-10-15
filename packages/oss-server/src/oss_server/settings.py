@@ -96,6 +96,8 @@ STATIC_URL = "static/"
 STATIC_ROOT = _settings.semascope_data_dir / "static"
 STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 STATICFILES_DIRS = [p for p in [BASE_DIR / "static"] if p.exists()]
+WHITENOISE_ROOT = BASE_DIR / "static" / "web"  # built UI: /assets/*, /favicon.svg
+WHITENOISE_INDEX_FILE = False
 STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }

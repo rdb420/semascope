@@ -92,3 +92,24 @@ def test_search_params_and_parse() -> None:
     out = parse_response(req, body)
     assert out.total == 1 and out.hits[0].snippets == ["a <mark>flood</mark>"]
     assert out.facets["language_s"][0].value == "en"
+
+
+def test_session_login_and_me(client: Client, db: None) -> None:
+    User.objects.create_user("ui", password="y" * 16)
+    assert client.get("/api/auth/me").status_code == 401
+    assert client.get("/api/auth/csrf").json()["csrftoken"]
+    bad = client.post(
+        "/api/auth/login",
+        data={"username": "ui", "password": "nope"},
+        content_type="application/json",
+    )
+    assert bad.status_code == 401
+    ok = client.post(
+        "/api/auth/login",
+        data={"username": "ui", "password": "y" * 16},
+        content_type="application/json",
+    )
+    assert ok.status_code == 200 and ok.json()["username"] == "ui"
+    assert client.get("/api/auth/me").json()["username"] == "ui"
+    assert client.post("/api/auth/logout").status_code == 204
+    assert client.get("/api/auth/me").status_code == 401
