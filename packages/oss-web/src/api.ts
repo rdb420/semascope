@@ -117,6 +117,32 @@ export type GraphEdge = { source: string; target: string; type: string; properti
 export type GraphOut = { nodes: GraphNode[]; edges: GraphEdge[] };
 export type Hub = { label: string; key: string; labels: string[]; docs: number };
 
+export type ReviewItem = {
+  id: number;
+  collection: string;
+  document_id: string | null;
+  document_title: string;
+  kind: string;
+  target: string;
+  label: string;
+  payload: Record<string, unknown>;
+  confidence: number | null;
+  status: string;
+  note: string;
+  created_at: string;
+};
+export type DocTag = {
+  iri: string;
+  label: string;
+  kind: string;
+  stage: string;
+  confidence: number;
+  pack_id?: string | null;
+  span_count: number;
+  curated: { decision: string } | null;
+};
+export type Annotation = { id: number; document_id: string; author: string | null; text: string; tags: string[]; span: Record<string, number> | null; created_at: string };
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -176,6 +202,20 @@ export const api = {
     request<GraphOut>(`/api/graph/neighbours?id=${encodeURIComponent(id)}&depth=${depth}`),
   graphShared: (collection?: string, kind = "Entity") =>
     request<Hub[]>(`/api/graph/shared?kind=${kind}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`),
+  reviews: (q: { collection?: string; kind?: string }) =>
+    request<ReviewItem[]>(
+      `/api/curation/reviews?status=open${q.collection ? `&collection=${encodeURIComponent(q.collection)}` : ""}${q.kind ? `&kind=${q.kind}` : ""}`,
+    ),
+  reviewSummary: (collection?: string) =>
+    request<Record<string, number>>(`/api/curation/reviews/summary${collection ? `?collection=${encodeURIComponent(collection)}` : ""}`),
+  decideReview: (id: number, body: { decision: string; note: string; link_to?: string; label?: string }) =>
+    request<ReviewItem>(`/api/curation/reviews/${id}/decision`, { method: "POST", body: JSON.stringify(body) }),
+  documentTags: (id: string) => request<DocTag[]>(`/api/curation/documents/${id}/tags`),
+  decideTag: (id: string, body: { iri: string; decision: string; label?: string; kind?: string; reason?: string }) =>
+    request<unknown>(`/api/curation/documents/${id}/tags`, { method: "POST", body: JSON.stringify(body) }),
+  annotations: (id: string) => request<Annotation[]>(`/api/curation/documents/${id}/annotations`),
+  addAnnotation: (id: string, body: { text: string; tags?: string[] }) =>
+    request<Annotation>(`/api/curation/documents/${id}/annotations`, { method: "POST", body: JSON.stringify(body) }),
   packs: () => request<Pack[]>("/api/knowledge/packs"),
   pack: (packId: string) => request<PackDetail>(`/api/knowledge/packs/${packId}`),
   packTree: (packId: string, scheme?: string) =>

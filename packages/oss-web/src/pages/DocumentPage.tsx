@@ -1,5 +1,6 @@
 import { useParams, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
 import { api } from "../api";
 import { useUser } from "../components/Shell";
 
@@ -8,6 +9,25 @@ export function DocumentPage() {
   const user = useUser();
   const doc = useQuery({ queryKey: ["document", id], queryFn: () => api.document(id), enabled: user.isSuccess });
   const text = useQuery({ queryKey: ["document-text", id], queryFn: () => api.documentText(id), enabled: user.isSuccess });
+  const tags = useQuery({ queryKey: ["document-tags", id], queryFn: () => api.documentTags(id), enabled: user.isSuccess });
+  const notes = useQuery({ queryKey: ["document-notes", id], queryFn: () => api.annotations(id), enabled: user.isSuccess });
+  const qc = useQueryClient();
+  const decideTag = useMutation({
+    mutationFn: (body: { iri: string; decision: string; label?: string; kind?: string }) => api.decideTag(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["document-tags", id] }),
+  });
+  const [note, setNote] = useState("");
+  const addNote = useMutation({
+    mutationFn: () => api.addAnnotation(id, { text: note }),
+    onSuccess: () => {
+      setNote("");
+      qc.invalidateQueries({ queryKey: ["document-notes", id] });
+    },
+  });
+  function submitNote(e: FormEvent) {
+    e.preventDefault();
+    if (note.trim()) addNote.mutate();
+  }
 
   if (!user.isSuccess) return null;
   if (doc.isError) return <p className="text-red-600">{String(doc.error)}</p>;
@@ -83,6 +103,39 @@ export function DocumentPage() {
             ))}
           </div>
         )}
+        {tags.data && tags.data.length > 0 && (
+          <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Tags ({tags.data.length})</h2>
+            <ul className="max-h-96 space-y-1 overflow-y-auto">
+              {[...tags.data].sort((a, b) => b.span_count - a.span_count).map((t) => (
+                <li key={t.iri} className="flex items-center gap-2">
+                  <Link to="/concepts" search={{ iri: t.iri }} className={`truncate hover:underline ${t.curated?.decision === "reject" ? "line-through text-zinc-400" : ""}`} title={`${t.stage} · ${t.confidence.toFixed(2)}`}>
+                    {t.label}
+                  </Link>
+                  <span className="text-xs text-zinc-400">{t.span_count}</span>
+                  <span className="ml-auto flex gap-1">
+                    <button title="accept" onClick={() => decideTag.mutate({ iri: t.iri, decision: "accept", label: t.label, kind: t.kind })} className={`rounded px-1 text-xs ${t.curated?.decision === "accept" ? "bg-green-600 text-white" : "bg-zinc-100 hover:bg-green-100 dark:bg-zinc-800"}`}>✓</button>
+                    <button title="reject" onClick={() => decideTag.mutate({ iri: t.iri, decision: "reject", label: t.label, kind: t.kind })} className={`rounded px-1 text-xs ${t.curated?.decision === "reject" ? "bg-red-600 text-white" : "bg-zinc-100 hover:bg-red-100 dark:bg-zinc-800"}`}>✕</button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Notes</h2>
+          <ul className="mb-2 space-y-1">
+            {notes.data?.map((n) => (
+              <li key={n.id}>
+                <span className="text-zinc-500">{n.author ?? "?"}:</span> {n.text}
+              </li>
+            ))}
+          </ul>
+          <form onSubmit={submitNote} className="flex gap-1">
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note" className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+            <button disabled={addNote.isPending || !note.trim()} className="rounded bg-blue-600 px-2 py-1 text-white disabled:opacity-40">Add</button>
+          </form>
+        </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Pipeline</h2>
           <ul className="space-y-1">

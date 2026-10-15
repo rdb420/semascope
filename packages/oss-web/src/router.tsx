@@ -12,6 +12,7 @@ import { PacksPage } from "./pages/PacksPage";
 import { PackPage } from "./pages/PackPage";
 import { ConceptPage } from "./pages/ConceptPage";
 import { GraphPage } from "./pages/GraphPage";
+import { ReviewPage } from "./pages/ReviewPage";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -59,7 +60,9 @@ const graphRoute = createRoute({
   component: GraphPage,
 });
 
-const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute]);
+const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage });
+
+const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute]);
 
 export const router = createRouter({ routeTree });
 
