@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
 
 export function LoginPage() {
@@ -10,6 +10,7 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const providers = useQuery({ queryKey: ["providers"], queryFn: api.providers });
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -53,6 +54,11 @@ export function LoginPage() {
         />
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {providers.data?.oidc && (
+        <a href={providers.data.oidc.url} className="block w-full rounded border border-zinc-300 px-4 py-2 text-center hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
+          Sign in with {providers.data.oidc.name}
+        </a>
+      )}
       <button
         disabled={busy}
         className="w-full rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"

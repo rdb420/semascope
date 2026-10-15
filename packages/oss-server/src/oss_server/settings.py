@@ -11,6 +11,7 @@ from oss_core.config import get_settings
 
 django_stubs_ext.monkeypatch()
 _settings = get_settings()
+OIDC_ENABLED = bool(_settings.semascope_oidc_server_url and _settings.semascope_oidc_client_id)
 BASE_DIR = Path(__file__).resolve().parent
 
 SECRET_KEY = _settings.semascope_secret_key.get_secret_value()
@@ -33,6 +34,40 @@ INSTALLED_APPS = [
     "oss_server.curation",
 ]
 
+# Optional OpenID Connect through django-allauth; active only when an issuer is configured.
+if OIDC_ENABLED:
+    INSTALLED_APPS += [
+        "allauth",
+        "allauth.account",
+        "allauth.socialaccount",
+        "allauth.socialaccount.providers.openid_connect",
+    ]
+    SOCIALACCOUNT_PROVIDERS = {
+        "openid_connect": {
+            "APPS": [
+                {
+                    "provider_id": "oidc",
+                    "name": _settings.semascope_oidc_name or "Single sign-on",
+                    "client_id": _settings.semascope_oidc_client_id,
+                    "secret": (
+                        _settings.semascope_oidc_client_secret.get_secret_value()
+                        if _settings.semascope_oidc_client_secret
+                        else ""
+                    ),
+                    "settings": {"server_url": _settings.semascope_oidc_server_url},
+                }
+            ]
+        }
+    }
+    SOCIALACCOUNT_AUTO_SIGNUP = True
+    SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
+    ACCOUNT_EMAIL_VERIFICATION = "none"
+    LOGIN_REDIRECT_URL = "/"
+    AUTHENTICATION_BACKENDS = [
+        "django.contrib.auth.backends.ModelBackend",
+        "allauth.account.auth_backends.AuthenticationBackend",
+    ]
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -43,6 +78,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+if OIDC_ENABLED:
+    MIDDLEWARE.append("allauth.account.middleware.AccountMiddleware")
 
 ROOT_URLCONF = "oss_server.urls"
 WSGI_APPLICATION = "oss_server.wsgi.application"

@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     semascope_api_url: str = "http://server:8000"
     semascope_default_role: str = "reader"  # role of a signed-in user with no explicit roles
 
+    # Optional OpenID Connect sign-in (any provider); local accounts always work
+    semascope_oidc_name: str = ""  # label on the sign-in button, e.g. "Company SSO"
+    semascope_oidc_server_url: str = ""  # issuer, e.g. https://login.example.com/realms/x
+    semascope_oidc_client_id: str = ""
+    semascope_oidc_client_secret: SecretStr | None = None
+    semascope_oidc_default_role: str = "reader"
+
     # Stores
     database_url: str = "postgresql://semascope:change-me@localhost:5432/semascope"
     valkey_url: str = "redis://localhost:6379/0"

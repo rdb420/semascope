@@ -154,7 +154,6 @@ def test_annotations_and_direct_tag_decisions(
     assert r.status_code == 200 and r.json()["kind"] == "add_tag"
     tags = client.get(f"/api/curation/documents/{doc.id}/tags", headers=auth).json()
     assert {t["iri"] for t in tags} >= {"https://p/themes#flood"}
-    plain = {
-        "Authorization": f"Bearer {issue_token(User.objects.create_user('plain', password='v' * 16), 't')}"
-    }
+    plain_user = User.objects.create_user("plain", password="v" * 16)
+    plain = {"Authorization": f"Bearer {issue_token(plain_user, 't')}"}
     assert client.get("/api/curation/webhooks", headers=plain).status_code == 403

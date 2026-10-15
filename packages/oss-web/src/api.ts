@@ -196,6 +196,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   me: () => request<User>("/api/auth/me"),
+  providers: () => request<{ local: boolean; oidc: { name: string; url: string } | null }>("/api/auth/providers"),
   login: (username: string, password: string) =>
     request<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),

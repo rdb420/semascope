@@ -93,9 +93,8 @@ def test_knowledge_api(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(concepts) == 10
     one = client.get("/api/knowledge/concepts", {"iri": concepts[0]["iri"]}, headers=auth).json()
     assert one["pref_label"] == concepts[0]["pref_label"]
-    plain = {
-        "Authorization": f"Bearer {issue_token(User.objects.create_user('plain', password='z' * 16), 't')}"
-    }
+    plain_user = User.objects.create_user("plain", password="z" * 16)
+    plain = {"Authorization": f"Bearer {issue_token(plain_user, 't')}"}
     assert (
         client.post(
             "/api/knowledge/packs/semascope-base/sparql",

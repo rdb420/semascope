@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib.auth import authenticate, login, logout
 from django.http import HttpRequest
 from django.middleware.csrf import get_token
@@ -21,6 +23,24 @@ class UserOut(Schema):
     is_staff: bool
     is_superuser: bool
     role: str = "reader"
+
+
+@router.get("/providers", auth=None)
+def providers(request: HttpRequest) -> dict[str, Any]:
+    """Which sign-in methods exist: local accounts always; OIDC when configured."""
+
+    from django.conf import settings
+
+    from oss_core.config import get_settings
+
+    s = get_settings()
+    out: dict[str, Any] = {"local": True, "oidc": None}
+    if getattr(settings, "OIDC_ENABLED", False):
+        out["oidc"] = {
+            "name": s.semascope_oidc_name or "Single sign-on",
+            "url": "/accounts/oidc/oidc/login/",
+        }
+    return out
 
 
 @router.get("/csrf", auth=None)

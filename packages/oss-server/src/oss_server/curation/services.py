@@ -238,19 +238,24 @@ def _resembles_individual(tag: dict[str, Any]) -> bool:
 
 
 def _candidates(tag: dict[str, Any]) -> list[dict[str, str]]:
-    """Pack individuals sharing a word with an unlinked NER entity (cheap, for the queue)."""
+    """Pack individuals whose label contains, or is contained in, an unlinked NER entity."""
 
     from oss_server.knowledge.models import Concept, Pack
 
-    label = str(tag.get("label") or "")
+    label = " ".join(str(tag.get("label") or "").lower().split())
+    if len(label) < 4 or tag.get("pack_id"):
+        return []
     words = [w for w in label.split() if len(w) > 3]
-    if not words or tag.get("pack_id"):
+    if not words:
         return []
     qs = Concept.objects.filter(
         pack__status=Pack.Status.ACTIVE, kind=Concept.Kind.INDIVIDUAL, taggable=True
     )
     out: list[dict[str, str]] = []
     for word in words[:2]:
-        for c in qs.filter(pref_label__icontains=word)[:3]:
-            out.append({"iri": c.iri, "label": c.pref_label, "type": c.type_label})
+        for c in qs.filter(pref_label__icontains=word)[:5]:
+            names = [" ".join(x.lower().split()) for x in c.labels]
+            if any(n in label or label in n for n in names if len(n) >= 4):
+                if all(o["iri"] != c.iri for o in out):
+                    out.append({"iri": c.iri, "label": c.pref_label, "type": c.type_label})
     return out[:5]

@@ -23,7 +23,54 @@ case "$cmd" in
       *) echo "$1 is outside SEMASCOPE_IMPORT_DIR ($import_dir); move it there or change the setting in .env" >&2; exit 2 ;;
     esac
     exec docker compose run --rm cli oss index "$inside" "${@:2}" ;;
-  doctor|demo|reindex|backup|restore|version|search|stats)
+  backup)
+    shift
+    dest="${1:-./data/backups/$(date -u +%Y%m%dT%H%M%SZ)}"
+    mkdir -p "$dest"
+    echo "postgres -> $dest/postgres.sql.gz"
+    docker compose exec -T postgres pg_dump -U semascope -d semascope | gzip > "$dest/postgres.sql.gz"
+    echo "solr collections -> $dest/solr/"
+    mkdir -p "$dest/solr"
+    for c in documents entities chunks; do
+      docker compose exec -T solr sh -c "rm -rf /var/solr/data/backup-$c && mkdir -p /var/solr/data/backup-$c && curl -s 'http://localhost:8983/solr/admin/collections?action=BACKUP&name=$c&collection=$c&location=/var/solr/data/backup-$c&wt=json' >/dev/null && tar -C /var/solr/data/backup-$c -cf - ." > "$dest/solr/$c.tar"
+    done
+    echo "blobs, previews, uploads, pack store -> $dest/data.tar.gz"
+    docker compose run --rm -T cli sh -c "tar -C /data -czf - --exclude=static --exclude=celerybeat-schedule ." > "$dest/data.tar.gz"
+    if [ "${2:-}" = "--with-graph" ]; then
+      echo "neo4j (stopped for the dump) -> $dest/neo4j.dump"
+      docker compose stop neo4j >/dev/null
+      docker compose run --rm -T --no-deps neo4j neo4j-admin database dump neo4j --to-stdout > "$dest/neo4j.dump"
+      docker compose start neo4j >/dev/null
+    else
+      echo "graph not dumped: it is a projection; 'oss reindex' rebuilds it (pass --with-graph to dump it)"
+    fi
+    cp .env.example "$dest/env.example"
+    echo "done: $dest (keep your .env with it; it holds the secrets the backup needs)" ;;
+  restore)
+    shift
+    src="${1:?usage: ./oss restore <backup-dir>}"
+    [ -f "$src/postgres.sql.gz" ] || { echo "no postgres.sql.gz in $src" >&2; exit 2; }
+    echo "stopping app services"
+    docker compose stop server worker beat >/dev/null
+    echo "postgres <- $src/postgres.sql.gz"
+    docker compose exec -T postgres psql -U semascope -d postgres -c "DROP DATABASE IF EXISTS semascope" -c "CREATE DATABASE semascope OWNER semascope" >/dev/null
+    gunzip -c "$src/postgres.sql.gz" | docker compose exec -T postgres psql -q -U semascope -d semascope >/dev/null
+    echo "data <- $src/data.tar.gz"
+    docker compose run --rm -T cli sh -c "tar -C /data -xzf -" < "$src/data.tar.gz"
+    for c in documents entities chunks; do
+      [ -f "$src/solr/$c.tar" ] || continue
+      echo "solr $c <- $src/solr/$c.tar"
+      docker compose exec -T solr sh -c "rm -rf /var/solr/data/restore-$c && mkdir -p /var/solr/data/restore-$c && tar -C /var/solr/data/restore-$c -xf - && curl -s 'http://localhost:8983/solr/admin/collections?action=DELETE&name=$c&wt=json' >/dev/null; curl -s 'http://localhost:8983/solr/admin/collections?action=RESTORE&name=$c&collection=$c&location=/var/solr/data/restore-$c&wt=json' >/dev/null" < "$src/solr/$c.tar"
+    done
+    if [ -f "$src/neo4j.dump" ]; then
+      echo "neo4j <- $src/neo4j.dump"
+      docker compose stop neo4j >/dev/null
+      docker compose run --rm -T --no-deps neo4j neo4j-admin database load neo4j --from-stdin --overwrite-destination=true < "$src/neo4j.dump"
+      docker compose start neo4j >/dev/null
+    fi
+    docker compose up -d --wait server worker beat >/dev/null
+    echo "restored from $src; run ./oss doctor" ;;
+  doctor|demo|reindex|version|search|stats)
     exec docker compose run --rm cli oss "$@" ;;
   help|-h|--help)
     cat <<'USAGE'
@@ -37,8 +84,8 @@ usage: ./oss <command>
   demo      load the public-domain demo corpus and pack
   index     index a path into a collection
   reindex   replay a collection from stored extraction
-  backup    dump every store into ./data/backups
-  restore   restore from a backup directory
+  backup    dump Postgres, the Solr collections and the data volume into ./data/backups/<stamp> (--with-graph adds Neo4j)
+  restore   restore from a backup directory (stops the app services while it runs)
   version   print the product version
 USAGE
     ;;

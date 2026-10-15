@@ -1,8 +1,9 @@
 from pathlib import Path
 
+from django.conf import settings
 from django.contrib import admin
 from django.http import FileResponse, Http404, HttpRequest, JsonResponse
-from django.urls import path, re_path
+from django.urls import include, path, re_path
 from django.views.decorators.cache import never_cache
 
 from oss_core import __version__
@@ -29,5 +30,6 @@ urlpatterns = [
     path("healthz", healthz),
     path("admin/", admin.site.urls),
     path("api/", api.urls),
-    re_path(r"^(?!api/|admin/|static/|assets/|healthz)(?P<path>.*)$", spa),
+    *([path("accounts/", include("allauth.urls"))] if settings.OIDC_ENABLED else []),
+    re_path(r"^(?!api/|admin/|accounts/|static/|assets/|healthz)(?P<path>.*)$", spa),
 ]
