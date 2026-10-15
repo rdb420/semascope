@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from oss_server.catalogue.models import ApiToken, Collection, Document, Source
+from oss_server.catalogue.models import ApiToken, Collection, CollectionRole, Document, Source
 
 
 @admin.register(Collection)
@@ -26,3 +26,9 @@ class DocumentAdmin(admin.ModelAdmin[Document]):
 class ApiTokenAdmin(admin.ModelAdmin[ApiToken]):
     list_display = ("name", "prefix", "user", "created_at", "last_used_at")
     readonly_fields = ("key_hash", "prefix")
+
+
+@admin.register(CollectionRole)
+class CollectionRoleAdmin(admin.ModelAdmin[CollectionRole]):
+    list_display = ("user", "collection", "role")
+    list_filter = ("role", "collection")

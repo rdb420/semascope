@@ -11,6 +11,7 @@ from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
+from oss_server.api.access import check
 from oss_server.catalogue.models import Collection, Document
 from oss_server.curation.models import Annotation, Event, Proposal, Review, Webhook
 from oss_server.curation.services import propose
@@ -181,6 +182,7 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
     """Accept, reject or defer a review item. Accept and reject become proposals."""
 
     r = get_object_or_404(Review.objects.select_related("collection", "document"), pk=review_id)
+    check(request, "curator", r.collection.slug)
     if payload.decision not in ("accept", "reject", "defer"):
         raise HttpError(422, "decision must be accept, reject or defer")
     if payload.decision == "defer":
@@ -267,6 +269,7 @@ def decide_tag(request: HttpRequest, doc_id: str, payload: TagDecisionIn) -> Pro
     """Accept, reject or add a tag on a document directly (no review item needed)."""
 
     d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "curator", d.collection.slug)
     present = any(t.get("iri") == payload.iri for t in d.tags)
     if payload.decision == "accept":
         kind = Proposal.Kind.ACCEPT_TAG if present else Proposal.Kind.ADD_TAG

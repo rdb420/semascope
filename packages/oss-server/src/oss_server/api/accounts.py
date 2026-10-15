@@ -20,6 +20,7 @@ class UserOut(Schema):
     username: str
     is_staff: bool
     is_superuser: bool
+    role: str = "reader"
 
 
 @router.get("/csrf", auth=None)
@@ -48,7 +49,12 @@ def logout_view(request: HttpRequest) -> tuple[int, None]:
 
 @router.get("/me", response=UserOut)
 def me(request: HttpRequest) -> UserOut:
+    from oss_server.api.access import role_for
+
     user = request.user
     return UserOut(
-        username=user.get_username(), is_staff=user.is_staff, is_superuser=user.is_superuser
+        username=user.get_username(),
+        is_staff=user.is_staff,
+        is_superuser=user.is_superuser,
+        role=role_for(user, None),
     )

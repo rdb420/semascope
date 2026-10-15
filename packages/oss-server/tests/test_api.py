@@ -12,7 +12,7 @@ from oss_server.catalogue.models import document_id
 
 @pytest.fixture
 def token(db: None) -> str:
-    user = User.objects.create_user("tester", password="x" * 16)
+    user = User.objects.create_user("tester", password="x" * 16, is_staff=True)
     return issue_token(user, "test")
 
 

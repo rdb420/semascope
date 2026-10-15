@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     semascope_admin_password: SecretStr | None = None
     semascope_api_token: SecretStr | None = None
     semascope_api_url: str = "http://server:8000"
+    semascope_default_role: str = "reader"  # role of a signed-in user with no explicit roles
 
     # Stores
     database_url: str = "postgresql://semascope:change-me@localhost:5432/semascope"

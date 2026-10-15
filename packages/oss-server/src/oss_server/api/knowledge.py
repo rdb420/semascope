@@ -12,6 +12,7 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from oss_core.config import get_settings
+from oss_server.api.access import check
 from oss_server.knowledge import store
 from oss_server.knowledge.importer import activate_pack, hierarchy, import_pack
 from oss_server.knowledge.models import Concept, Pack, PackDelta
@@ -132,6 +133,7 @@ def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Pack
 
     from oss_server.services import sync_dictionary
 
+    check(request, "editor")
     allowed = [Path("/import"), Path("/app/packs"), get_settings().semascope_data_dir / "packs"]
     allowed += [Path(__file__).resolve().parents[4] / "packs"]
     path = Path(payload.path).resolve()
@@ -194,6 +196,7 @@ def get_pack(request: HttpRequest, pack_id: str, version: str | None = None) -> 
 def activate(request: HttpRequest, pack_id: str, version: str) -> PackOut:
     from oss_server.services import sync_dictionary
 
+    check(request, "editor")
     p = get_object_or_404(Pack, pack_id=pack_id, version=version)
     activate_pack(p)
     sync_dictionary(p.pack_id, p.version)
@@ -362,6 +365,7 @@ def create_delta(request: HttpRequest, pack_id: str, payload: DeltaIn) -> tuple[
 
     pack = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
     collection = get_object_or_404(Collection, slug=payload.collection)
+    check(request, "curator", collection.slug)
     if payload.kind not in PackDelta.Kind.values:
         raise HttpError(422, f"kind must be one of {PackDelta.Kind.values}")
     required = {

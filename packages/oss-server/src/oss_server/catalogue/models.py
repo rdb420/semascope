@@ -142,3 +142,23 @@ class SavedSearch(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class CollectionRole(models.Model):
+    """A user's role on one collection, or on every collection when `collection` is empty."""
+
+    ROLE_CHOICES = [(r, r) for r in ("reader", "curator", "editor", "admin")]
+
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="collection_roles")
+    collection = models.ForeignKey(
+        Collection, on_delete=models.CASCADE, null=True, blank=True, related_name="roles"
+    )
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default="reader")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "collection"], name="uniq_collection_role")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} is {self.role} on {self.collection or 'every collection'}"

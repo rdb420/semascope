@@ -80,7 +80,7 @@ def test_knowledge_api(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     from oss_server.knowledge import store as store_mod
 
     monkeypatch.setattr(store_mod, "store", lambda: _memory_store(ox))
-    user = User.objects.create_user("k", password="z" * 16)
+    user = User.objects.create_user("k", password="z" * 16, is_staff=True)
     auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
     import_pack(BASE)
     packs = client.get("/api/knowledge/packs", headers=auth).json()
@@ -93,12 +93,15 @@ def test_knowledge_api(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(concepts) == 10
     one = client.get("/api/knowledge/concepts", {"iri": concepts[0]["iri"]}, headers=auth).json()
     assert one["pref_label"] == concepts[0]["pref_label"]
+    plain = {
+        "Authorization": f"Bearer {issue_token(User.objects.create_user('plain', password='z' * 16), 't')}"
+    }
     assert (
         client.post(
             "/api/knowledge/packs/semascope-base/sparql",
             data={"query": "SELECT * WHERE {?s ?p ?o}"},
             content_type="application/json",
-            headers=auth,
+            headers=plain,
         ).status_code
         == 403
     )
@@ -158,7 +161,7 @@ def test_deltas_export_as_bundle_fragment(client: Client, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(store_mod, "store", lambda: _memory_store(ox))
     monkeypatch.setattr(kapi, "_apply_draft_label", lambda *a, **k: None)
-    user = User.objects.create_user("cur", password="w" * 16)
+    user = User.objects.create_user("cur", password="w" * 16, is_staff=True)
     auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
     import_pack(REPO / "packs" / "demo" / "pack")
     Collection.objects.create(slug="texts", name="texts")

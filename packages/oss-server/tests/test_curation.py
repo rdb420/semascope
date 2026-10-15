@@ -98,7 +98,7 @@ def test_review_decisions_through_the_api(
     doc: Document, client: Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _quiet(monkeypatch)
-    user = User.objects.create_user("cur", password="v" * 16)
+    user = User.objects.create_user("cur", password="v" * 16, is_staff=True)
     auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
     services.queue_reviews(doc)
     items = client.get("/api/curation/reviews?collection=cur", headers=auth).json()
@@ -133,7 +133,7 @@ def test_annotations_and_direct_tag_decisions(
     doc: Document, client: Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _quiet(monkeypatch)
-    user = User.objects.create_user("cur2", password="v" * 16)
+    user = User.objects.create_user("cur2", password="v" * 16, is_staff=True)
     auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
     r = client.post(
         f"/api/curation/documents/{doc.id}/annotations",
@@ -154,4 +154,7 @@ def test_annotations_and_direct_tag_decisions(
     assert r.status_code == 200 and r.json()["kind"] == "add_tag"
     tags = client.get(f"/api/curation/documents/{doc.id}/tags", headers=auth).json()
     assert {t["iri"] for t in tags} >= {"https://p/themes#flood"}
-    assert client.get("/api/curation/webhooks", headers=auth).status_code == 403
+    plain = {
+        "Authorization": f"Bearer {issue_token(User.objects.create_user('plain', password='v' * 16), 't')}"
+    }
+    assert client.get("/api/curation/webhooks", headers=plain).status_code == 403

@@ -15,6 +15,7 @@ from ninja.files import UploadedFile
 from oss_core import __version__
 from oss_server.api import accounts, curation, graph, knowledge, reconcile, searchplus
 from oss_server.api import search as search_mod
+from oss_server.api.access import check
 from oss_server.api.auth import AUTH
 from oss_server.api.schemas import (
     CollectionIn,
@@ -65,6 +66,7 @@ def list_collections(request: HttpRequest) -> list[CollectionOut]:
 
 @api.post("/collections", response={201: CollectionOut}, tags=["collections"])
 def create_collection(request: HttpRequest, payload: CollectionIn) -> tuple[int, CollectionOut]:
+    check(request, "editor")
     if Collection.objects.filter(slug=payload.slug).exists():
         raise HttpError(409, f"collection {payload.slug} exists")
     c = Collection.objects.create(
@@ -91,12 +93,14 @@ def reindex_collection_view(request: HttpRequest, slug: str) -> tuple[int, dict[
     from oss_server.pipeline.tasks import reindex_collection
 
     get_object_or_404(Collection, slug=slug)
+    check(request, "editor", slug)
     reindex_collection.delay(slug)
     return 202, {"queued": 1}
 
 
 @api.delete("/collections/{slug}", response={204: None}, tags=["collections"])
 def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
+    check(request, "admin", slug)
     c = get_object_or_404(Collection, slug=slug)
     solr_client().delete_by_query(solr_documents_collection(), f'collection_s:"{slug}"')
     c.delete()
@@ -136,6 +140,7 @@ def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[i
     from oss_pipeline.registry import connectors
 
     c = get_object_or_404(Collection, slug=slug)
+    check(request, "editor", slug)
     if payload.connector not in connectors():
         raise HttpError(
             422, f"unknown connector {payload.connector}; known: {sorted(connectors())}"
@@ -160,6 +165,7 @@ def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
     from oss_server.pipeline.tasks import discover_source
 
     s = get_object_or_404(Source, pk=source_id)
+    check(request, "editor", s.collection.slug)
     result = discover_source.delay(s.id)
     return 202, RunOut(source_id=s.id, task_id=str(result.id))
 
@@ -167,6 +173,7 @@ def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
 @api.delete("/sources/{source_id}", response={204: None}, tags=["sources"])
 def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
     s = get_object_or_404(Source, pk=source_id)
+    check(request, "editor", s.collection.slug)
     solr_client().delete_by_query(solr_documents_collection(), f"source_id_s:{s.id}")
     s.delete()
     return 204, None
@@ -184,6 +191,7 @@ def upload(
     from oss_server.pipeline.tasks import process_document
 
     c = get_object_or_404(Collection, slug=slug)
+    check(request, "editor", slug)
     data_dir = get_settings().semascope_data_dir
     source, _ = Source.objects.get_or_create(
         collection=c,
