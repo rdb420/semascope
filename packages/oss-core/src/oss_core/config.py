@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     neo4j_password: SecretStr = Field(default=SecretStr("change-me"))
     tika_url: str = "http://localhost:9998"
 
+    # Embeddings: fastembed (bundled, CPU) or openai (any /embeddings endpoint)
+    semascope_embedder: Literal["fastembed", "openai"] = "fastembed"
+    semascope_embed_model: str = "BAAI/bge-small-en-v1.5"
+    semascope_model_cache: Path = Path("/app/models")
+
     # Optional answer generation through any OpenAI-compatible endpoint
     semascope_llm_base_url: str | None = None
     semascope_llm_api_key: SecretStr | None = None

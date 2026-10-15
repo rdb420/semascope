@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Semascope "chunks" collection: one passage per document chunk with its dense vector, for Solr 10. -->
+<config>
+  <luceneMatchVersion>10.0</luceneMatchVersion>
+  <dataDir>${solr.data.dir:}</dataDir>
+  <directoryFactory name="DirectoryFactory" class="${solr.directoryFactory:solr.NRTCachingDirectoryFactory}"/>
+  <codecFactory class="solr.SchemaCodecFactory"/>
+  <schemaFactory class="ManagedIndexSchemaFactory">
+    <bool name="mutable">true</bool>
+    <str name="managedSchemaResourceName">managed-schema.xml</str>
+  </schemaFactory>
+  <indexConfig>
+    <lockType>${solr.lock.type:native}</lockType>
+  </indexConfig>
+  <updateHandler class="solr.DirectUpdateHandler2">
+    <updateLog>
+      <str name="dir">${solr.ulog.dir:}</str>
+    </updateLog>
+    <autoCommit>
+      <maxTime>${solr.autoCommit.maxTime:15000}</maxTime>
+      <openSearcher>false</openSearcher>
+    </autoCommit>
+    <autoSoftCommit>
+      <maxTime>${solr.autoSoftCommit.maxTime:3000}</maxTime>
+    </autoSoftCommit>
+  </updateHandler>
+  <query>
+    <filterCache size="256" initialSize="256" autowarmCount="0"/>
+    <queryResultCache size="256" initialSize="256" autowarmCount="0"/>
+    <documentCache size="1024" initialSize="512" autowarmCount="0"/>
+    <useColdSearcher>false</useColdSearcher>
+  </query>
+  <requestDispatcher>
+    <httpCaching never304="true"/>
+  </requestDispatcher>
+  <requestHandler name="/select" class="solr.SearchHandler">
+    <lst name="defaults">
+      <str name="echoParams">none</str>
+      <str name="wt">json</str>
+      <str name="fl">id,document_id,collection_s,page_i,position_i,score</str>
+      <int name="rows">20</int>
+    </lst>
+  </requestHandler>
+  <updateRequestProcessorChain name="semascope" default="true">
+    <processor class="solr.LogUpdateProcessorFactory"/>
+    <processor class="solr.DistributedUpdateProcessorFactory"/>
+    <processor class="solr.RunUpdateProcessorFactory"/>
+  </updateRequestProcessorChain>
+</config>

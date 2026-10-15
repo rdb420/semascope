@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Semascope "chunks" schema: passage text and a 384-d dense vector per chunk (Solr 10). -->
+<schema name="semascope-chunks" version="1.7">
+  <uniqueKey>id</uniqueKey>
+  <field name="id" type="string" indexed="true" stored="true" required="true"/>
+  <field name="_version_" type="plong" indexed="false" stored="false"/>
+  <field name="document_id" type="string" indexed="true" stored="true" required="true" docValues="true"/>
+  <field name="collection_s" type="string" indexed="true" stored="true" required="true" docValues="true"/>
+  <field name="position_i" type="pint" indexed="true" stored="true" docValues="true"/>
+  <field name="page_i" type="pint" indexed="true" stored="true" docValues="true"/>
+  <field name="text_txt" type="text_general" indexed="true" stored="true"/>
+  <field name="vector" type="knn_vector_384" indexed="true" stored="false"/>
+  <field name="model_s" type="string" indexed="true" stored="true" docValues="true"/>
+
+  <fieldType name="string" class="solr.StrField" sortMissingLast="true" docValues="true"/>
+  <fieldType name="pint" class="solr.IntPointField" docValues="true"/>
+  <fieldType name="plong" class="solr.LongPointField" docValues="true"/>
+  <fieldType name="knn_vector_384" class="solr.DenseVectorField" vectorDimension="384" similarityFunction="cosine" knnAlgorithm="hnsw" hnswMaxConnections="16" hnswBeamWidth="100"/>
+  <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100">
+    <analyzer type="index">
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="asciiFolding"/>
+    </analyzer>
+    <analyzer type="query">
+      <tokenizer name="standard"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
+      <filter name="lowercase"/>
+      <filter name="asciiFolding"/>
+    </analyzer>
+  </fieldType>
+</schema>

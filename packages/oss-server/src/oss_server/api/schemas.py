@@ -85,6 +85,7 @@ class SearchIn(Schema):
     page: int = 1
     page_size: int = 10
     highlight: bool = True
+    mode: str = "keyword"  # keyword | semantic | hybrid
     histogram: str | None = None  # a date field to bucket, e.g. modified_dt
     histogram_gap: str = "+1YEAR"  # Solr gap: +1DAY, +1MONTH, +1YEAR, +10YEARS
 
@@ -110,6 +111,7 @@ class SearchHit(Schema):
     indexed_at: str | None
     preview_pages: int
     snippets: list[str]
+    passages: list[str] = []  # best-matching chunks in semantic and hybrid modes
 
 
 class SearchOut(Schema):

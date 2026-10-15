@@ -31,6 +31,12 @@ COPY --from=web /web-out packages/oss-server/src/oss_server/static/web
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --all-packages
 
+# The default embedding model is downloaded at build time so semantic search works offline.
+ENV SEMASCOPE_MODEL_CACHE=/app/models FASTEMBED_CACHE_PATH=/app/models
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv run --no-sync python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/app/models')" \
+    || echo "embedding model not baked (no network?)"
+
 # The demo corpus is fetched from Project Gutenberg at build time (header, footer
 # and trademark stripped by the script) so `oss demo` works offline afterwards.
 RUN --mount=type=cache,target=/root/.cache/uv \

@@ -156,5 +156,102 @@ def search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut
     extra = [f for f in scheme_facets() if f not in req.facets]
     if extra:
         req = req.model_copy(update={"facets": [*req.facets, *extra]})
+    if req.mode in ("semantic", "hybrid") and req.q.strip() and req.q.strip() != "*:*":
+        return _semantic_search(client, collection_name, req)
     body = client.select(collection_name, **build_params(req))
     return parse_response(req, body)
+
+
+def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any]]:
+    """Top-k chunks by vector similarity, with their passage text."""
+
+    from oss_core.config import get_settings
+    from oss_pipeline.embedders import get_embedder
+    from oss_server.services import solr_chunks_collection
+
+    s = get_settings()
+    embedder = get_embedder(s.semascope_embedder, s.semascope_embed_model)
+    query_vec = getattr(embedder, "embed_query", None)
+    vector = query_vec(req.q) if query_vec else embedder.embed([req.q])[0]
+    fq = [f'collection_s:"{req.collection}"'] if req.collection else []
+    body = client.select(
+        solr_chunks_collection(),
+        q="{!knn f=vector topK=" + str(k) + "}" + "[" + ",".join(f"{x:.6f}" for x in vector) + "]",
+        fq=fq,
+        rows=k,
+        fl="id,document_id,text_txt,page_i,score",
+        hl=False,
+    )
+    return list(body.get("response", {}).get("docs", []))
+
+
+def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
+    """Semantic: rank documents by their best chunk. Hybrid: reciprocal rank fusion with keyword."""
+
+    k = max(50, req.page_size * 10)
+    chunks = _knn_chunks(client, req, k)
+    doc_order: list[str] = []
+    passages: dict[str, list[str]] = {}
+    for ch in chunks:
+        did = str(ch["document_id"])
+        if did not in passages:
+            doc_order.append(did)
+            passages[did] = []
+        if len(passages[did]) < 2:
+            passages[did].append(str(ch.get("text_txt") or "")[:400])
+    ranks: dict[str, float] = {did: 1.0 / (60 + i) for i, did in enumerate(doc_order)}
+    if req.mode == "hybrid":
+        kw = req.model_copy(
+            update={"page": 1, "page_size": k, "facets": [], "highlight": False, "mode": "keyword"}
+        )
+        kw_body = client.select(collection_name, **build_params(kw))
+        for i, d in enumerate(kw_body.get("response", {}).get("docs", [])):
+            ranks[d["id"]] = ranks.get(d["id"], 0.0) + 1.0 / (60 + i)
+    ordered = sorted(ranks, key=lambda d: -ranks[d])
+    start = (max(req.page, 1) - 1) * req.page_size
+    page_ids = ordered[start : start + req.page_size]
+    if not page_ids:
+        return SearchOut(
+            total=len(ordered),
+            page=req.page,
+            page_size=req.page_size,
+            took_ms=0,
+            hits=[],
+            facets={},
+            histogram=[],
+        )
+    # fetch the page's documents, with facets over the whole fused set
+    id_query = " OR ".join(f'id:"{d}"' for d in ordered[:1000])
+    fetch = req.model_copy(
+        update={
+            "q": id_query,
+            "page": 1,
+            "page_size": len(ordered[:1000]),
+            "highlight": req.highlight,
+            "mode": "keyword",
+        }
+    )
+    params = build_params(fetch)
+    params["q"] = id_query
+    params["defType"] = "lucene"
+    params["hl.q"] = req.q
+    body = client.select(collection_name, **params)
+    parsed = parse_response(fetch, body)
+    by_id = {h.id: h for h in parsed.hits}
+    hits = []
+    for did in page_ids:
+        hit = by_id.get(did)
+        if hit is None:
+            continue
+        hit.passages = passages.get(did, [])
+        hit.score = round(ranks[did], 5)
+        hits.append(hit)
+    return SearchOut(
+        total=len(ordered),
+        page=req.page,
+        page_size=req.page_size,
+        took_ms=parsed.took_ms,
+        hits=hits,
+        facets=parsed.facets,
+        histogram=parsed.histogram,
+    )

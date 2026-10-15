@@ -23,6 +23,10 @@ def solr_entities_collection() -> str:
     return "entities"
 
 
+def solr_chunks_collection() -> str:
+    return "chunks"
+
+
 @lru_cache(maxsize=1)
 def solr_client() -> SolrClient:
     s = get_settings()
@@ -45,7 +49,7 @@ def bootstrap_solr() -> list[str]:
 
     created: list[str] = []
     client = solr_client()
-    for name in ("documents", "entities"):
+    for name in ("documents", "entities", "chunks"):
         if client.ensure_collection(name, f"semascope-{name}", configset_dir(name)):
             created.append(name)
             log.info("solr: created collection %s", name)

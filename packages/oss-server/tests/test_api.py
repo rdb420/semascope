@@ -153,3 +153,18 @@ def test_histogram_params_and_parse() -> None:
     }
     out = parse_response(req, body)
     assert [(h.value, h.count) for h in out.histogram] == [("2025-01-01", 3), ("2026-01-01", 5)]
+
+
+def test_semantic_mode_falls_back_to_keyword_for_match_all() -> None:
+    from unittest import mock
+
+    from oss_server.api.search import search
+
+    client = mock.Mock()
+    client.select.return_value = {
+        "responseHeader": {"QTime": 1},
+        "response": {"numFound": 0, "docs": []},
+    }
+    with mock.patch("oss_server.api.search.scheme_facets", return_value=[]):
+        out = search(client, "documents", SearchIn(q="*:*", mode="semantic"))
+    assert out.total == 0 and client.select.call_count == 1

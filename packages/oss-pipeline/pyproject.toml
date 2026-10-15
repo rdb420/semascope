@@ -18,13 +18,13 @@ dependencies = [
     "feedparser>=6.0",
     "openpyxl>=3.1",
     "boto3>=1.35",
+    "fastembed>=0.5",
     "spacy>=3.8,<3.9",
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "xx_ent_wiki_sm @ https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl",
 ]
 
 [project.optional-dependencies]
-embed = ["fastembed>=0.5"]
 pst = ["pypff"]
 
 [project.entry-points."oss.connectors"]

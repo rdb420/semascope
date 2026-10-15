@@ -21,6 +21,7 @@ PROFILES: dict[str, list[str]] = {
         "ner",
         "link",
         "preview",
+        "embed",
         "index",
         "graph",
     ],
@@ -34,6 +35,7 @@ PROFILES: dict[str, list[str]] = {
         "link",
         "validate",
         "preview",
+        "embed",
         "index",
         "graph",
     ],
@@ -77,6 +79,7 @@ def connectors() -> dict[str, Connector]:
 
 
 def stages() -> dict[str, Stage]:
+    from oss_pipeline.stages.embed import EmbedStage
     from oss_pipeline.stages.extract import ExtractStage
     from oss_pipeline.stages.fetch import FetchStage
     from oss_pipeline.stages.graph import GraphStage
@@ -99,6 +102,7 @@ def stages() -> dict[str, Stage]:
         "link": LinkStage,
         "validate": ValidateStage,
         "preview": PreviewStage,
+        "embed": EmbedStage,
         "index": IndexStage,
         "graph": GraphStage,
     }
