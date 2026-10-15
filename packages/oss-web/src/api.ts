@@ -17,6 +17,7 @@ export type SearchHit = {
   indexed_at: string | null;
   preview_pages: number;
   snippets: string[];
+  passages: string[];
 };
 export type SearchOut = {
   total: number;
@@ -37,6 +38,7 @@ export type SearchIn = {
   sort?: string | null;
   histogram?: string | null;
   histogram_gap?: string;
+  mode?: "keyword" | "semantic" | "hybrid";
 };
 export type Place = { iri: string; label: string; type: string; lat: number; lon: number; docs: number };
 export type SavedSearch = { id: number; name: string; query: SearchIn; alert: boolean; last_total: number };

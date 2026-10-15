@@ -12,6 +12,7 @@ export type SearchParams = {
   page?: number;
   f?: Record<string, string[]>;
   view?: "list" | "media" | "terms";
+  mode?: "semantic" | "hybrid";
 };
 
 export function searchSearchSchema(raw: Record<string, unknown>): SearchParams {
@@ -21,6 +22,7 @@ export function searchSearchSchema(raw: Record<string, unknown>): SearchParams {
   if (typeof raw.page === "number" && raw.page > 1) out.page = raw.page;
   if (raw.f && typeof raw.f === "object") out.f = raw.f as Record<string, string[]>;
   if (raw.view === "media" || raw.view === "terms") out.view = raw.view;
+  if (raw.mode === "semantic" || raw.mode === "hybrid") out.mode = raw.mode;
   return out;
 }
 
@@ -78,6 +80,7 @@ export function SearchPage() {
     page_size: view === "media" ? 40 : PAGE_SIZE,
     histogram: "modified_dt",
     histogram_gap: "+1YEAR",
+    mode: params.mode ?? "keyword",
   };
   const results = useQuery({
     queryKey: ["search", params],
@@ -136,6 +139,16 @@ export function SearchPage() {
           placeholder="Search… (phrases in quotes, field:value, AND / OR / NOT)"
           className="flex-1 rounded border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
         />
+        <select
+          value={params.mode ?? "keyword"}
+          onChange={(e) => update({ mode: e.target.value === "keyword" ? undefined : (e.target.value as "semantic" | "hybrid"), page: undefined })}
+          title="keyword: words and phrases · semantic: meaning, by passage · hybrid: both, fused"
+          className="rounded border border-zinc-300 bg-white px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <option value="keyword">keyword</option>
+          <option value="semantic">semantic</option>
+          <option value="hybrid">hybrid</option>
+        </select>
         <button className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Search</button>
       </form>
 
@@ -383,6 +396,11 @@ function Hit({ hit }: { hit: SearchHit }) {
         {hit.snippets.map((s, i) => (
           <li key={i} dangerouslySetInnerHTML={{ __html: sanitiseSnippet(s) }} />
         ))}
+        {hit.passages?.map((p, i) => (
+          <li key={`p${i}`} className="border-l-2 border-blue-300 pl-2 text-zinc-600 dark:text-zinc-300">
+            {p}
+          </li>
+        ))}
       </ul>
       <p className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
         {hit.content_type_group && <span>{hit.content_type_group}</span>}
@@ -409,6 +427,7 @@ function clean(p: SearchParams): SearchParams {
   if (p.page && p.page > 1) out.page = p.page;
   if (p.f && Object.keys(p.f).length) out.f = p.f;
   if (p.view && p.view !== "list") out.view = p.view;
+  if (p.mode) out.mode = p.mode;
   return out;
 }
 
