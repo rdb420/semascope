@@ -10,7 +10,7 @@ bundles, called *packs*), and lets people explore and curate the result through
 faceted search, concept and entity pages, a document-entity graph in Neo4j, and
 review queues whose decisions are exported for whatever system owns the data.
 
-Status: **1.0.0-rc.1.** Every phase of the plan is implemented.
+Status: **1.0.0-rc.2.** Every phase of the plan is implemented, and the heavy stages run on CPU, on a local GPU or through remote services (ADR-0008).
 From a fresh clone the stack starts, indexes folders, uploads, web pages,
 feeds, mail, archives, tables, S3 buckets and RDF (including OCR of scanned
 pages), tags every document against the knowledge models you import

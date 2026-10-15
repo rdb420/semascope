@@ -31,6 +31,9 @@ configuration in that site's repository.
 
 ## Consequences
 
+The GPU image carries NVIDIA's CUDA runtime libraries from pip
+(redistributable under the CUDA EULA) beside the Apache-2.0 and BSD code;
+it is the one image that is not entirely OSI-licensed.
 Zero-shot entity providers ask for the active packs' classes, so packs
 improve entity recognition without training. The GPU image is amd64 only
 and about 15 GB (PyTorch and the CUDA 13 libraries from pip), against 1.4 GB

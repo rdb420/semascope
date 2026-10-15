@@ -20,6 +20,11 @@ Search (GPL-3.0) inspired it, and that is where the relationship ends.
 Apache-2.0, MIT, BSD-2/3, ISC, MPL-2.0 (file-level), PSF, Unlicense, CC0. Ask
 in an issue before adding anything else. LGPL is acceptable only as an
 optional extra that is not installed by default (for example `pypff`).
+The GPU image (`deploy/docker/Dockerfile.gpu`) additionally installs
+`fastembed-gpu` and `gliner2` (Apache-2.0), PyTorch (BSD-3) and NVIDIA's
+CUDA runtime libraries from pip, which are redistributable under the CUDA
+EULA; keep that list in the Dockerfile and in ADR-0008.
+
 Non-OSI licences (including the Neo4j Visualization Library licence) are not
 accepted in the product.
 

@@ -28,8 +28,8 @@ navigable, reviewable knowledge base, on your own hardware.
   survives reindexing, and leaves through the outbox and webhooks for the
   system that owns your data.
 - **Run it yourself**: one `init`, one `up`; local accounts or single
-  sign-on, roles per collection, backup and restore, optional observability
-  and GPU profiles.
+  sign-on, roles per collection, backup and restore, optional observability,
+  and the heavy stages on CPU, on a local GPU or through remote services.
 
 Start with the quick start in the README, then read [Concepts](concepts.md).
 The [development plan](plan.md), [quality numbers](quality.md),
