@@ -23,6 +23,8 @@ ALLOWED_FACETS = {
     "organisations_ss",
     "places_ss",
     "concept_labels_ss",
+    "entity_labels_ss",
+    "pack_versions_ss",
 }
 HIT_FIELDS = (
     "id,collection_s,source_id_s,uri_s,title_txt,media_type_s,content_type_group_s,language_s,"

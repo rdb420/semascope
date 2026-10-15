@@ -241,6 +241,44 @@ def stats() -> None:
         console.print(_check(api.get("/stats")))
 
 
+@pack_app.command("import")
+def pack_import(
+    path: Path = typer.Argument(..., exists=True, file_okay=False),
+    activate: bool = typer.Option(True, help="Make this version the active one"),
+) -> None:
+    """Import a bundle directory into the running Semascope (path as seen by the server)."""
+
+    with _api() as api:
+        out = _check(
+            api.post("/knowledge/packs/import", json={"path": str(path), "activate": activate})
+        )
+    terms = out["counts"].get("terms")
+    label = f"{out['pack_id']}@{out['version']}"
+    console.print(f"[green]imported[/green] {label} status={out['status']} terms={terms}")
+    cq = out.get("cq_results") or {}
+    if cq.get("tests"):
+        console.print(f"competency tests: {cq.get('passed')}/{cq.get('tests')} passed")
+
+
+@pack_app.command("list")
+def pack_list() -> None:
+    """Imported packs and their status."""
+
+    with _api() as api:
+        packs = _check(api.get("/knowledge/packs"))
+    table = Table("pack", "version", "status", "terms", "triples", "imported")
+    for p in packs:
+        table.add_row(
+            p["pack_id"],
+            p["version"],
+            p["status"],
+            str(p["counts"].get("terms")),
+            str(p["counts"].get("triples")),
+            p["imported_at"][:19],
+        )
+    console.print(table)
+
+
 @pack_app.command("validate")
 def pack_validate(
     path: Path = typer.Argument(..., exists=True, file_okay=False),

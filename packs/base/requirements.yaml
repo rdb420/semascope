@@ -49,6 +49,13 @@ competency_questions:
     priority: core
     purpose: provenance
     status: active
+# Product-specific tagging policy (ignored by the ontology-skill validator):
+# the base model's scheme is a derived facet, not a text dictionary, and its
+# individuals are competency-question fixtures.
+semascope:
+  tag_schemes: []
+  tag_individuals: false
+
 release_policy:
   require_all_core_cqs: true
   require_annotation_coverage: 1.0

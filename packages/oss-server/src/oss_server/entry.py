@@ -51,6 +51,13 @@ def prepare() -> None:
             log.info("created Solr collections: %s", created)
     except Exception as exc:  # noqa: BLE001
         log.error("Solr bootstrap failed: %s", exc)
+        return
+    try:
+        from oss_server.services import import_bundled_packs
+
+        log.info("packs: %s", import_bundled_packs())
+    except Exception:  # noqa: BLE001
+        log.exception("bundled pack import failed")
 
 
 def server() -> None:

@@ -11,9 +11,19 @@ from oss_core.contracts import Connector, Profile, Stage
 log = logging.getLogger(__name__)
 
 PROFILES: dict[str, list[str]] = {
-    "fast": ["fetch", "extract", "structure", "index"],
-    "default": ["fetch", "extract", "structure", "patterns", "preview", "index"],
-    "full": ["fetch", "extract", "structure", "patterns", "preview", "index"],
+    "fast": ["fetch", "extract", "structure", "tag", "index"],
+    "default": [
+        "fetch",
+        "extract",
+        "structure",
+        "patterns",
+        "tag",
+        "ner",
+        "link",
+        "preview",
+        "index",
+    ],
+    "full": ["fetch", "extract", "structure", "patterns", "tag", "ner", "link", "preview", "index"],
 }
 
 
@@ -45,15 +55,21 @@ def stages() -> dict[str, Stage]:
     from oss_pipeline.stages.extract import ExtractStage
     from oss_pipeline.stages.fetch import FetchStage
     from oss_pipeline.stages.index import IndexStage
+    from oss_pipeline.stages.link import LinkStage
+    from oss_pipeline.stages.ner import NerStage
     from oss_pipeline.stages.patterns import PatternsStage
     from oss_pipeline.stages.preview import PreviewStage
     from oss_pipeline.stages.structure import StructureStage
+    from oss_pipeline.stages.tag import TagStage
 
     found: dict[str, Any] = {
         "fetch": FetchStage,
         "extract": ExtractStage,
         "structure": StructureStage,
         "patterns": PatternsStage,
+        "tag": TagStage,
+        "ner": NerStage,
+        "link": LinkStage,
         "preview": PreviewStage,
         "index": IndexStage,
     }

@@ -28,9 +28,11 @@ properties), `taxonomy.ttl` (SKOS schemes and concepts), `shapes.ttl` (SHACL),
 `instances.ttl` (named individuals), `queries/` (competency questions),
 evidence and decisions, and a `release-manifest.json` of content hashes.
 Semascope imports, validates, versions, diffs and exports packs; it never
-edits one silently. SKOS concepts and individuals tag text; OWL classes become
-entity types, facet families and graph labels; shapes validate extracted
-metadata; competency questions run at import.
+edits one silently. SKOS concepts and, when the pack opts in, named individuals tag text
+(`semascope.tag_schemes` and `semascope.tag_individuals` in
+`requirements.yaml`); OWL classes become entity types, facet families and
+graph labels; shapes validate extracted metadata; competency questions run
+at import against the pack's triples in the embedded store.
 
 ## Profile
 

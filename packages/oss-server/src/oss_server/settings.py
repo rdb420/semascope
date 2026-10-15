@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "oss_server.catalogue",
+    "oss_server.knowledge",
 ]
 
 MIDDLEWARE = [

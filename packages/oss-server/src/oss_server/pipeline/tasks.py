@@ -25,6 +25,20 @@ from oss_server.services import solr_client, solr_documents_collection
 log = logging.getLogger(__name__)
 
 
+def pack_versions_for(collection: Collection) -> dict[str, str]:
+    """Active pack versions this collection tags with: its bindings, or every active pack."""
+
+    from oss_server.knowledge.models import Pack, PackBinding
+
+    active = {p.pack_id: p.version for p in Pack.objects.filter(status=Pack.Status.ACTIVE)}
+    bound = list(
+        PackBinding.objects.filter(collection=collection, enabled=True).order_by("precedence")
+    )
+    if not bound:
+        return active
+    return {b.pack_id: active[b.pack_id] for b in bound if b.pack_id in active}
+
+
 def stage_settings(collection: Collection) -> dict[str, Any]:
     s = get_settings()
     base: dict[str, Any] = {
@@ -34,6 +48,7 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "solr_user": s.solr_user,
         "solr_password": s.solr_password.get_secret_value() if s.solr_password else None,
         "solr_documents": solr_documents_collection(),
+        "solr_entities": "entities",
         "ocr": True,
     }
     base.update(collection.settings.get("pipeline", {}))
@@ -174,6 +189,20 @@ def reindex_document(doc_id: str) -> str:
     work = run_profile(stages, work, ctx)
     _store(doc_row, work)
     return doc_row.status
+
+
+@shared_task(name="semascope.reindex_collection", queue="io")
+def reindex_collection(slug: str) -> int:
+    """Queue a reindex of every indexed document in a collection (after a pack change)."""
+
+    ids = list(
+        Document.objects.filter(collection__slug=slug, status=Document.Status.INDEXED).values_list(
+            "id", flat=True
+        )
+    )
+    for doc_id in ids:
+        reindex_document.delay(doc_id)
+    return len(ids)
 
 
 @shared_task(name="semascope.tick", queue="io")

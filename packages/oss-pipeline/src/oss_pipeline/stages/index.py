@@ -8,7 +8,16 @@ from typing import Any
 from oss_core.contracts import StageContext, WorkingDocument
 from oss_pipeline.clients.solr import SolrClient
 
-ENTITY_FIELDS = ("emails", "urls", "phones", "money", "hashtags")
+ENTITY_FIELDS = (
+    "emails",
+    "urls",
+    "phones",
+    "money",
+    "hashtags",
+    "persons",
+    "organisations",
+    "places",
+)
 
 
 def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -> dict[str, Any]:

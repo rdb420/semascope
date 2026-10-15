@@ -15,10 +15,12 @@ dependencies = [
     "defusedxml>=0.7",
     "pypdfium2>=4.30",
     "pillow>=11",
+    "spacy>=3.8,<3.9",
+    "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "xx_ent_wiki_sm @ https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl",
 ]
 
 [project.optional-dependencies]
-nlp = ["spacy>=3.8,<3.9"]
 embed = ["fastembed>=0.5"]
 pst = ["pypff"]
 
@@ -28,6 +30,9 @@ pst = ["pypff"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/oss_pipeline"]

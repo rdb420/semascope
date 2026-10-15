@@ -19,3 +19,18 @@ skill's scripts in CI, which is the first integration test of the importer.
 - Every tag carries `pack_id` and `pack_version`; a pack upgrade is a diff
   and a reindex plan, never a silent change.
 - A contract change is a minor release of Semascope with a migration.
+
+## Tagging policy
+
+The contract has no notion of "which labels may tag text", and its
+`instances.ttl` is defined as fixtures. Semascope therefore reads an optional
+top-level `semascope:` block in `requirements.yaml`, which the skill's
+validator ignores:
+
+```yaml
+semascope:
+  tag_schemes: [traditions, themes]   # omit for every scheme; [] for none
+  tag_individuals: true               # default false: instances are fixtures
+```
+
+Classes never tag by label. `proposed` and `disputed` terms never tag.

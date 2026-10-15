@@ -897,6 +897,14 @@ wheels = [
 ]
 
 [[package]]
+name = "en-core-web-sm"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl", hash = "sha256:1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85" },
+]
+
+[[package]]
 name = "fastembed"
 version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2419,6 +2427,7 @@ source = { editable = "packages/oss-pipeline" }
 dependencies = [
     { name = "celery", extra = ["redis"] },
     { name = "defusedxml" },
+    { name = "en-core-web-sm" },
     { name = "httpx" },
     { name = "neo4j" },
     { name = "oss-core" },
@@ -2426,15 +2435,14 @@ dependencies = [
     { name = "pyoxigraph" },
     { name = "pypdfium2" },
     { name = "pyshacl" },
+    { name = "spacy" },
     { name = "watchdog" },
+    { name = "xx-ent-wiki-sm" },
 ]
 
 [package.optional-dependencies]
 embed = [
     { name = "fastembed" },
-]
-nlp = [
-    { name = "spacy" },
 ]
 pst = [
     { name = "pypff" },
@@ -2444,6 +2452,7 @@ pst = [
 requires-dist = [
     { name = "celery", extras = ["redis"], specifier = ">=5.6" },
     { name = "defusedxml", specifier = ">=0.7" },
+    { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastembed", marker = "extra == 'embed'", specifier = ">=0.5" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "neo4j", specifier = ">=6,<7" },
@@ -2453,10 +2462,11 @@ requires-dist = [
     { name = "pypdfium2", specifier = ">=4.30" },
     { name = "pypff", marker = "extra == 'pst'" },
     { name = "pyshacl", specifier = ">=0.30" },
-    { name = "spacy", marker = "extra == 'nlp'", specifier = ">=3.8,<3.9" },
+    { name = "spacy", specifier = ">=3.8,<3.9" },
     { name = "watchdog", specifier = ">=6" },
+    { name = "xx-ent-wiki-sm", url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl" },
 ]
-provides-extras = ["nlp", "embed", "pst"]
+provides-extras = ["embed", "pst"]
 
 [[package]]
 name = "oss-server"
@@ -2473,6 +2483,9 @@ dependencies = [
     { name = "oss-core" },
     { name = "oss-pipeline" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pyoxigraph" },
+    { name = "pyyaml" },
+    { name = "rdflib" },
     { name = "uvicorn" },
     { name = "whitenoise" },
 ]
@@ -2489,6 +2502,9 @@ requires-dist = [
     { name = "oss-core", editable = "packages/oss-core" },
     { name = "oss-pipeline", editable = "packages/oss-pipeline" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pyoxigraph", specifier = ">=0.5,<0.6" },
+    { name = "pyyaml", specifier = ">=6,<7" },
+    { name = "rdflib", specifier = ">=7.1,<8" },
     { name = "uvicorn", specifier = ">=0.32" },
     { name = "whitenoise", specifier = ">=6.8" },
 ]
@@ -4132,6 +4148,14 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/f5/781c70b234f54e0401f4f7c4427a7486da38d50dbb138c7d7c55144b3d86/xarray-2026.9.0.tar.gz", hash = "sha256:6abc69694c22fa1f0fb2f357ff4e41d88beb4477ed71091f944b7dbf67ed54fe", size = 3176922, upload-time = "2026-09-29T23:06:25.807Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/44/3159af4fb3c868970a412e294320ed6bb1a9fbdfa6431050eda8e0b34b6e/xarray-2026.9.0-py3-none-any.whl", hash = "sha256:fe349fa871628b1a0a5217af3fe1283a2862d5485156e6eda354fffb81c3bb7c", size = 1445445, upload-time = "2026-09-29T23:06:23.686Z" },
+]
+
+[[package]]
+name = "xx-ent-wiki-sm"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl", hash = "sha256:6f3c4b853852ea9e9d2dc76cc950dddb10a7e4c42d813308caefe6c5e8be2f0a" },
 ]
 
 [[package]]
