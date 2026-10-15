@@ -12,5 +12,26 @@ navigable, reviewable knowledge base, on your own hardware.
 - **Curate** through review queues whose decisions are logged and exported as
   proposals for the system that owns the data.
 
-The project is in Phase 0 (foundations). See the [development plan](plan.md)
-and the [decision records](adr/index.md).
+## What you get
+
+- **Ingest** from folders, uploads, web pages and sitemaps, RSS and Atom,
+  mailboxes, archives, spreadsheets, S3 buckets and RDF, with OCR for scans.
+- **Enrich** against knowledge models packaged as ontology-skill bundles:
+  dictionary tagging with hierarchical facets, named entities linked to your
+  individuals, SHACL validation, chunk embeddings.
+- **Search** by keyword, by meaning, or both, with facets, highlighted
+  snippets, passages, a timeline, a media grid, terms, batch name lists and
+  CSV export.
+- **Explore** concept and entity pages, the document-entity graph in Neo4j
+  with paths between entities, and a map of your places.
+- **Curate** through a review queue; every decision is applied at once,
+  survives reindexing, and leaves through the outbox and webhooks for the
+  system that owns your data.
+- **Run it yourself**: one `init`, one `up`; local accounts or single
+  sign-on, roles per collection, backup and restore, optional observability
+  and GPU profiles.
+
+Start with the quick start in the README, then read [Concepts](concepts.md).
+The [development plan](plan.md), [quality numbers](quality.md),
+[security](security.md), [operations](operations.md) and the
+[decision records](adr/index.md) are here too.
