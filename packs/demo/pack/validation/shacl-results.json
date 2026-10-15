@@ -1,0 +1,8 @@
+{
+  "project": "/mnt/development/dev/projects/semascope/packs/demo/pack",
+  "engine": "pyshacl",
+  "conforms": true,
+  "inference": "none",
+  "advanced": false,
+  "report_text": "Validation Report\nConforms: True\n"
+}

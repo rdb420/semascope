@@ -39,6 +39,17 @@ def pack_versions_for(collection: Collection) -> dict[str, str]:
     return {b.pack_id: active[b.pack_id] for b in bound if b.pack_id in active}
 
 
+def build_context(collection: Collection) -> StageContext:
+    """The StageContext a collection's stages run with: settings plus active pack versions."""
+
+    return StageContext(
+        collection=collection.slug,
+        profile=collection.profile,
+        settings=stage_settings(collection),
+        pack_versions=pack_versions_for(collection),
+    )
+
+
 def stage_settings(collection: Collection) -> dict[str, Any]:
     s = get_settings()
     base: dict[str, Any] = {
@@ -151,11 +162,7 @@ def process_document(doc_id: str, item: dict[str, Any]) -> str:
         },
         fields={"local_path": fetched.path} if fetched.path else {},
     )
-    ctx = StageContext(
-        collection=work.collection,
-        profile=doc_row.collection.profile,
-        settings=stage_settings(doc_row.collection),
-    )
+    ctx = build_context(doc_row.collection)
     work = run_profile(profile(ctx.profile), work, ctx)
     _store(doc_row, work)
     return doc_row.status
@@ -180,11 +187,7 @@ def reindex_document(doc_id: str) -> str:
         metadata=dict(doc_row.metadata),
         fields={k: v for k, v in doc_row.fields.items() if k != "indexed"},
     )
-    ctx = StageContext(
-        collection=work.collection,
-        profile=doc_row.collection.profile,
-        settings=stage_settings(doc_row.collection),
-    )
+    ctx = build_context(doc_row.collection)
     stages = [s for s in profile(ctx.profile) if s.name not in ("fetch", "extract")]
     work = run_profile(stages, work, ctx)
     _store(doc_row, work)

@@ -78,7 +78,7 @@ class TagStage:
                     if tag is None:
                         tag = Tag(
                             iri=iri,
-                            label=str(entry.get("label") or matched),
+                            label=str(entry.get("pref_label") or entry.get("label") or matched),
                             kind="concept" if entry.get("kind") == "concept" else "entity",
                             pack_id=str(entry.get("pack_id")),
                             pack_version=str(entry.get("pack_version")),
@@ -90,7 +90,7 @@ class TagStage:
                     scheme = str(entry.get("scheme") or "")
                     if scheme and entry.get("path"):
                         paths[scheme].add(str(entry["path"]))
-                        labels[scheme].add(str(entry.get("label") or matched))
+                        labels[scheme].add(str(entry.get("pref_label") or matched))
         doc.tags.extend(found.values())
         for scheme, values in paths.items():
             doc.fields[f"x_{scheme}_paths"] = sorted(values)

@@ -1,0 +1,5 @@
+# CQ-001: figures that belong to more than one tradition
+PREFIX ex: <https://semascope.dev/ontology/demo#>
+SELECT ?figure (COUNT(DISTINCT ?t) AS ?traditions) WHERE {
+  ?figure ex:belongsToTradition ?t .
+} GROUP BY ?figure HAVING (COUNT(DISTINCT ?t) > 1)

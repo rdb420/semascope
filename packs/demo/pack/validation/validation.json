@@ -1,0 +1,54 @@
+{
+  "project": "/mnt/development/dev/projects/semascope/packs/demo/pack",
+  "pass": true,
+  "metrics": {
+    "rdf_custom_schema_terms": 11,
+    "rdf_annotation_coverage": 1.0,
+    "undeclared_custom_predicates": 0,
+    "project_status": "draft",
+    "source_count": 9,
+    "evidence_count": 12,
+    "term_count": 39,
+    "accepted_term_count": 39,
+    "accepted_axiom_count": 21,
+    "core_cq_count": 3,
+    "core_cq_query_coverage": 1.0,
+    "model_annotation_coverage": 3.5454545454545454,
+    "term_evidence_or_rationale_coverage": 1.0,
+    "axiom_evidence_or_rationale_coverage": 1.0,
+    "error_count": 0,
+    "warning_count": 0,
+    "pass": true
+  },
+  "findings": [
+    {
+      "severity": "info",
+      "code": "RDF_PARSE",
+      "message": "Parsed ontology.ttl (80 triples)",
+      "context": null
+    },
+    {
+      "severity": "info",
+      "code": "RDF_PARSE",
+      "message": "Parsed taxonomy.ttl (270 triples)",
+      "context": null
+    },
+    {
+      "severity": "info",
+      "code": "RDF_PARSE",
+      "message": "Parsed shapes.ttl (34 triples)",
+      "context": null
+    },
+    {
+      "severity": "info",
+      "code": "RDF_PARSE",
+      "message": "Parsed instances.ttl (302 triples)",
+      "context": null
+    }
+  ],
+  "limitations": [
+    "No complete OWL DL consistency/classification reasoning is performed.",
+    "No SHACL semantic validation is performed without an external SHACL engine.",
+    "Semantic category correctness still requires ontology/domain review."
+  ]
+}

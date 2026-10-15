@@ -1,0 +1,65 @@
+ontology:
+  id: semascope-demo
+  title: Sacred texts and mythology demo model
+  ontology_iri: https://semascope.dev/ontology/demo
+  base_iri: https://semascope.dev/ontology/demo#
+  version: 0.1.0
+  status: draft
+  created: '2026-10-15'
+  modified: '2026-10-15'
+  creator: Semascope contributors
+  licence: https://www.apache.org/licenses/LICENSE-2.0
+intended_use:
+  primary: retrieval_cataloguing
+  secondary: [AI_grounding]
+audience: [developers, curators, readers]
+scope:
+  inclusions:
+    - the traditions, text types and recurring themes of the public-domain demo corpus (Project Gutenberg sacred texts, epics, fables and folklore)
+    - the figures (deities, heroes, prophets, teachers) and places those texts name, with the alternative names the translations use
+    - motifs shared across traditions (flood, creation, descent to the underworld, trickster, hero's journey)
+  exclusions:
+    - theological claims about the truth or precedence of any tradition
+    - dating, authorship and textual-criticism scholarship beyond what the corpus texts themselves say
+    - modern religious organisations, denominations and living people
+interoperability:
+  required: false
+  target_ecosystems: [skos]
+standards:
+  rdf: '1.1'
+  turtle: '1.1'
+  rdfs: '1.1'
+  owl: 2 DL
+  skos: '2009'
+  shacl: '2017'
+  sparql: '1.1'
+competency_questions:
+  - id: CQ-001
+    question: Which figures belong to more than one tradition?
+    priority: core
+    purpose: cross_tradition_navigation
+    status: active
+  - id: CQ-002
+    question: Which places appear in both Greek epics?
+    priority: core
+    purpose: retrieval
+    status: active
+  - id: CQ-003
+    question: Which traditions have a flood narrative?
+    priority: core
+    purpose: motif_comparison
+    status: active
+  - id: CQ-004
+    question: What are the alternative names of a figure, so a search for any of them finds the same documents?
+    priority: supporting
+    purpose: retrieval
+    status: active
+semascope:
+  tag_schemes: [traditions, themes, text-types]
+  tag_individuals: true
+release_policy:
+  require_all_core_cqs: true
+  require_annotation_coverage: 1.0
+  require_evidence_coverage: 1.0
+  require_external_reasoner: false
+  require_shacl_engine: false

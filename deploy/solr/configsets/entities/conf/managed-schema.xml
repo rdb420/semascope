@@ -12,6 +12,7 @@
   <field name="label_tag" type="tag" indexed="true" stored="false"/>
   <field name="label_txt" type="text_label" indexed="true" stored="false"/>
   <field name="label_s" type="string" indexed="true" stored="false"/>
+  <field name="pref_label" type="string" indexed="false" stored="true"/>
   <field name="label_type" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="lang" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="kind" type="string" indexed="true" stored="true" docValues="true"/>

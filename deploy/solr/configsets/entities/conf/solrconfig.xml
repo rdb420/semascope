@@ -54,7 +54,7 @@
       <str name="field">label_tag</str>
       <str name="overlaps">LONGEST_DOMINANT_RIGHT</str>
       <int name="tagsLimit">5000</int>
-      <str name="fl">id,iri,label,label_type,lang,kind,type_iri,scheme,path,pack_id,pack_version</str>
+      <str name="fl">id,iri,label,pref_label,label_type,lang,kind,type_iri,scheme,path,pack_id,pack_version,case_sensitive</str>
       <str name="wt">json</str>
     </lst>
   </requestHandler>

@@ -1,0 +1,15 @@
+@prefix ex: <https://semascope.dev/ontology/demo#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:FigureShape a sh:NodeShape ; sh:targetClass ex:Figure ; rdfs:label "Figure shape"@en ;
+    sh:property [ sh:path skos:prefLabel ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ex:belongsToTradition ; sh:minCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:appearsIn ; sh:minCount 1 ; sh:class ex:Text ] .
+
+ex:PlaceShape a sh:NodeShape ; sh:targetClass ex:Place ; rdfs:label "Place shape"@en ;
+    sh:property [ sh:path skos:prefLabel ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ex:latitude ; sh:maxCount 1 ; sh:datatype xsd:decimal ; sh:minInclusive -90 ; sh:maxInclusive 90 ] ;
+    sh:property [ sh:path ex:longitude ; sh:maxCount 1 ; sh:datatype xsd:decimal ; sh:minInclusive -180 ; sh:maxInclusive 180 ] .

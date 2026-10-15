@@ -1,0 +1,155 @@
+{
+  "project": "/mnt/development/dev/projects/semascope/packs/demo/pack",
+  "pass": true,
+  "test_count": 4,
+  "blocking_failures": 0,
+  "results": [
+    {
+      "cq_id": "CQ-001",
+      "status": "PASS",
+      "blocking": true,
+      "message": "All expected bindings present",
+      "query_file": "cq-001.rq",
+      "rows": 10,
+      "actual": [
+        {
+          "figure": "https://semascope.dev/ontology/demo#zeus",
+          "traditions": "2"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#hera",
+          "traditions": "2"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#athena",
+          "traditions": "2"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#poseidon",
+          "traditions": "2"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#hermes",
+          "traditions": "2"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#odysseus",
+          "traditions": "2"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#odin",
+          "traditions": "2"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#moses",
+          "traditions": "3"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#noah",
+          "traditions": "3"
+        },
+        {
+          "figure": "https://semascope.dev/ontology/demo#jerusalem",
+          "traditions": "3"
+        }
+      ],
+      "expected": {
+        "type": "contains_bindings",
+        "value": [
+          {
+            "figure": "https://semascope.dev/ontology/demo#moses"
+          },
+          {
+            "figure": "https://semascope.dev/ontology/demo#zeus"
+          }
+        ]
+      }
+    },
+    {
+      "cq_id": "CQ-002",
+      "status": "PASS",
+      "blocking": true,
+      "message": "All expected bindings present",
+      "query_file": "cq-002.rq",
+      "rows": 3,
+      "actual": [
+        {
+          "place": "https://semascope.dev/ontology/demo#troy"
+        },
+        {
+          "place": "https://semascope.dev/ontology/demo#ithaca"
+        },
+        {
+          "place": "https://semascope.dev/ontology/demo#olympus"
+        }
+      ],
+      "expected": {
+        "type": "contains_bindings",
+        "value": [
+          {
+            "place": "https://semascope.dev/ontology/demo#troy"
+          },
+          {
+            "place": "https://semascope.dev/ontology/demo#ithaca"
+          }
+        ]
+      }
+    },
+    {
+      "cq_id": "CQ-003",
+      "status": "PASS",
+      "blocking": true,
+      "message": "Expected at least 4 rows, got 4",
+      "query_file": "cq-003.rq",
+      "rows": 4,
+      "actual": [
+        {
+          "tradition": "https://semascope.dev/ontology/demo/traditions#judaism",
+          "label": "Judaism"
+        },
+        {
+          "tradition": "https://semascope.dev/ontology/demo/traditions#christianity",
+          "label": "Christianity"
+        },
+        {
+          "tradition": "https://semascope.dev/ontology/demo/traditions#islam",
+          "label": "Islam"
+        },
+        {
+          "tradition": "https://semascope.dev/ontology/demo/traditions#greek",
+          "label": "Greek"
+        }
+      ],
+      "expected": {
+        "type": "min_rows",
+        "value": 4
+      }
+    },
+    {
+      "cq_id": "CQ-004",
+      "status": "PASS",
+      "blocking": false,
+      "message": "All expected bindings present",
+      "query_file": "cq-004.rq",
+      "rows": 1,
+      "actual": [
+        {
+          "alt": "Ulysses"
+        }
+      ],
+      "expected": {
+        "type": "contains_bindings",
+        "value": [
+          {
+            "alt": "Ulysses"
+          }
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "RDFLib SPARQL is used for query execution.",
+    "RDFS/OWL-RL entailment requires the optional owlrl package.",
+    "Full OWL 2 DL reasoning is outside this script's scope."
+  ]
+}

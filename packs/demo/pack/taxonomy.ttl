@@ -1,0 +1,57 @@
+@prefix ex: <https://semascope.dev/ontology/demo#> .
+@prefix tr: <https://semascope.dev/ontology/demo/traditions#> .
+@prefix tt: <https://semascope.dev/ontology/demo/text-types#> .
+@prefix th: <https://semascope.dev/ontology/demo/themes#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+ex:Traditions a skos:ConceptScheme ; skos:prefLabel "Traditions"@en ;
+    skos:definition "The religious and mythological traditions the demo corpus belongs to, grouped by family."@en ;
+    skos:hasTopConcept tr:abrahamic, tr:indian, tr:east-asian, tr:european, tr:ancient-near-east, tr:comparative-religion .
+
+tr:abrahamic a skos:Concept ; skos:inScheme ex:Traditions ; skos:topConceptOf ex:Traditions ; skos:prefLabel "Abrahamic"@en ; skos:narrower tr:judaism, tr:christianity, tr:islam .
+tr:judaism a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:abrahamic ; skos:prefLabel "Judaism"@en ; skos:altLabel "Hebrew Bible"@en, "Old Testament"@en ; skos:hiddenLabel "Torah"@en .
+tr:christianity a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:abrahamic ; skos:prefLabel "Christianity"@en ; skos:altLabel "New Testament"@en, "Christian"@en, "Gospels"@en .
+tr:islam a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:abrahamic ; skos:prefLabel "Islam"@en ; skos:altLabel "Koran"@en, "Quran"@en, "Qur'an"@en .
+
+tr:indian a skos:Concept ; skos:inScheme ex:Traditions ; skos:topConceptOf ex:Traditions ; skos:prefLabel "Indian"@en ; skos:altLabel "India"@en ; skos:narrower tr:hinduism, tr:buddhism .
+tr:hinduism a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:indian ; skos:prefLabel "Hinduism"@en ; skos:altLabel "Bhagavad-Gita"@en, "Upanishads"@en, "Vedas"@en .
+tr:buddhism a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:indian ; skos:prefLabel "Buddhism"@en ; skos:altLabel "Dhammapada"@en, "Buddhist"@en .
+
+tr:east-asian a skos:Concept ; skos:inScheme ex:Traditions ; skos:topConceptOf ex:Traditions ; skos:prefLabel "East Asian"@en ; skos:narrower tr:taoism, tr:confucianism .
+tr:taoism a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:east-asian ; skos:prefLabel "Taoism"@en ; skos:altLabel "Tao Teh King"@en, "Tao Te Ching"@en, "Taoist"@en .
+tr:confucianism a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:east-asian ; skos:prefLabel "Confucianism"@en ; skos:altLabel "Analects"@en, "Confucian"@en .
+
+tr:european a skos:Concept ; skos:inScheme ex:Traditions ; skos:topConceptOf ex:Traditions ; skos:prefLabel "European"@en ; skos:altLabel "Europe"@en ; skos:narrower tr:greek, tr:roman, tr:norse, tr:celtic, tr:finnish, tr:germanic .
+tr:greek a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:european ; skos:prefLabel "Greek"@en ; skos:altLabel "Hellenic"@en, "Greek mythology"@en, "Greeks"@en, "Achaeans"@en .
+tr:roman a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:european ; skos:prefLabel "Roman"@en ; skos:altLabel "Roman mythology"@en, "Romans"@en .
+tr:norse a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:european ; skos:prefLabel "Norse"@en ; skos:altLabel "Scandinavian mythology"@en, "Norse mythology"@en, "Edda"@en .
+tr:celtic a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:european ; skos:prefLabel "Celtic"@en ; skos:altLabel "Welsh"@en, "Mabinogion"@en, "Arthurian"@en .
+tr:finnish a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:european ; skos:prefLabel "Finnish"@en ; skos:altLabel "Kalevala"@en .
+tr:germanic a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:european ; skos:prefLabel "Germanic folklore"@en ; skos:altLabel "Grimm"@en, "Household Tales"@en .
+
+tr:ancient-near-east a skos:Concept ; skos:inScheme ex:Traditions ; skos:topConceptOf ex:Traditions ; skos:prefLabel "Ancient Near East"@en ; skos:narrower tr:egyptian .
+tr:egyptian a skos:Concept ; skos:inScheme ex:Traditions ; skos:broader tr:ancient-near-east ; skos:prefLabel "Ancient Egyptian"@en ; skos:altLabel "Egyptians"@en, "Book of the Dead"@en, "Egyptian mythology"@en .
+
+tr:comparative-religion a skos:Concept ; skos:inScheme ex:Traditions ; skos:topConceptOf ex:Traditions ; skos:prefLabel "Comparative religion"@en ; skos:altLabel "Golden Bough"@en ; skos:definition "Scholarship that compares traditions; a classification for secondary texts."@en .
+
+ex:TextTypes a skos:ConceptScheme ; skos:prefLabel "Text types"@en ;
+    skos:definition "What kind of work a document is."@en ;
+    skos:hasTopConcept tt:scripture, tt:epic, tt:fable, tt:folk-tale, tt:commentary .
+tt:scripture a skos:Concept ; skos:inScheme ex:TextTypes ; skos:topConceptOf ex:TextTypes ; skos:prefLabel "Scripture"@en ; skos:altLabel "Sacred text"@en, "Sacred books"@en, "Sutra"@en, "Psalms"@en .
+tt:epic a skos:Concept ; skos:inScheme ex:TextTypes ; skos:topConceptOf ex:TextTypes ; skos:prefLabel "Epic"@en ; skos:altLabel "Epic poem"@en, "Epic poetry"@en, "Saga"@en .
+tt:fable a skos:Concept ; skos:inScheme ex:TextTypes ; skos:topConceptOf ex:TextTypes ; skos:prefLabel "Fable"@en ; skos:altLabel "Fables"@en, "Parable"@en, "Aesop"@en .
+tt:folk-tale a skos:Concept ; skos:inScheme ex:TextTypes ; skos:topConceptOf ex:TextTypes ; skos:prefLabel "Folk tale"@en ; skos:altLabel "Folk tales"@en, "Fairy tale"@en, "Fairy tales"@en, "Household tales"@en .
+tt:commentary a skos:Concept ; skos:inScheme ex:TextTypes ; skos:topConceptOf ex:TextTypes ; skos:prefLabel "Commentary"@en ; skos:altLabel "Treatise"@en, "Comparative study"@en .
+
+ex:Themes a skos:ConceptScheme ; skos:prefLabel "Themes"@en ;
+    skos:definition "Motifs that recur across traditions."@en ;
+    skos:hasTopConcept th:creation, th:flood, th:afterlife, th:law, th:virtue, th:trickster, th:journey, th:sacrifice .
+th:creation a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Creation"@en ; skos:altLabel "Creation of the world"@en, "Beginning of the world"@en, "In the beginning"@en ; skos:hiddenLabel "Genesis"@en .
+th:flood a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Flood"@en ; skos:altLabel "Deluge"@en, "Great flood"@en, "The flood"@en ; skos:definition "A world-destroying flood survived by a chosen few."@en .
+th:afterlife a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Afterlife"@en ; skos:altLabel "Underworld"@en, "Hades"@en, "Valhalla"@en, "Sheol"@en, "Elysium"@en, "Nirvana"@en, "Life after death"@en ; skos:narrower th:descent .
+th:descent a skos:Concept ; skos:inScheme ex:Themes ; skos:broader th:afterlife ; skos:prefLabel "Descent to the underworld"@en ; skos:altLabel "Journey to the dead"@en .
+th:law a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Divine law"@en ; skos:altLabel "Commandments"@en, "Ten Commandments"@en, "Dharma"@en, "Precepts"@en, "Law of Moses"@en .
+th:virtue a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Virtue"@en ; skos:altLabel "Righteousness"@en, "Earnestness"@en, "Right conduct"@en .
+th:trickster a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Trickster"@en ; skos:altLabel "Trickery"@en, "Cunning device"@en .
+th:journey a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Hero's journey"@en ; skos:altLabel "Quest"@en, "Wanderings"@en, "Pilgrimage"@en, "Homeward voyage"@en .
+th:sacrifice a skos:Concept ; skos:inScheme ex:Themes ; skos:topConceptOf ex:Themes ; skos:prefLabel "Sacrifice"@en ; skos:altLabel "Burnt offering"@en, "Hecatomb"@en, "Hecatombs"@en, "Sacrificial offering"@en .

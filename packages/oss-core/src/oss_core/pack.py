@@ -88,7 +88,14 @@ def _sha256(path: Path) -> str:
 
 
 def _load_yaml(path: Path) -> Any:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise PackYamlError(f"{path.name}: {str(exc).splitlines()[0]}") from exc
+
+
+class PackYamlError(ValueError):
+    pass
 
 
 def load_pack(path: Path) -> PackInfo:
@@ -102,7 +109,10 @@ def load_pack(path: Path) -> PackInfo:
 
     req: dict[str, Any] = {}
     if (path / "requirements.yaml").exists():
-        req = _load_yaml(path / "requirements.yaml")
+        try:
+            req = _load_yaml(path / "requirements.yaml")
+        except PackYamlError as exc:
+            findings.append(Finding("error", "yaml", str(exc)))
     onto = req.get("ontology") or {}
     info = PackInfo(
         path=path,
@@ -164,8 +174,13 @@ def load_pack(path: Path) -> PackInfo:
                 )
 
     # model.yaml terms: kinds, support, status, evidence or rationale.
+    model: dict[str, Any] = {}
     if (path / "model.yaml").exists():
-        model = _load_yaml(path / "model.yaml")
+        try:
+            model = _load_yaml(path / "model.yaml")
+        except PackYamlError as exc:
+            findings.append(Finding("error", "yaml", str(exc)))
+    if model:
         for term in model.get("terms") or []:
             tid = term.get("id", "?")
             if term.get("kind") not in TERM_KINDS:

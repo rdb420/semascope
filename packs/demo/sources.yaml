@@ -41,6 +41,9 @@ texts:
   creator: Edwin Arnold (1832-1904), translator
   traditions:
   - hinduism
+  fetched_at: '2026-10-15'
+  sha256: 07e5b1107b4c4010c23748c0a31ed9e0b4d35c6622c013f45d9e78efc2ac93b0
+  bytes: 124185
 - id: 12894
   slug: sacred-books-east
   title: Sacred Books of the East (selections)
@@ -68,12 +71,18 @@ texts:
   creator: Homer; Samuel Butler (1835-1902), translator
   traditions:
   - greek
+  fetched_at: '2026-10-15'
+  sha256: 83b5ab26a6c80445db52fd5bc64ba0679041a7b54edc4155a4b42e858b5462d1
+  bytes: 686140
 - id: 2199
   slug: iliad
   title: The Iliad
   creator: Homer; Samuel Butler (1835-1902), translator
   traditions:
   - greek
+  fetched_at: '2026-10-15'
+  sha256: aba39dc2bc749cd98dbf3c926d7cda3511e13ab66637dd0f0c70fef21acda3cd
+  bytes: 894605
 - id: 11339
   slug: aesop-fables
   title: Aesop's Fables
@@ -89,18 +98,27 @@ texts:
   - roman
   - norse
   - arthurian
+  fetched_at: '2026-10-15'
+  sha256: f502bea3f13f143e7a19e89f6b2bcb53231facb83dd0a8b3a14b07acfe93b507
+  bytes: 1857524
 - id: 5160
   slug: mabinogion
   title: The Mabinogion
   creator: Charlotte Guest (1812-1895), translator
   traditions:
   - welsh
+  fetched_at: '2026-10-15'
+  sha256: a70704a1af55a51e857b07880ae744aaf9997d82a76f372bf53d192a6592242b
+  bytes: 588211
 - id: 5186
   slug: kalevala
   title: Kalevala
   creator: John Martin Crawford (1845-1916), translator
   traditions:
   - finnish
+  fetched_at: '2026-10-15'
+  sha256: 145e6022190f83e66ede384b105a3c4f3c15d798a173cfa043bb24034d91092a
+  bytes: 824739
 - id: 5314
   slug: grimm-household-tales
   title: Household Tales

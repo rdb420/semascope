@@ -1,0 +1,33 @@
+decisions:
+  - id: DEC-001
+    topic: upper_ontology
+    decision: defer
+    status: accepted
+    rationale: A demo model for faceted navigation needs no foundational ontology.
+    evidence: []
+    affects: [architecture]
+    date: '2026-10-15'
+  - id: DEC-002
+    topic: taxonomy_vs_class_hierarchy
+    decision: traditions, text types and themes are SKOS schemes; figures and places are OWL individuals of a small class hierarchy
+    status: accepted
+    rationale: Traditions are classification values that documents are about; a deity is an individual that a text names. Mixing them would make "Greek" both a class and a tag.
+    evidence: []
+    affects: [architecture, tagging]
+    date: '2026-10-15'
+  - id: DEC-003
+    topic: alternative_names
+    decision: Roman and translated names are skos:altLabel on the same individual, never separate individuals
+    status: accepted
+    rationale: Butler writes Ulysses and Jove; Bulfinch writes Odysseus and Zeus. One identity per figure keeps the facets and the graph honest; the labels differ.
+    evidence: [EV-001, EV-002]
+    affects: [tagging, graph]
+    date: '2026-10-15'
+  - id: DEC-004
+    topic: tagging_policy
+    decision: the three schemes and the individuals tag text (semascope.tag_schemes, tag_individuals)
+    status: accepted
+    rationale: This is the demo's purpose; the figures' names are distinctive enough to tag safely, except short Latin names, which are hidden labels only.
+    evidence: []
+    affects: [tagging]
+    date: '2026-10-15'

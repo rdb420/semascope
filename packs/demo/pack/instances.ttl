@@ -1,0 +1,65 @@
+@prefix ex: <https://semascope.dev/ontology/demo#> .
+@prefix tr: <https://semascope.dev/ontology/demo/traditions#> .
+@prefix th: <https://semascope.dev/ontology/demo/themes#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+# Texts
+ex:odyssey a owl:NamedIndividual, ex:Text ; rdfs:label "The Odyssey"@en ; dcterms:source <https://www.gutenberg.org/ebooks/1727> .
+ex:iliad a owl:NamedIndividual, ex:Text ; rdfs:label "The Iliad"@en ; dcterms:source <https://www.gutenberg.org/ebooks/2199> .
+ex:bulfinch a owl:NamedIndividual, ex:Text ; rdfs:label "Bulfinch's Mythology"@en ; dcterms:source <https://www.gutenberg.org/ebooks/4928> .
+ex:kjv a owl:NamedIndividual, ex:Text ; rdfs:label "King James Bible"@en ; dcterms:source <https://www.gutenberg.org/ebooks/10> .
+ex:gita a owl:NamedIndividual, ex:Text ; rdfs:label "The Song Celestial"@en ; dcterms:source <https://www.gutenberg.org/ebooks/2388> .
+ex:dhammapada a owl:NamedIndividual, ex:Text ; rdfs:label "Dhammapada"@en ; dcterms:source <https://www.gutenberg.org/ebooks/2017> .
+ex:kalevala a owl:NamedIndividual, ex:Text ; rdfs:label "Kalevala"@en ; dcterms:source <https://www.gutenberg.org/ebooks/5186> .
+ex:mabinogion a owl:NamedIndividual, ex:Text ; rdfs:label "The Mabinogion"@en ; dcterms:source <https://www.gutenberg.org/ebooks/5160> .
+
+# Deities (Greek gods carry their Roman names as alternative labels, DEC-003)
+ex:zeus a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Zeus"@en ; skos:altLabel "Jupiter"@en, "Jove"@en ; skos:definition "King of the Greek gods."@en ; ex:belongsToTradition tr:greek, tr:roman ; ex:appearsIn ex:odyssey, ex:iliad, ex:bulfinch .
+ex:hera a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Hera"@en ; skos:altLabel "Juno"@en ; skos:definition "Queen of the Greek gods."@en ; ex:belongsToTradition tr:greek, tr:roman ; ex:appearsIn ex:iliad, ex:bulfinch .
+ex:athena a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Athena"@en ; skos:altLabel "Minerva"@en, "Pallas Athene"@en ; skos:definition "Greek goddess of wisdom."@en ; ex:belongsToTradition tr:greek, tr:roman ; ex:appearsIn ex:odyssey, ex:iliad, ex:bulfinch .
+ex:poseidon a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Poseidon"@en ; skos:altLabel "Neptune"@en ; skos:definition "Greek god of the sea."@en ; ex:belongsToTradition tr:greek, tr:roman ; ex:appearsIn ex:odyssey, ex:bulfinch .
+ex:hermes a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Hermes"@en ; skos:altLabel "Mercury"@en ; skos:definition "Greek messenger god."@en ; ex:belongsToTradition tr:greek, tr:roman ; ex:appearsIn ex:odyssey, ex:bulfinch .
+ex:odin a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Odin"@en ; skos:altLabel "Woden"@en, "Wotan"@en ; skos:definition "Chief of the Norse gods."@en ; ex:belongsToTradition tr:norse, tr:germanic ; ex:appearsIn ex:bulfinch .
+ex:thor a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Thor"@en ; skos:definition "Norse god of thunder."@en ; ex:belongsToTradition tr:norse ; ex:appearsIn ex:bulfinch .
+ex:loki a owl:NamedIndividual, ex:Deity ; skos:prefLabel "Loki"@en ; skos:definition "Norse trickster."@en ; ex:belongsToTradition tr:norse ; ex:appearsIn ex:bulfinch .
+
+# Teachers
+ex:krishna a owl:NamedIndividual, ex:Teacher ; skos:prefLabel "Krishna"@en ; skos:altLabel "Govinda"@en ; skos:definition "Divine charioteer and teacher of the Bhagavad-Gita."@en ; ex:belongsToTradition tr:hinduism ; ex:appearsIn ex:gita .
+ex:buddha a owl:NamedIndividual, ex:Teacher ; skos:prefLabel "Buddha"@en ; skos:altLabel "Gotama"@en, "Gautama"@en, "the Blessed One"@en, "Tathagata"@en ; skos:definition "The teacher of the Dhammapada."@en ; ex:belongsToTradition tr:buddhism ; ex:appearsIn ex:dhammapada .
+ex:moses a owl:NamedIndividual, ex:Teacher ; skos:prefLabel "Moses"@en ; skos:definition "Leader of the Exodus and lawgiver."@en ; ex:belongsToTradition tr:judaism, tr:christianity, tr:islam ; ex:appearsIn ex:kjv .
+
+# Heroes
+ex:odysseus a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Odysseus"@en ; skos:altLabel "Ulysses"@en ; skos:definition "Hero of the Odyssey, king of Ithaca."@en ; ex:belongsToTradition tr:greek, tr:roman ; ex:appearsIn ex:odyssey, ex:iliad, ex:bulfinch .
+ex:achilles a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Achilles"@en ; skos:definition "Greek hero of the Iliad."@en ; ex:belongsToTradition tr:greek ; ex:appearsIn ex:iliad, ex:odyssey, ex:bulfinch .
+ex:hector a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Hector"@en ; skos:definition "Trojan prince and champion in the Iliad."@en ; ex:belongsToTradition tr:greek ; ex:appearsIn ex:iliad, ex:bulfinch .
+ex:helen a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Helen"@en ; skos:altLabel "Helen of Troy"@en ; skos:definition "Helen of Troy."@en ; ex:belongsToTradition tr:greek ; ex:appearsIn ex:iliad, ex:odyssey, ex:bulfinch .
+ex:noah a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Noah"@en ; skos:definition "Builder of the ark in Genesis."@en ; ex:belongsToTradition tr:judaism, tr:christianity, tr:islam ; ex:appearsIn ex:kjv .
+ex:arjuna a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Arjuna"@en ; skos:definition "Warrior prince counselled by Krishna."@en ; ex:belongsToTradition tr:hinduism ; ex:appearsIn ex:gita .
+ex:vainamoinen a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Väinämöinen"@en ; skos:altLabel "Wainamoinen"@en ; skos:definition "Sage and singer of the Kalevala."@en ; ex:belongsToTradition tr:finnish ; ex:appearsIn ex:kalevala .
+ex:ilmarinen a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Ilmarinen"@en ; skos:definition "Smith of the Kalevala."@en ; ex:belongsToTradition tr:finnish ; ex:appearsIn ex:kalevala .
+ex:arthur a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Arthur"@en ; skos:altLabel "King Arthur"@en ; skos:definition "King of the Britons in Welsh and Arthurian legend."@en ; ex:belongsToTradition tr:celtic ; ex:appearsIn ex:mabinogion, ex:bulfinch .
+ex:deucalion a owl:NamedIndividual, ex:Hero ; skos:prefLabel "Deucalion"@en ; skos:definition "Survivor of the Greek flood."@en ; ex:belongsToTradition tr:greek ; ex:appearsIn ex:bulfinch .
+
+# Places (approximate coordinates for real places, for the map)
+ex:troy a owl:NamedIndividual, ex:Place ; skos:prefLabel "Troy"@en ; skos:altLabel "Ilium"@en, "Ilios"@en ; skos:definition "The besieged city of the Iliad."@en ; ex:belongsToTradition tr:greek ; ex:appearsIn ex:iliad, ex:odyssey, ex:bulfinch ; ex:latitude 39.957 ; ex:longitude 26.239 .
+ex:ithaca a owl:NamedIndividual, ex:Place ; skos:prefLabel "Ithaca"@en ; skos:definition "Island home of Odysseus."@en ; ex:belongsToTradition tr:greek ; ex:appearsIn ex:odyssey, ex:iliad ; ex:latitude 38.40 ; ex:longitude 20.68 .
+ex:olympus a owl:NamedIndividual, ex:Place ; skos:prefLabel "Mount Olympus"@en ; skos:altLabel "Olympus"@en ; skos:definition "Seat of the Greek gods."@en ; ex:belongsToTradition tr:greek ; ex:appearsIn ex:iliad, ex:odyssey, ex:bulfinch ; ex:latitude 40.085 ; ex:longitude 22.358 .
+ex:asgard a owl:NamedIndividual, ex:Place ; skos:prefLabel "Asgard"@en ; skos:definition "Home of the Norse gods."@en ; ex:belongsToTradition tr:norse ; ex:appearsIn ex:bulfinch .
+ex:jerusalem a owl:NamedIndividual, ex:Place ; skos:prefLabel "Jerusalem"@en ; skos:altLabel "Zion"@en ; skos:definition "City of David."@en ; ex:belongsToTradition tr:judaism, tr:christianity, tr:islam ; ex:appearsIn ex:kjv ; ex:latitude 31.778 ; ex:longitude 35.235 .
+ex:sinai a owl:NamedIndividual, ex:Place ; skos:prefLabel "Mount Sinai"@en ; skos:altLabel "Sinai"@en, "Horeb"@en ; skos:definition "Where Moses receives the law."@en ; ex:belongsToTradition tr:judaism ; ex:appearsIn ex:kjv ; ex:latitude 28.539 ; ex:longitude 33.975 .
+ex:kurukshetra a owl:NamedIndividual, ex:Place ; skos:prefLabel "Kurukshetra"@en ; skos:definition "The battlefield of the Bhagavad-Gita."@en ; ex:belongsToTradition tr:hinduism ; ex:appearsIn ex:gita ; ex:latitude 29.969 ; ex:longitude 76.878 .
+ex:pohjola a owl:NamedIndividual, ex:Place ; skos:prefLabel "Pohjola"@en ; skos:altLabel "Pohyola"@en, "Northland"@en ; skos:definition "The Northland of the Kalevala."@en ; ex:belongsToTradition tr:finnish ; ex:appearsIn ex:kalevala .
+
+# Motifs by tradition (CQ-003)
+tr:judaism ex:hasMotif th:flood, th:creation, th:law .
+tr:christianity ex:hasMotif th:flood, th:creation, th:afterlife .
+tr:islam ex:hasMotif th:flood, th:creation, th:law .
+tr:greek ex:hasMotif th:flood, th:journey, th:descent, th:sacrifice, th:trickster .
+tr:hinduism ex:hasMotif th:law, th:virtue, th:creation .
+tr:buddhism ex:hasMotif th:virtue, th:law .
+tr:norse ex:hasMotif th:creation, th:afterlife, th:trickster .
+tr:finnish ex:hasMotif th:creation, th:journey, th:descent .

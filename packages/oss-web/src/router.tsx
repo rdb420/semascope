@@ -8,6 +8,9 @@ import { Shell } from "./components/Shell";
 import { SearchPage, searchSearchSchema } from "./pages/SearchPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DocumentPage } from "./pages/DocumentPage";
+import { PacksPage } from "./pages/PacksPage";
+import { PackPage } from "./pages/PackPage";
+import { ConceptPage } from "./pages/ConceptPage";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -36,7 +39,16 @@ const documentRoute = createRoute({
   component: DocumentPage,
 });
 
-const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute]);
+const packsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/packs", component: PacksPage });
+const packRoute = createRoute({ getParentRoute: () => rootRoute, path: "/packs/$packId", component: PackPage });
+const conceptRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/concepts",
+  validateSearch: (raw: Record<string, unknown>) => ({ iri: typeof raw.iri === "string" ? raw.iri : "" }),
+  component: ConceptPage,
+});
+
+const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute]);
 
 export const router = createRouter({ routeTree });
 

@@ -1,0 +1,4 @@
+# CQ-004: alternative names of Odysseus
+PREFIX ex: <https://semascope.dev/ontology/demo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+SELECT ?alt WHERE { ex:odysseus skos:altLabel ?alt . }

@@ -84,6 +84,7 @@ class LinkStage:
                 doc.tags.remove(tag)
             else:
                 tag.iri = target
+                tag.label = str(entry.get("pref_label") or tag.label)
                 tag.pack_id = str(entry.get("pack_id"))
                 tag.pack_version = str(entry.get("pack_version"))
                 tag.confidence = max(tag.confidence, 0.85)

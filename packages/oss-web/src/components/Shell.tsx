@@ -36,6 +36,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <nav className="ml-auto flex items-center gap-4 text-sm">
             {loggedIn ? (
               <>
+                <Link to="/packs" className="hover:underline">
+                  Knowledge models
+                </Link>
                 <span className="text-zinc-500">{user.data.username}</span>
                 {user.data.is_staff && (
                   <a href="/admin/" className="hover:underline">

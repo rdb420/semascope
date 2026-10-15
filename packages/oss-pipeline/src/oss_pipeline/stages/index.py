@@ -49,9 +49,13 @@ def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -
     if concept:
         out["concept_iris_ss"] = sorted({t.iri for t in concept})
         out["concept_labels_ss"] = sorted({t.label for t in concept})
-        out["pack_versions_ss"] = sorted(
-            {f"{t.pack_id}@{t.pack_version}" for t in concept if t.pack_id}
-        )
+    linked = [t for t in doc.tags if t.kind == "entity" and t.pack_id]
+    if linked:
+        out["entity_iris_ss"] = sorted({t.iri for t in linked})
+        out["entity_labels_ss"] = sorted({t.label for t in linked})
+    packs = {f"{t.pack_id}@{t.pack_version}" for t in doc.tags if t.pack_id}
+    if packs:
+        out["pack_versions_ss"] = sorted(packs)
     for key, value in doc.fields.items():
         if key.startswith("x_") and isinstance(value, str | int | float | bool | list):
             name = key[2:]  # pre-suffixed custom fields from connectors: x_owner_s -> owner_s

@@ -1,0 +1,7 @@
+# CQ-003: traditions with a flood narrative
+PREFIX ex: <https://semascope.dev/ontology/demo#>
+PREFIX th: <https://semascope.dev/ontology/demo/themes#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+SELECT ?tradition ?label WHERE {
+  ?tradition ex:hasMotif th:flood ; skos:prefLabel ?label .
+}

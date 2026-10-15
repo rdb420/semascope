@@ -1,0 +1,100 @@
+sources:
+  - id: SRC-001
+    title: The Odyssey, translated by Samuel Butler
+    source_type: primary_text
+    authority: primary
+    status: current
+    publisher: Project Gutenberg
+    date: '1900'
+    version: 'ebook 1727'
+    location: https://www.gutenberg.org/ebooks/1727
+    content_hash: null
+    notes: Figures and places of the Greek epic tradition; Butler uses Latin names (Ulysses, Jove, Minerva).
+  - id: SRC-002
+    title: The Iliad, translated by Samuel Butler
+    source_type: primary_text
+    authority: primary
+    status: current
+    publisher: Project Gutenberg
+    date: '1898'
+    version: 'ebook 2199'
+    location: https://www.gutenberg.org/ebooks/2199
+    content_hash: null
+    notes: Troy, Achilles, Hector; Latin divine names as in SRC-001.
+  - id: SRC-003
+    title: Bulfinch's Mythology
+    source_type: secondary_text
+    authority: secondary
+    status: current
+    publisher: Project Gutenberg
+    date: '1855'
+    version: 'ebook 4928'
+    location: https://www.gutenberg.org/ebooks/4928
+    content_hash: null
+    notes: Greek, Roman, Norse and Arthurian figures with their equivalences (Zeus/Jupiter, Odin/Woden).
+  - id: SRC-004
+    title: The King James Version of the Bible
+    source_type: primary_text
+    authority: primary
+    status: current
+    publisher: Project Gutenberg
+    date: '1611'
+    version: 'ebook 10'
+    location: https://www.gutenberg.org/ebooks/10
+    content_hash: null
+    notes: Moses, Noah, Jerusalem; the Genesis flood.
+  - id: SRC-005
+    title: The Song Celestial (Bhagavad-Gita), translated by Edwin Arnold
+    source_type: primary_text
+    authority: primary
+    status: current
+    publisher: Project Gutenberg
+    date: '1885'
+    version: 'ebook 2388'
+    location: https://www.gutenberg.org/ebooks/2388
+    content_hash: null
+    notes: Krishna and Arjuna.
+  - id: SRC-006
+    title: Dhammapada, translated by F. Max Müller
+    source_type: primary_text
+    authority: primary
+    status: current
+    publisher: Project Gutenberg
+    date: '1881'
+    version: 'ebook 2017'
+    location: https://www.gutenberg.org/ebooks/2017
+    content_hash: null
+    notes: Buddha, also Gotama and the Blessed One in the translation.
+  - id: SRC-007
+    title: Kalevala, translated by John Martin Crawford
+    source_type: primary_text
+    authority: primary
+    status: current
+    publisher: Project Gutenberg
+    date: '1888'
+    version: 'ebook 5186'
+    location: https://www.gutenberg.org/ebooks/5186
+    content_hash: null
+    notes: Väinämöinen (Wainamoinen in the translation), Ilmarinen, Lemminkäinen.
+  - id: SRC-008
+    title: The Golden Bough, by James George Frazer
+    source_type: secondary_text
+    authority: secondary
+    status: current
+    publisher: Project Gutenberg
+    date: '1922'
+    version: 'ebook 3623'
+    location: https://www.gutenberg.org/ebooks/3623
+    content_hash: null
+    notes: Comparative treatment of motifs across traditions.
+  - id: SRC-009
+    title: The Mabinogion, translated by Lady Charlotte Guest
+    source_type: primary_text
+    authority: primary
+    status: current
+    publisher: Project Gutenberg
+    date: '1877'
+    version: 'ebook 5160'
+    location: https://www.gutenberg.org/ebooks/5160
+    content_hash: null
+    notes: Arthur, Welsh tradition.

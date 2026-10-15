@@ -141,3 +141,39 @@ def test_preview_renders_pdf_and_image(tmp_path: Path) -> None:
     assert PreviewStage().run(doc2, ctx).fields["preview_pages"] == 1
     with Image.open(tmp_path / "previews" / "i" / "1.webp") as out:
         assert out.width == 300
+
+
+def test_solr_document_carries_pack_tags() -> None:
+    from oss_core.contracts import Tag
+
+    doc = _doc("x")
+    doc.tags = [
+        Tag(
+            iri="https://p/themes#flood",
+            label="Flood",
+            kind="concept",
+            pack_id="p",
+            pack_version="1",
+            stage="tag",
+        ),
+        Tag(
+            iri="https://p#odysseus",
+            label="Odysseus",
+            kind="entity",
+            pack_id="p",
+            pack_version="1",
+            stage="tag",
+        ),
+        Tag(
+            iri="https://semascope.dev/ontology/base#Person/x",
+            label="X",
+            kind="entity",
+            stage="ner",
+        ),
+    ]
+    out = to_solr_document(doc)
+    assert out["concept_iris_ss"] == ["https://p/themes#flood"]
+    assert out["entity_iris_ss"] == ["https://p#odysseus"] and out["entity_labels_ss"] == [
+        "Odysseus"
+    ]
+    assert out["pack_versions_ss"] == ["p@1"]

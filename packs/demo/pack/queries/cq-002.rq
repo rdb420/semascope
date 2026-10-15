@@ -1,0 +1,5 @@
+# CQ-002: places that appear in both the Iliad and the Odyssey
+PREFIX ex: <https://semascope.dev/ontology/demo#>
+SELECT ?place WHERE {
+  ?place a ex:Place ; ex:appearsIn ex:iliad ; ex:appearsIn ex:odyssey .
+}

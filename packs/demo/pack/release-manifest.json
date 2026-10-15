@@ -1,0 +1,68 @@
+{
+  "ontology_id": "semascope-demo",
+  "ontology_version": "0.1.0",
+  "project_status": "draft",
+  "contract_version": "2.2.0",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "68119231a7bd5ab07c1a7c2bdeb14c47db0e70965b32ac3efacbc099c1400cf3"
+    },
+    {
+      "path": "decisions.yaml",
+      "sha256": "b8a18f1588d8209b786ac403e8d6910ccfacd8bbac62b096926c94d7e89d4512"
+    },
+    {
+      "path": "evidence.jsonl",
+      "sha256": "a63b834590a50181f6b175063d99030bb87b72a2c43e19681ae9e788d8ef858a"
+    },
+    {
+      "path": "instances.ttl",
+      "sha256": "f0cdfd48b7ff3c4a36a3a6326220936ab548097d3055f2eaab4215487f04cc8e"
+    },
+    {
+      "path": "model.yaml",
+      "sha256": "ea1f2801faea80dc650f1ad25dacb7dd1241e31fed6d2ef700d8e2a95ce8bfc4"
+    },
+    {
+      "path": "ontology.ttl",
+      "sha256": "0b9dc8ca93b2ba0146a0172c503f2b5fc26d49da9f8b003f48dacead22ba8d62"
+    },
+    {
+      "path": "queries/cq-001.rq",
+      "sha256": "a16561306f8a65415671e9d69ef392d945b81967010ddd6daeda8e38ba0ef237"
+    },
+    {
+      "path": "queries/cq-002.rq",
+      "sha256": "ce18bc74d659688364c6e98d8c96db44c35f95c5b66ffb303272f5252dd83178"
+    },
+    {
+      "path": "queries/cq-003.rq",
+      "sha256": "4f515eb059140b6611c17e53dd04b17b02e97bef72801b82a3ace97bc6e911c0"
+    },
+    {
+      "path": "queries/cq-004.rq",
+      "sha256": "433ac0508519682269a13ae09c96756e4cbd46e6334c6a18686ec66f5d858658"
+    },
+    {
+      "path": "queries/manifest.yaml",
+      "sha256": "fb3517fbb0985b98005a91d1943497eee056a1931e2dccdd903f0aca2794cf17"
+    },
+    {
+      "path": "requirements.yaml",
+      "sha256": "aae4da10d553bb05887a15d3934debd0c0842d6fae5b8077e7c2f023c8f1b5fc"
+    },
+    {
+      "path": "shapes.ttl",
+      "sha256": "35423d4e101b3a035a79c65bd49d2d096683946e002e4e0299b5221f22a59004"
+    },
+    {
+      "path": "sources.yaml",
+      "sha256": "a74825230edcd94bad2849239f6bb08335438ab9d80794ca19d0c43f7f8dee81"
+    },
+    {
+      "path": "taxonomy.ttl",
+      "sha256": "8565ccb49d39596212a51ee0502da1bb6000e1776514061b8024c5b60ea95ffe"
+    }
+  ]
+}

@@ -68,6 +68,50 @@ export type Stats = {
   solr_documents: number | null;
 };
 
+export type Pack = {
+  id: number;
+  pack_id: string;
+  version: string;
+  title: string;
+  base_iri: string;
+  status: string;
+  bundle_status: string;
+  licence: string;
+  counts: Record<string, number>;
+  findings: { severity: string; code: string; message: string }[];
+  cq_results: { tests?: number; passed?: number; results?: { cq_id: string; status: string }[] };
+  imported_at: string;
+  activated_at: string | null;
+};
+export type PackDetail = Pack & {
+  requirements: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  decisions: { id: string; topic: string; decision: string; rationale: string }[];
+  sources: { id: string; title: string; location?: string }[];
+  schemes: { slug: string; iri: string; label: string; definition: string }[];
+};
+export type TreeNode = { iri: string; label: string; path: string; kind: string; children: TreeNode[] };
+export type Concept = {
+  iri: string;
+  kind: string;
+  pref_label: string;
+  lang: string;
+  alt_labels: string[];
+  hidden_labels: string[];
+  definition: string;
+  scheme: string;
+  scheme_slug: string;
+  type_iri: string;
+  type_label: string;
+  broader: string[];
+  path: string;
+  depth: number;
+  taggable: boolean;
+  support: string;
+  term_status: string;
+  pack_id: string;
+  pack_version: string;
+};
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -123,4 +167,13 @@ export const api = {
   document: (id: string) => request<Document>(`/api/documents/${id}`),
   documentText: (id: string) => request<DocumentText>(`/api/documents/${id}/text`),
   stats: () => request<Stats>("/api/stats"),
+  packs: () => request<Pack[]>("/api/knowledge/packs"),
+  pack: (packId: string) => request<PackDetail>(`/api/knowledge/packs/${packId}`),
+  packTree: (packId: string, scheme?: string) =>
+    request<TreeNode[]>(`/api/knowledge/packs/${packId}/tree${scheme ? `?scheme=${encodeURIComponent(scheme)}` : ""}`),
+  concept: (iri: string) => request<Concept>(`/api/knowledge/concepts?iri=${encodeURIComponent(iri)}`),
+  conceptDocuments: (iri: string) =>
+    request<{ total: number; docs: { id: string; title_txt?: string; uri_s: string }[] }>(
+      `/api/knowledge/concepts/documents?iri=${encodeURIComponent(iri)}`,
+    ),
 };

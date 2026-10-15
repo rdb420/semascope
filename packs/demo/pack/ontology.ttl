@@ -1,0 +1,34 @@
+@prefix ex: <https://semascope.dev/ontology/demo#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+<https://semascope.dev/ontology/demo> a owl:Ontology ;
+    rdfs:label "Sacred texts and mythology demo model"@en ;
+    dcterms:title "Sacred texts and mythology demo model"@en ;
+    dcterms:description "A small model of the traditions, text types, themes, figures and places of the Semascope demo corpus, built to show faceted navigation, dictionary tagging, entity linking and the graph."@en ;
+    dcterms:creator "Semascope contributors" ;
+    dcterms:created "2026-10-15"^^xsd:date ;
+    dcterms:modified "2026-10-15"^^xsd:date ;
+    dcterms:license <https://www.apache.org/licenses/LICENSE-2.0> ;
+    owl:versionInfo "0.1.0" ;
+    owl:versionIRI <https://semascope.dev/ontology/demo/0.1.0> .
+
+ex:Figure a owl:Class ; rdfs:label "Figure"@en ; rdfs:comment "A named person, deity or other being that a text names."@en ; owl:disjointWith ex:Place ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:Deity a owl:Class ; rdfs:subClassOf ex:Figure ; rdfs:label "Deity"@en ; rdfs:comment "A god or goddess."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:Hero a owl:Class ; rdfs:subClassOf ex:Figure ; rdfs:label "Hero"@en ; rdfs:comment "A mortal protagonist of epic or legend."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:Teacher a owl:Class ; rdfs:subClassOf ex:Figure ; rdfs:label "Teacher"@en ; rdfs:comment "A prophet, sage or founder whose teaching a text records."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:Place a owl:Class ; rdfs:label "Place"@en ; rdfs:comment "A named location in a text, real or mythical."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:Text a owl:Class ; rdfs:label "Text"@en ; rdfs:comment "A source work of the corpus."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+
+ex:belongsToTradition a owl:ObjectProperty ; rdfs:domain [ a owl:Class ; owl:unionOf ( ex:Figure ex:Place ) ] ; rdfs:range skos:Concept ;
+    rdfs:label "belongs to tradition"@en ; rdfs:comment "Links a figure or place to a tradition concept."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:appearsIn a owl:ObjectProperty ; rdfs:domain [ a owl:Class ; owl:unionOf ( ex:Figure ex:Place ) ] ; rdfs:range ex:Text ;
+    rdfs:label "appears in"@en ; rdfs:comment "Links a figure or place to a source text it appears in."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:hasMotif a owl:ObjectProperty ; rdfs:domain skos:Concept ; rdfs:range skos:Concept ;
+    rdfs:label "has motif"@en ; rdfs:comment "Links a tradition to a theme concept found in its texts."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:latitude a owl:DatatypeProperty ; rdfs:domain ex:Place ; rdfs:range xsd:decimal ; rdfs:label "latitude"@en ; rdfs:comment "Approximate latitude of a real place, for the map."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .
+ex:longitude a owl:DatatypeProperty ; rdfs:domain ex:Place ; rdfs:range xsd:decimal ; rdfs:label "longitude"@en ; rdfs:comment "Approximate longitude of a real place, for the map."@en ; rdfs:isDefinedBy <https://semascope.dev/ontology/demo> .

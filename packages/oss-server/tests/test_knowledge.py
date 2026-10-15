@@ -98,3 +98,22 @@ def test_knowledge_api(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
         ).status_code
         == 403
     )
+
+
+@pytest.mark.django_db
+def test_stage_context_carries_active_pack_versions(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pyoxigraph as ox
+
+    from oss_server.catalogue.models import Collection
+    from oss_server.knowledge import store as store_mod
+    from oss_server.knowledge.models import PackBinding
+    from oss_server.pipeline.tasks import build_context
+
+    monkeypatch.setattr(store_mod, "store", lambda: _memory_store(ox))
+    import_pack(BASE)
+    c = Collection.objects.create(slug="ctx", name="ctx")
+    ctx = build_context(c)
+    assert ctx.pack_versions == {"semascope-base": "0.1.0"}
+    assert ctx.settings["solr_entities"] == "entities"
+    PackBinding.objects.create(collection=c, pack_id="not-imported")
+    assert build_context(c).pack_versions == {}, "a binding to an inactive pack yields nothing"

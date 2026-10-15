@@ -115,6 +115,25 @@ def parse_response(req: SearchIn, body: dict[str, Any]) -> SearchOut:
     )
 
 
+def scheme_facets() -> list[str]:
+    """One `<scheme>_paths` facet per scheme of every active pack with taggable concepts."""
+
+    from oss_server.knowledge.models import Concept, Pack
+
+    slugs = (
+        Concept.objects.filter(
+            pack__status=Pack.Status.ACTIVE, kind=Concept.Kind.CONCEPT, taggable=True
+        )
+        .exclude(scheme_slug="")
+        .values_list("scheme_slug", flat=True)
+        .distinct()
+    )
+    return [f"{slug}_paths" for slug in sorted(set(slugs))]
+
+
 def search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
+    extra = [f for f in scheme_facets() if f not in req.facets]
+    if extra:
+        req = req.model_copy(update={"facets": [*req.facets, *extra]})
     body = client.select(collection_name, **build_params(req))
     return parse_response(req, body)

@@ -21,6 +21,10 @@ export function searchSearchSchema(raw: Record<string, unknown>): SearchParams {
 }
 
 const FACET_LABELS: Record<string, string> = {
+  persons_ss: "People",
+  organisations_ss: "Organisations",
+  places_ss: "Places",
+  entity_labels_ss: "Linked entities",
   content_type_group_s: "Type",
   language_s: "Language",
   media_type_s: "Format",
@@ -31,7 +35,19 @@ const FACET_LABELS: Record<string, string> = {
   hashtags_ss: "Hashtags",
   concept_labels_ss: "Concepts",
 };
-const FACETS = ["content_type_group_s", "language_s", "media_type_s", "source_id_s", "emails_ss", "money_ss", "hashtags_ss"];
+const FACETS = [
+  "content_type_group_s",
+  "language_s",
+  "media_type_s",
+  "source_id_s",
+  "entity_labels_ss",
+  "persons_ss",
+  "places_ss",
+  "organisations_ss",
+  "emails_ss",
+  "money_ss",
+  "hashtags_ss",
+];
 const PAGE_SIZE = 10;
 
 export function SearchPage() {
@@ -138,6 +154,27 @@ export function SearchPage() {
   );
 }
 
+function facetTitle(field: string): string {
+  if (FACET_LABELS[field]) return FACET_LABELS[field];
+  if (field.endsWith("_paths")) return field.slice(0, -6).replace(/-/g, " ");
+  return field;
+}
+
+type TreeNode = { value: string; label: string; count: number; children: TreeNode[] };
+
+function buildTree(values: FacetValue[]): TreeNode[] {
+  const roots: TreeNode[] = [];
+  const byPath = new Map<string, TreeNode>();
+  for (const v of [...values].sort((a, b) => a.value.localeCompare(b.value))) {
+    const parts = v.value.split("/");
+    const node: TreeNode = { value: v.value, label: parts[parts.length - 1].replace(/-/g, " "), count: v.count, children: [] };
+    byPath.set(v.value, node);
+    const parent = parts.length > 1 ? byPath.get(parts.slice(0, -1).join("/")) : undefined;
+    (parent ? parent.children : roots).push(node);
+  }
+  return roots;
+}
+
 function Facet({
   field,
   values,
@@ -149,9 +186,35 @@ function Facet({
   selected: string[];
   onToggle: (field: string, value: string) => void;
 }) {
+  if (field.endsWith("_paths")) {
+    const tree = buildTree(values);
+    const render = (nodes: TreeNode[], depth: number) =>
+      nodes.map((n) => {
+        const on = selected.includes(n.value);
+        return (
+          <li key={n.value}>
+            <button
+              onClick={() => onToggle(field, n.value)}
+              style={{ paddingLeft: `${depth * 0.75 + 0.25}rem` }}
+              className={`flex w-full items-center justify-between rounded py-0.5 pr-1 text-left capitalize hover:bg-zinc-200 dark:hover:bg-zinc-800 ${on ? "bg-blue-100 font-medium dark:bg-blue-900/40" : ""}`}
+            >
+              <span className="truncate">{n.label}</span>
+              <span className="ml-2 text-zinc-500">{n.count}</span>
+            </button>
+            {n.children.length > 0 && <ul>{render(n.children, depth + 1)}</ul>}
+          </li>
+        );
+      });
+    return (
+      <div>
+        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{facetTitle(field)}</h3>
+        <ul className="space-y-0.5 text-sm">{render(tree, 0)}</ul>
+      </div>
+    );
+  }
   return (
     <div>
-      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{FACET_LABELS[field] ?? field}</h3>
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{facetTitle(field)}</h3>
       <ul className="space-y-0.5 text-sm">
         {values.map((v) => {
           const on = selected.includes(v.value);

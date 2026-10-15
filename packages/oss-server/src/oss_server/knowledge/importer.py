@@ -368,6 +368,7 @@ def dictionary_entries(pack: Pack) -> list[dict[str, Any]]:
                         "pack_id": pack.pack_id,
                         "pack_version": pack.version,
                         "label": label,
+                        "pref_label": concept.pref_label,
                         "label_type": label_type,
                         "lang": concept.lang or "und",
                         "kind": concept.kind,

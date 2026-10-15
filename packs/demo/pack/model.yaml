@@ -1,0 +1,67 @@
+terms:
+  - {id: TERM-001, iri: ex:Figure, kind: class, label: Figure, definition: A named person, deity or other being that a text names., status: accepted, support: modelling_construct, evidence: [], rationale: Common superclass so facets and the graph treat every named being alike.}
+  - {id: TERM-002, iri: ex:Deity, kind: class, label: Deity, definition: A god or goddess., status: accepted, support: modelling_construct, evidence: [], rationale: Distinguishes divine from human figures for the facet.}
+  - {id: TERM-003, iri: ex:Hero, kind: class, label: Hero, definition: A mortal protagonist of epic or legend., status: accepted, support: modelling_construct, evidence: [], rationale: As TERM-002.}
+  - {id: TERM-004, iri: ex:Teacher, kind: class, label: Teacher, definition: A prophet, sage or founder whose teaching a text records., status: accepted, support: modelling_construct, evidence: [], rationale: Covers Moses, the Buddha and Krishna without asserting their divinity.}
+  - {id: TERM-005, iri: ex:Place, kind: class, label: Place, definition: A named location in a text, real or mythical., status: accepted, support: modelling_construct, evidence: [], rationale: Needed for the map and the place facet.}
+  - {id: TERM-006, iri: ex:belongsToTradition, kind: object_property, label: belongs to tradition, definition: Links a figure or place to a tradition concept., status: accepted, support: modelling_construct, evidence: [], rationale: The cross-tradition competency question needs it.}
+  - {id: TERM-007, iri: ex:appearsIn, kind: object_property, label: appears in, definition: Links a figure or place to a source text it appears in., status: accepted, support: modelling_construct, evidence: [], rationale: CQ-002 asks which places appear in both epics.}
+  - {id: TERM-008, iri: ex:hasMotif, kind: object_property, label: has motif, definition: Links a tradition to a theme concept found in its texts., status: accepted, support: modelling_construct, evidence: [], rationale: CQ-003.}
+  - {id: TERM-009, iri: ex:Text, kind: class, label: Text, definition: A source work of the corpus., status: accepted, support: modelling_construct, evidence: [], rationale: Target of appearsIn.}
+  - {id: TERM-010, iri: "<https://semascope.dev/ontology/demo/traditions#comparative-religion>", kind: skos_concept, label: Comparative religion, definition: Scholarship that compares traditions; a classification for secondary texts., status: accepted, support: source_supported, evidence: [EV-012], rationale: null}
+  - {id: TERM-020, iri: ex:zeus, kind: individual, label: Zeus, definition: King of the Greek gods; Jupiter or Jove to the Romans., status: accepted, support: source_supported, evidence: [EV-001], rationale: null}
+  - {id: TERM-021, iri: ex:hera, kind: individual, label: Hera, definition: Queen of the Greek gods; Juno to the Romans., status: accepted, support: source_supported, evidence: [EV-001], rationale: null}
+  - {id: TERM-022, iri: ex:athena, kind: individual, label: Athena, definition: Greek goddess of wisdom; Minerva to the Romans., status: accepted, support: source_supported, evidence: [EV-001], rationale: null}
+  - {id: TERM-023, iri: ex:poseidon, kind: individual, label: Poseidon, definition: Greek god of the sea; Neptune to the Romans., status: accepted, support: source_supported, evidence: [EV-001], rationale: null}
+  - {id: TERM-024, iri: ex:hermes, kind: individual, label: Hermes, definition: Greek messenger god; Mercury to the Romans., status: accepted, support: source_supported, evidence: [EV-001], rationale: null}
+  - {id: TERM-025, iri: ex:odin, kind: individual, label: Odin, definition: Chief of the Norse gods; also Woden., status: accepted, support: source_supported, evidence: [EV-004], rationale: null}
+  - {id: TERM-026, iri: ex:thor, kind: individual, label: Thor, definition: Norse god of thunder., status: accepted, support: source_supported, evidence: [EV-004], rationale: null}
+  - {id: TERM-027, iri: ex:loki, kind: individual, label: Loki, definition: Norse trickster., status: accepted, support: source_supported, evidence: [EV-004], rationale: null}
+  - {id: TERM-028, iri: ex:krishna, kind: individual, label: Krishna, definition: Divine charioteer and teacher of the Bhagavad-Gita., status: accepted, support: source_supported, evidence: [EV-007], rationale: null}
+  - {id: TERM-029, iri: ex:arthur, kind: individual, label: Arthur, definition: King of the Britons in Welsh and Arthurian legend., status: accepted, support: source_supported, evidence: [EV-011], rationale: null}
+  - {id: TERM-030, iri: ex:odysseus, kind: individual, label: Odysseus, definition: Hero of the Odyssey, king of Ithaca; Ulysses in Butler., status: accepted, support: source_supported, evidence: [EV-002], rationale: null}
+  - {id: TERM-031, iri: ex:achilles, kind: individual, label: Achilles, definition: Greek hero of the Iliad., status: accepted, support: source_supported, evidence: [EV-003], rationale: null}
+  - {id: TERM-032, iri: ex:hector, kind: individual, label: Hector, definition: Trojan prince and champion in the Iliad., status: accepted, support: source_supported, evidence: [EV-003], rationale: null}
+  - {id: TERM-033, iri: ex:helen, kind: individual, label: Helen, definition: Helen of Troy., status: accepted, support: source_supported, evidence: [EV-003], rationale: null}
+  - {id: TERM-034, iri: ex:noah, kind: individual, label: Noah, definition: Builder of the ark in Genesis., status: accepted, support: source_supported, evidence: [EV-005], rationale: null}
+  - {id: TERM-035, iri: ex:moses, kind: individual, label: Moses, definition: Leader of the Exodus and lawgiver., status: accepted, support: source_supported, evidence: [EV-006], rationale: null}
+  - {id: TERM-036, iri: ex:arjuna, kind: individual, label: Arjuna, definition: Warrior prince counselled by Krishna., status: accepted, support: source_supported, evidence: [EV-007], rationale: null}
+  - {id: TERM-037, iri: ex:buddha, kind: individual, label: Buddha, definition: The teacher of the Dhammapada; Gotama, the Blessed One., status: accepted, support: source_supported, evidence: [EV-008], rationale: null}
+  - {id: TERM-038, iri: ex:vainamoinen, kind: individual, label: Väinämöinen, definition: Sage and singer of the Kalevala; Wainamoinen in Crawford., status: accepted, support: source_supported, evidence: [EV-009], rationale: null}
+  - {id: TERM-039, iri: ex:ilmarinen, kind: individual, label: Ilmarinen, definition: Smith of the Kalevala., status: accepted, support: source_supported, evidence: [EV-009], rationale: null}
+  - {id: TERM-040, iri: ex:ithaca, kind: individual, label: Ithaca, definition: Island home of Odysseus., status: accepted, support: source_supported, evidence: [EV-002], rationale: null}
+  - {id: TERM-041, iri: ex:troy, kind: individual, label: Troy, definition: The besieged city of the Iliad; Ilium., status: accepted, support: source_supported, evidence: [EV-003], rationale: null}
+  - {id: TERM-042, iri: ex:asgard, kind: individual, label: Asgard, definition: Home of the Norse gods., status: accepted, support: source_supported, evidence: [EV-004], rationale: null}
+  - {id: TERM-043, iri: ex:jerusalem, kind: individual, label: Jerusalem, definition: City of David., status: accepted, support: source_supported, evidence: [EV-006], rationale: null}
+  - {id: TERM-044, iri: ex:sinai, kind: individual, label: Mount Sinai, definition: Where Moses receives the law., status: accepted, support: source_supported, evidence: [EV-006], rationale: null}
+  - {id: TERM-045, iri: ex:kurukshetra, kind: individual, label: Kurukshetra, definition: The battlefield of the Bhagavad-Gita., status: accepted, support: source_supported, evidence: [EV-007], rationale: null}
+  - {id: TERM-046, iri: ex:pohjola, kind: individual, label: Pohjola, definition: The Northland of the Kalevala; Pohyola in Crawford., status: accepted, support: source_supported, evidence: [EV-009], rationale: null}
+  - {id: TERM-047, iri: ex:deucalion, kind: individual, label: Deucalion, definition: Survivor of the Greek flood., status: accepted, support: source_supported, evidence: [EV-010], rationale: null}
+  - {id: TERM-050, iri: "<https://semascope.dev/ontology/demo/themes#flood>", kind: skos_concept, label: Flood, definition: A world-destroying flood survived by a chosen few., status: accepted, support: source_supported, evidence: [EV-005, EV-010], rationale: null}
+axioms:
+  - {id: AX-020, type: individualOf, subject: ex:zeus, object: ex:Deity, status: accepted, support: source_supported, evidence: [EV-001], rationale: null}
+  - {id: AX-025, type: individualOf, subject: ex:odin, object: ex:Deity, status: accepted, support: source_supported, evidence: [EV-004], rationale: null}
+  - {id: AX-026, type: individualOf, subject: ex:thor, object: ex:Deity, status: accepted, support: source_supported, evidence: [EV-004], rationale: null}
+  - {id: AX-027, type: individualOf, subject: ex:loki, object: ex:Deity, status: accepted, support: source_supported, evidence: [EV-004], rationale: null}
+  - {id: AX-028, type: individualOf, subject: ex:krishna, object: ex:Teacher, status: accepted, support: source_supported, evidence: [EV-007], rationale: null}
+  - {id: AX-029, type: individualOf, subject: ex:arthur, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-011], rationale: null}
+  - {id: AX-030, type: individualOf, subject: ex:odysseus, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-002], rationale: null}
+  - {id: AX-031, type: individualOf, subject: ex:achilles, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-003], rationale: null}
+  - {id: AX-032, type: individualOf, subject: ex:troy, object: ex:Place, status: accepted, support: source_supported, evidence: [EV-003], rationale: null}
+  - {id: AX-034, type: individualOf, subject: ex:noah, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-005], rationale: null}
+  - {id: AX-035, type: individualOf, subject: ex:moses, object: ex:Teacher, status: accepted, support: source_supported, evidence: [EV-006], rationale: null}
+  - {id: AX-036, type: individualOf, subject: ex:arjuna, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-007], rationale: null}
+  - {id: AX-037, type: individualOf, subject: ex:buddha, object: ex:Teacher, status: accepted, support: source_supported, evidence: [EV-008], rationale: null}
+  - {id: AX-038, type: individualOf, subject: ex:vainamoinen, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-009], rationale: null}
+  - {id: AX-039, type: individualOf, subject: ex:ilmarinen, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-009], rationale: null}
+  - {id: AX-047, type: individualOf, subject: ex:deucalion, object: ex:Hero, status: accepted, support: source_supported, evidence: [EV-010], rationale: null}
+  - {id: AX-050, type: hasMotif, subject: "<https://semascope.dev/ontology/demo/traditions#judaism>", object: "<https://semascope.dev/ontology/demo/themes#flood>", status: accepted, support: source_supported, evidence: [EV-005], rationale: null}
+  - {id: AX-001, type: subClassOf, subject: ex:Deity, object: ex:Figure, status: accepted, support: modelling_construct, evidence: [], rationale: see TERM-002}
+  - {id: AX-002, type: subClassOf, subject: ex:Hero, object: ex:Figure, status: accepted, support: modelling_construct, evidence: [], rationale: see TERM-003}
+  - {id: AX-003, type: subClassOf, subject: ex:Teacher, object: ex:Figure, status: accepted, support: modelling_construct, evidence: [], rationale: see TERM-004}
+  - {id: AX-004, type: disjoint, subject: ex:Figure, object: ex:Place, status: accepted, support: modelling_construct, evidence: [], rationale: A figure is never a place.}
+mappings: []
+patterns:
+  - {id: PAT-001, name: alternative names as altLabel, applies_to: [ex:Figure], rationale: see DEC-003}
+unresolved_issues:
+  - {id: ISS-001, topic: "Is the Buddha a Teacher or a Deity in Mahayana readings?", status: open, note: "The corpus text (Dhammapada) presents a teacher; the model follows the corpus."}
