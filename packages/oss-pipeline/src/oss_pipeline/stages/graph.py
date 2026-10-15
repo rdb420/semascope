@@ -25,6 +25,7 @@ from typing import Any
 
 from oss_core.contracts import StageContext, Tag, WorkingDocument
 from oss_pipeline.clients.neo4j import GraphClient
+from oss_pipeline.stages.index import effective_tags
 
 BASE = "https://semascope.dev/ontology/base#"
 
@@ -107,7 +108,7 @@ class GraphStage:
         )
         concepts: list[dict[str, Any]] = []
         entities: list[dict[str, Any]] = []
-        for tag in doc.tags:
+        for tag in effective_tags(doc):
             count = max(1, len(tag.spans))
             if tag.kind == "concept":
                 concepts.append(

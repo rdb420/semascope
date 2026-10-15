@@ -39,6 +39,16 @@ def doc(db: None) -> Document:
                 "confidence": 0.7,
                 "spans": [],
             },
+            {
+                "iri": "https://p/themes#law",
+                "label": "Law",
+                "kind": "concept",
+                "stage": "tag",
+                "confidence": 0.75,
+                "spans": [],
+                "pack_id": "p",
+                "pack_version": "1",
+            },
         ],
         fields={
             "shacl_violations": [
@@ -55,7 +65,9 @@ def _quiet(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_queue_reviews_opens_items_for_low_confidence_and_violations(doc: Document) -> None:
     opened = services.queue_reviews(doc)
     kinds = sorted(Review.objects.filter(document=doc).values_list("kind", flat=True))
-    assert opened == 2 and kinds == ["link", "violation"], "an unlinked NER entity is a link review"
+    assert opened == 2 and kinds == ["tag", "violation"], (
+        "NER without candidates is skipped; a weak tag is reviewed"
+    )
     assert services.queue_reviews(doc) == 0, "re-running opens nothing new"
 
 
@@ -92,8 +104,8 @@ def test_review_decisions_through_the_api(
     items = client.get("/api/curation/reviews?collection=cur", headers=auth).json()
     assert len(items) == 2
     summary = client.get("/api/curation/reviews/summary", headers=auth).json()
-    assert summary == {"link": 1, "violation": 1}
-    tag_item = next(i for i in items if i["kind"] == "link")
+    assert summary == {"tag": 1, "violation": 1}
+    tag_item = next(i for i in items if i["kind"] == "tag")
     r = client.post(
         f"/api/curation/reviews/{tag_item['id']}/decision",
         data={"decision": "reject", "note": "not this"},

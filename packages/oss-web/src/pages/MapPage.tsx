@@ -1,0 +1,64 @@
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Map as MapLibreMap, Marker } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { api } from "../api";
+import { useUser } from "../components/Shell";
+
+const STYLE = {
+  version: 8 as const,
+  sources: {
+    osm: {
+      type: "raster" as const,
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+    },
+  },
+  layers: [{ id: "osm", type: "raster" as const, source: "osm" }],
+};
+
+export function MapPage() {
+  const user = useUser();
+  const navigate = useNavigate();
+  const [collection, setCollection] = useState("");
+  const collections = useQuery({ queryKey: ["collections"], queryFn: api.collections, enabled: user.isSuccess });
+  const places = useQuery({ queryKey: ["places", collection], queryFn: () => api.places(collection || undefined), enabled: user.isSuccess });
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current || !places.data) return;
+    const map = new MapLibreMap({ container: ref.current, style: STYLE, center: [20, 35], zoom: 2.5 });
+    const markers: Marker[] = [];
+    for (const p of places.data) {
+      const el = document.createElement("button");
+      el.className = "rounded-full border-2 border-white bg-blue-600 shadow";
+      const size = 10 + Math.min(20, p.docs * 2);
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
+      el.title = `${p.label} · ${p.docs} documents`;
+      el.onclick = () => navigate({ to: "/concepts", search: { iri: p.iri } });
+      markers.push(new Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map));
+    }
+    return () => {
+      markers.forEach((m) => m.remove());
+      map.remove();
+    };
+  }, [places.data, navigate]);
+  if (!user.isSuccess) return null;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <h1 className="text-xl font-semibold">Map</h1>
+        <select value={collection} onChange={(e) => setCollection(e.target.value)} className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm dark:border-zinc-700">
+          <option value="">All collections</option>
+          {collections.data?.map((c) => (
+            <option key={c.slug} value={c.slug}>{c.name}</option>
+          ))}
+        </select>
+        <span className="text-sm text-zinc-500">{places.data?.length ?? 0} places from the active packs; marker size is the number of documents</span>
+      </div>
+      <div ref={ref} className="h-[70vh] w-full rounded-lg border border-zinc-200 dark:border-zinc-800" />
+    </div>
+  );
+}

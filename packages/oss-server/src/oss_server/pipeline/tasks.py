@@ -170,6 +170,14 @@ def process_document(doc_id: str, item: dict[str, Any]) -> str:
     Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
     connector = connectors()[doc_row.source.connector]
     fetched = connector.fetch(SourceItem.model_validate(item))
+    meta = fetched.item.metadata
+    fields: dict[str, Any] = {"local_path": fetched.path} if fetched.path else {}
+    fields.update({k: v for k, v in (meta.get("fields") or {}).items() if str(k).startswith("x_")})
+    if meta.get("parent_uri"):
+        fields["x_parent_uri_s"] = str(meta["parent_uri"])
+    for keep in ("curated", "dismissed_violations"):
+        if doc_row.fields.get(keep):
+            fields[keep] = doc_row.fields[keep]
     work = WorkingDocument(
         id=doc_row.id,
         collection=doc_row.collection.slug,
@@ -177,11 +185,12 @@ def process_document(doc_id: str, item: dict[str, Any]) -> str:
         uri=doc_row.uri,
         content_hash=doc_row.content_hash,
         media_type=fetched.media_type,
+        title=str(meta["title"]) if meta.get("title") else None,
         metadata={
             "modified_at": doc_row.modified_at.isoformat() if doc_row.modified_at else None,
             "size": doc_row.size,
         },
-        fields={"local_path": fetched.path} if fetched.path else {},
+        fields=fields,
     )
     ctx = build_context(doc_row.collection)
     work = run_profile(profile(ctx.profile), work, ctx)

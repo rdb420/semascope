@@ -83,7 +83,9 @@ class TagStage:
                             pack_id=str(entry.get("pack_id")),
                             pack_version=str(entry.get("pack_version")),
                             stage=self.name,
-                            confidence=1.0 if entry.get("label_type") == "pref" else 0.9,
+                            confidence={"pref": 1.0, "alt": 0.9, "draft": 0.85}.get(
+                                str(entry.get("label_type")), 0.75
+                            ),
                         )
                         found[iri] = tag
                     tag.spans.append(Span(start=start, end=end))

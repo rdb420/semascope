@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from oss_core.contracts import StageContext, WorkingDocument
+from oss_core.contracts import StageContext, Tag, WorkingDocument
 from oss_pipeline.clients.solr import SolrClient
 
 ENTITY_FIELDS = (
@@ -20,8 +20,32 @@ ENTITY_FIELDS = (
 )
 
 
+def effective_tags(doc: WorkingDocument) -> list[Tag]:
+    """The document's tags after curation: rejected ones dropped, accepted additions kept."""
+
+    curated: dict[str, Any] = dict(doc.fields.get("curated") or {})
+    tags = [t for t in doc.tags if curated.get(t.iri, {}).get("decision") != "reject"]
+    present = {t.iri for t in tags}
+    for iri, decision in curated.items():
+        if decision.get("decision") == "accept" and iri not in present and decision.get("label"):
+            tags.append(
+                Tag(
+                    iri=iri,
+                    label=str(decision["label"]),
+                    kind="concept" if decision.get("kind", "concept") == "concept" else "entity",
+                    stage="curated",
+                    confidence=1.0,
+                    pack_id=decision.get("pack_id"),
+                    pack_version=decision.get("pack_version"),
+                )
+            )
+    return tags
+
+
 def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -> dict[str, Any]:
     meta = doc.metadata
+    tags = effective_tags(doc)
+    curated: dict[str, Any] = dict(doc.fields.get("curated") or {})
     out: dict[str, Any] = {
         "id": doc.id,
         "collection_s": doc.collection,
@@ -45,17 +69,19 @@ def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -
         values = doc.fields.get(name)
         if values:
             out[f"{name}_ss"] = list(values)
-    concept = [t for t in doc.tags if t.kind == "concept"]
+    concept = [t for t in tags if t.kind == "concept"]
     if concept:
         out["concept_iris_ss"] = sorted({t.iri for t in concept})
         out["concept_labels_ss"] = sorted({t.label for t in concept})
-    linked = [t for t in doc.tags if t.kind == "entity" and t.pack_id]
+    linked = [t for t in tags if t.kind == "entity" and t.pack_id]
     if linked:
         out["entity_iris_ss"] = sorted({t.iri for t in linked})
         out["entity_labels_ss"] = sorted({t.label for t in linked})
-    packs = {f"{t.pack_id}@{t.pack_version}" for t in doc.tags if t.pack_id}
+    packs = {f"{t.pack_id}@{t.pack_version}" for t in tags if t.pack_id}
     if packs:
         out["pack_versions_ss"] = sorted(packs)
+    if curated:
+        out["curated_ss"] = sorted(f"{iri}:{v.get('decision')}" for iri, v in curated.items())
     for key, value in doc.fields.items():
         if key.startswith("x_") and isinstance(value, str | int | float | bool | list):
             name = key[2:]  # pre-suffixed custom fields from connectors: x_owner_s -> owner_s

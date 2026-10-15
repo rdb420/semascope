@@ -36,6 +36,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <nav className="ml-auto flex items-center gap-4 text-sm">
             {loggedIn ? (
               <>
+                <Link to="/map" className="hover:underline">
+                  Map
+                </Link>
                 <Link to="/review" className="hover:underline">
                   Review
                 </Link>

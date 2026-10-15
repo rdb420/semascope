@@ -25,6 +25,7 @@ export type SearchOut = {
   took_ms: number;
   hits: SearchHit[];
   facets: Record<string, FacetValue[]>;
+  histogram: FacetValue[];
 };
 export type SearchIn = {
   q: string;
@@ -34,7 +35,11 @@ export type SearchIn = {
   page?: number;
   page_size?: number;
   sort?: string | null;
+  histogram?: string | null;
+  histogram_gap?: string;
 };
+export type Place = { iri: string; label: string; type: string; lat: number; lon: number; docs: number };
+export type SavedSearch = { id: number; name: string; query: SearchIn; alert: boolean; last_total: number };
 export type Collection = {
   slug: string;
   name: string;
@@ -216,6 +221,14 @@ export const api = {
   annotations: (id: string) => request<Annotation[]>(`/api/curation/documents/${id}/annotations`),
   addAnnotation: (id: string, body: { text: string; tags?: string[] }) =>
     request<Annotation>(`/api/curation/documents/${id}/annotations`, { method: "POST", body: JSON.stringify(body) }),
+  places: (collection?: string) =>
+    request<Place[]>(`/api/knowledge/places${collection ? `?collection=${encodeURIComponent(collection)}` : ""}`),
+  savedSearches: () => request<SavedSearch[]>("/api/search/saved"),
+  saveSearch: (body: { name: string; query: SearchIn; alert: boolean }) =>
+    request<SavedSearch>("/api/search/saved", { method: "POST", body: JSON.stringify(body) }),
+  deleteSavedSearch: (id: number) => request<void>(`/api/search/saved/${id}`, { method: "DELETE" }),
+  terms: (payload: SearchIn) =>
+    request<{ term: string; count: number; docs: number }[]>("/api/search/terms", { method: "POST", body: JSON.stringify(payload) }),
   packs: () => request<Pack[]>("/api/knowledge/packs"),
   pack: (packId: string) => request<PackDetail>(`/api/knowledge/packs/${packId}`),
   packTree: (packId: string, scheme?: string) =>

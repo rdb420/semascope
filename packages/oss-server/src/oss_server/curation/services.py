@@ -193,13 +193,11 @@ def queue_reviews(doc: Document) -> int:
         if not iri or iri in curated:
             continue
         confidence = float(tag.get("confidence") or 0)
-        if (
-            confidence < REVIEW_THRESHOLD
-            or tag.get("stage") == "ner"
-            and tag.get("pack_id") is None
-            and _resembles_individual(tag)
-        ):
-            kind = Review.Kind.LINK if tag.get("stage") == "ner" else Review.Kind.TAG
+        is_ner = tag.get("stage") == "ner" and tag.get("pack_id") is None
+        candidates = _candidates(tag) if is_ner else []
+        wanted = candidates if is_ner else confidence < REVIEW_THRESHOLD
+        if wanted:
+            kind = Review.Kind.LINK if is_ner else Review.Kind.TAG
             _, was_created = Review.objects.get_or_create(
                 document=doc,
                 kind=kind,
@@ -210,7 +208,7 @@ def queue_reviews(doc: Document) -> int:
                     "payload": {
                         "stage": tag.get("stage"),
                         "spans": len(tag.get("spans") or []),
-                        "candidates": _candidates(tag),
+                        "candidates": candidates,
                     },
                     "confidence": confidence,
                 },

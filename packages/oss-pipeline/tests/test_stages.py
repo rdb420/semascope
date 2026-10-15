@@ -194,3 +194,26 @@ def test_ner_name_filter() -> None:
     )
     assert not looks_like_name("--with-autologon") and not looks_like_name("/dev/ scd0")
     assert not looks_like_name("a " * 10)
+
+
+def test_curated_decisions_shape_the_index() -> None:
+    from oss_core.contracts import Tag
+    from oss_pipeline.stages.index import effective_tags
+
+    doc = _doc("x")
+    doc.tags = [
+        Tag(
+            iri="https://p#a", label="A", kind="concept", pack_id="p", pack_version="1", stage="tag"
+        ),
+        Tag(
+            iri="https://p#b", label="B", kind="concept", pack_id="p", pack_version="1", stage="tag"
+        ),
+    ]
+    doc.fields["curated"] = {
+        "https://p#b": {"decision": "reject"},
+        "https://p#c": {"decision": "accept", "label": "C", "kind": "concept"},
+    }
+    assert sorted(t.iri for t in effective_tags(doc)) == ["https://p#a", "https://p#c"]
+    out = to_solr_document(doc)
+    assert out["concept_iris_ss"] == ["https://p#a", "https://p#c"]
+    assert out["curated_ss"] == ["https://p#b:reject", "https://p#c:accept"]
