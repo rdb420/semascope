@@ -22,12 +22,4 @@
       </params>
     </parser>
   </parsers>
-  <server>
-    <params>
-      <param name="port" type="int">9998</param>
-      <param name="host" type="string">0.0.0.0</param>
-      <param name="taskTimeoutMillis" type="long">300000</param>
-      <param name="maxFiles" type="int">100000</param>
-    </params>
-  </server>
 </properties>

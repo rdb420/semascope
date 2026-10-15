@@ -132,7 +132,7 @@ services:
 
   tika:
     image: apache/tika:3.3.0.0-full
-    command: ["--config", "/tika-config.xml"]
+    command: ["--config", "/tika-config.xml", "--host", "0.0.0.0", "--port", "9998"]
     environment:
       JAVA_TOOL_OPTIONS: -Xmx${TIKA_HEAP:-1g}
     volumes:

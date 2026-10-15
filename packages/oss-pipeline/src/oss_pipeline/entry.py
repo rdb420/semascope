@@ -21,6 +21,9 @@ def worker() -> None:
 
 
 def beat() -> None:
+    from oss_core.config import get_settings
     from oss_pipeline.celery_app import app
 
-    sys.exit(app.start(["beat", "--loglevel=INFO"]))
+    schedule = get_settings().semascope_data_dir / "celerybeat-schedule"
+    schedule.parent.mkdir(parents=True, exist_ok=True)
+    sys.exit(app.start(["beat", "--loglevel=INFO", "--schedule", str(schedule)]))
