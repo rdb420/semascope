@@ -234,7 +234,9 @@ def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) ->
     params = build_params(fetch)
     params["q"] = id_query
     params["defType"] = "lucene"
-    params["hl.q"] = req.q
+    params["df"] = "text_txt"
+    params["hl.q"] = "{!edismax qf='title_txt text_txt' v=$hlq}"
+    params["hlq"] = req.q
     body = client.select(collection_name, **params)
     parsed = parse_response(fetch, body)
     by_id = {h.id: h for h in parsed.hits}
