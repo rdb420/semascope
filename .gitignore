@@ -28,3 +28,4 @@ reports/
 .vscode/
 *.swp
 .DS_Store
+site/
