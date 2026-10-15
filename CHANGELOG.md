@@ -7,6 +7,9 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Phase 1 exit test passed on 2026-10-15: fresh clone, `./oss init`, `./oss up`,
+  `./oss index`, `./oss search`, UI and API docs answering through Caddy
+
 - Browser UI (React 19, TypeScript, Vite, Tailwind 4): sign-in, search with
   facets, pagination, highlighted snippets and thumbnails, document page with
   text per page, page previews, found entities and pipeline stage runs

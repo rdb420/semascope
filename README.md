@@ -10,7 +10,7 @@ bundles, called *packs*), and lets people explore and curate the result through
 faceted search, concept and entity pages, a document-entity graph in Neo4j, and
 review queues whose decisions are exported for whatever system owns the data.
 
-Status: **Phase 1, vertical slice.** From a fresh clone the stack starts,
+Status: **Phase 1 complete, Phase 2 (knowledge model) next.** From a fresh clone the stack starts,
 indexes folders, uploads and web pages (including OCR of scanned pages) and
 answers searches with facets, highlighted snippets and page previews through
 the browser UI, the API and the CLI. The development plan is in [`docs/plan.md`](docs/plan.md)
