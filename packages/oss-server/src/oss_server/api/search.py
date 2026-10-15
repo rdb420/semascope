@@ -188,12 +188,18 @@ def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any
 def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
     """Semantic: rank documents by their best chunk. Hybrid: reciprocal rank fusion with keyword."""
 
-    k = max(50, req.page_size * 10)
+    k = max(200, req.page_size * 20)
     chunks = _knn_chunks(client, req, k)
+    # rank documents by their best chunk, but count at most three chunks per document so one
+    # long text cannot crowd out every other hit
     doc_order: list[str] = []
     passages: dict[str, list[str]] = {}
+    seen_per_doc: dict[str, int] = {}
     for ch in chunks:
         did = str(ch["document_id"])
+        seen_per_doc[did] = seen_per_doc.get(did, 0) + 1
+        if seen_per_doc[did] > 3:
+            continue
         if did not in passages:
             doc_order.append(did)
             passages[did] = []

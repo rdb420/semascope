@@ -26,7 +26,9 @@ LABEL_MAP = {
     "EVENT": ("Event", "events"),
 }
 DEFAULT_MODELS = {"en": "en_core_web_sm", "xx": "xx_ent_wiki_sm"}
-MAX_CHARS = 1_000_000
+MAX_CHARS = (
+    300_000  # per document by default; `ner_max_chars` in the collection's pipeline settings
+)
 
 
 @lru_cache(maxsize=4)
@@ -64,7 +66,8 @@ class NerStage:
             import spacy  # noqa: F401
         except ImportError as exc:
             raise SkipStageError("spaCy is not installed (nlp extra)") from exc
-        text = (doc.text or "")[:MAX_CHARS]
+        limit = int(ctx.settings.get("ner_max_chars", MAX_CHARS))
+        text = (doc.text or "")[:limit]
         if not text.strip():
             return doc
         models = {**DEFAULT_MODELS, **(ctx.settings.get("ner_models") or {})}
@@ -75,7 +78,7 @@ class NerStage:
             nlp = _load(model)
         except OSError as exc:
             raise SkipStageError(f"model {model} not installed") from exc
-        nlp.max_length = MAX_CHARS + 1
+        nlp.max_length = limit + 1
         min_len = int(ctx.settings.get("ner_min_length", 3))
         found: dict[str, Tag] = {}
         facets: dict[str, set[str]] = defaultdict(set)

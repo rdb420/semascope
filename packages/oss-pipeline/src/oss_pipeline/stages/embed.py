@@ -37,7 +37,7 @@ class EmbedStage:
             raise SkipStageError("embedding disabled for this collection")
         if not doc.chunks:
             raise SkipStageError("no chunks")
-        max_chunks = int(ctx.settings.get("embed_max_chunks", 2000))
+        max_chunks = int(ctx.settings.get("embed_max_chunks", 800))
         chunks = doc.chunks[:max_chunks]
         pages = list(doc.fields.get("chunk_pages") or [])
         try:
