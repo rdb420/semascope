@@ -1,0 +1,11 @@
+# CQ-001: documents tagged with a concept, with the pack version and stage that produced the tag
+PREFIX base: <https://semascope.dev/ontology/base#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+SELECT ?doc ?version ?stage WHERE {
+  ?doc a base:Document ;
+       base:inCollection <https://semascope.dev/example/collection-demo> ;
+       base:hasTag ?tag .
+  ?tag base:tagTarget <https://semascope.dev/example/concept-flood> ;
+       base:producedByPack/base:packVersion ?version ;
+       base:producedByStage/dcterms:title ?stage .
+}

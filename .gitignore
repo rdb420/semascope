@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+packages/oss-web/dist/
+
+# Local configuration and data
+.env
+.env.*
+!.env.example
+data/
+packs/demo/corpus/
+packs/demo/cache/
+packs/*/validation/*.json
+reports/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store

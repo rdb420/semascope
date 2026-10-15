@@ -1,0 +1,76 @@
+{
+  "ontology_id": "semascope-base",
+  "ontology_version": "0.1.0",
+  "project_status": "draft",
+  "contract_version": "2.2.0",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "59039915ae61adc742a187ae7558ffe02b7e73a7db91011cf49ece3879a8058d"
+    },
+    {
+      "path": "decisions.yaml",
+      "sha256": "f8c2fc4f1844d863ad68c0a24e392a1debbeb480a1a721b27b0ec8289c2e71ee"
+    },
+    {
+      "path": "evidence.jsonl",
+      "sha256": "7c44103830367b8a853b4355a9da9e84c6f116038c779b05d363ccbc465112d7"
+    },
+    {
+      "path": "instances.ttl",
+      "sha256": "0c207ac163efb82adb3881b545fb5f1c3d15b21b0e6a99594242c84a662dcf2a"
+    },
+    {
+      "path": "model.yaml",
+      "sha256": "aad6b0e85dc93c87fa4c38f32f891cdfcccdda31b81b6cc9732a378036bf0cb2"
+    },
+    {
+      "path": "ontology.ttl",
+      "sha256": "3cad4e5d7c2f275b8a04bddcaa42cd1fe2fe78749f573baf311ccc16419bbc36"
+    },
+    {
+      "path": "packs/base/validation/cq-results.json",
+      "sha256": "96a7c6bb4fb92cd1bb538956bc455b7dc45185ad21400e7e8b384ab40801a7c5"
+    },
+    {
+      "path": "packs/base/validation/shacl-results.json",
+      "sha256": "dcc12a40da32d34504a8d79c009178d3d4124f796a6a3498d2aeb48136e9dfa2"
+    },
+    {
+      "path": "packs/base/validation/validation.json",
+      "sha256": "c30e4ba2a2626fc51af081651d9129a48376d3eca08cdf1c0367083019bd4631"
+    },
+    {
+      "path": "queries/cq-001.rq",
+      "sha256": "0abe78cde1d8072a77886e86f28bfc50357356b49087e3861a15ab52c2cbbb89"
+    },
+    {
+      "path": "queries/cq-002.rq",
+      "sha256": "f2bf4914d42bf03aeddf097d76d4ca3a16b8f4e54ad84db3c02de8eefb74359d"
+    },
+    {
+      "path": "queries/cq-003.rq",
+      "sha256": "e4078b670fdcbee5e3ca52ba0939bd51b74e4115d11f0d0c4cb41eeb6ea58e99"
+    },
+    {
+      "path": "queries/manifest.yaml",
+      "sha256": "65d712b0e9f6cd415dbe843e89df2db742b791f5b7d5ecf4128bb4b57c0c3ceb"
+    },
+    {
+      "path": "requirements.yaml",
+      "sha256": "317a7b16ed826c48c858f67757dceca6db71cf95066d0711e91f48992ae98934"
+    },
+    {
+      "path": "shapes.ttl",
+      "sha256": "cf079da69722d3f0a358f12a139a894dcf3f4bf88146031d400dee8cbf9fa941"
+    },
+    {
+      "path": "sources.yaml",
+      "sha256": "332982b56b7fcece7a84eba4b81d13bc31258da54377502d0a5c1ede090b2b0c"
+    },
+    {
+      "path": "taxonomy.ttl",
+      "sha256": "f73be125bd62bc73b9c33d7152eb2b4dec77fad1cb70bd6f8d914719e15b3594"
+    }
+  ]
+}

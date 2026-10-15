@@ -1,0 +1,5 @@
+# CQ-003: source and content hash of every document
+PREFIX base: <https://semascope.dev/ontology/base#>
+SELECT ?doc ?source ?hash WHERE {
+  ?doc a base:Document ; base:fromSource ?source ; base:contentHash ?hash .
+}

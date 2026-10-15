@@ -1,0 +1,119 @@
+# Demo corpus sources. Every text is public domain: each author and translator
+# died before 1956. Fetched from Project Gutenberg by build.py, which strips the
+# Project Gutenberg header, footer and trademark as the Project Gutenberg
+# Licence requires for redistribution without the trademark.
+# build.py appends `fetched_at` and `sha256` for each entry it downloads.
+project_gutenberg:
+  base_url: https://www.gutenberg.org
+  verified: '2026-10-15'
+texts:
+- id: 10
+  slug: kjv-bible
+  title: The King James Version of the Bible
+  creator: 1611 translation
+  traditions:
+  - christianity
+  - judaism
+- id: 216
+  slug: tao-teh-king
+  title: The Tao Teh King
+  creator: James Legge (1815-1897), translator
+  traditions:
+  - taoism
+- id: 4094
+  slug: confucian-analects
+  title: 'The Chinese Classics, volume 1: Confucian Analects'
+  creator: James Legge (1815-1897), translator
+  traditions:
+  - confucianism
+- id: 2017
+  slug: dhammapada
+  title: Dhammapada
+  creator: F. Max Müller (1823-1900), translator
+  traditions:
+  - buddhism
+  fetched_at: '2026-10-15'
+  sha256: 7a803da202e84cffc6c3d6d55df433b97221ec1ca1cae8708b0ed954f6a70c72
+  bytes: 66850
+- id: 2388
+  slug: song-celestial
+  title: The Song Celestial (Bhagavad-Gita)
+  creator: Edwin Arnold (1832-1904), translator
+  traditions:
+  - hinduism
+- id: 12894
+  slug: sacred-books-east
+  title: Sacred Books of the East (selections)
+  creator: Epiphanius Wilson (1845-1916), editor
+  traditions:
+  - hinduism
+  - zoroastrianism
+  - buddhism
+  - islam
+- id: 2800
+  slug: koran-rodwell
+  title: The Koran
+  creator: J. M. Rodwell (1808-1900) and G. Margoliouth (1853-1924)
+  traditions:
+  - islam
+- id: 28282
+  slug: egyptian-literature
+  title: Egyptian Literature
+  creator: Epiphanius Wilson (1845-1916), editor
+  traditions:
+  - ancient-egypt
+- id: 1727
+  slug: odyssey
+  title: The Odyssey
+  creator: Homer; Samuel Butler (1835-1902), translator
+  traditions:
+  - greek
+- id: 2199
+  slug: iliad
+  title: The Iliad
+  creator: Homer; Samuel Butler (1835-1902), translator
+  traditions:
+  - greek
+- id: 11339
+  slug: aesop-fables
+  title: Aesop's Fables
+  creator: G. K. Chesterton (1874-1936), introduction; Arthur Rackham (1867-1939), illustrations
+  traditions:
+  - greek
+- id: 4928
+  slug: bulfinch-mythology
+  title: Bulfinch's Mythology
+  creator: Thomas Bulfinch (1796-1867)
+  traditions:
+  - greek
+  - roman
+  - norse
+  - arthurian
+- id: 5160
+  slug: mabinogion
+  title: The Mabinogion
+  creator: Charlotte Guest (1812-1895), translator
+  traditions:
+  - welsh
+- id: 5186
+  slug: kalevala
+  title: Kalevala
+  creator: John Martin Crawford (1845-1916), translator
+  traditions:
+  - finnish
+- id: 5314
+  slug: grimm-household-tales
+  title: Household Tales
+  creator: Jacob and Wilhelm Grimm; Margaret Hunt (1831-1912), translator
+  traditions:
+  - germanic-folklore
+- id: 3623
+  slug: golden-bough
+  title: The Golden Bough
+  creator: James George Frazer (1854-1941)
+  traditions:
+  - comparative-religion
+excluded:
+- id: 7700
+  title: Lysistrata
+  reason: translator Jack Lindsay died in 1990; not public domain under life-plus-70

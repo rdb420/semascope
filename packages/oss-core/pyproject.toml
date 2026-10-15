@@ -1,0 +1,20 @@
+[project]
+name = "oss-core"
+version = "0.1.0"
+description = "Semascope core: shared models, configuration, plugin protocols and the pack contract"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "rdflib>=7.1,<8",
+    "pyyaml>=6,<7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oss_core"]

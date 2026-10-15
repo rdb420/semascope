@@ -1,0 +1,23 @@
+# Development overlay: exposed service ports on loopback and source mounts.
+# Usage: docker compose -f compose.yaml -f compose.dev.yaml up --wait
+
+services:
+  server:
+    command: oss-server --reload
+    volumes:
+      - ./packages:/app/packages
+    ports:
+      - "127.0.0.1:8000:8000"
+  worker:
+    volumes:
+      - ./packages:/app/packages
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+  valkey:
+    ports: ["127.0.0.1:6379:6379"]
+  solr:
+    ports: ["127.0.0.1:8983:8983"]
+  neo4j:
+    ports: ["127.0.0.1:7474:7474", "127.0.0.1:7687:7687"]
+  tika:
+    ports: ["127.0.0.1:9998:9998"]

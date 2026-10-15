@@ -1,0 +1,30 @@
+@prefix base: <https://semascope.dev/ontology/base#> .
+@prefix ctg: <https://semascope.dev/ontology/base/content-type-group#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+base:ContentTypeGroupScheme a skos:ConceptScheme ;
+    skos:prefLabel "Content type group"@en ;
+    skos:definition "Coarse groups of media types used as a facet. Every document gets exactly one, derived from the detected media type."@en ;
+    skos:hasTopConcept ctg:text, ctg:image, ctg:audio, ctg:video, ctg:archive, ctg:mail, ctg:spreadsheet, ctg:presentation, ctg:web, ctg:data .
+
+ctg:text a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Text"@en ; skos:altLabel "Document"@en ; skos:definition "Word-processing, plain text, PDF and e-book formats."@en .
+ctg:image a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Image"@en ; skos:definition "Raster and vector images, including scanned pages."@en .
+ctg:audio a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Audio"@en ; skos:definition "Sound recordings."@en .
+ctg:video a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Video"@en ; skos:definition "Moving images."@en .
+ctg:archive a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Archive"@en ; skos:altLabel "Container"@en ; skos:definition "Zip, tar and other containers whose members become child documents."@en .
+ctg:mail a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Mail"@en ; skos:altLabel "Email"@en ; skos:definition "Messages and mailboxes; attachments become child documents."@en .
+ctg:spreadsheet a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Spreadsheet"@en ; skos:definition "Tabular office formats."@en .
+ctg:presentation a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Presentation"@en ; skos:definition "Slide decks."@en .
+ctg:web a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Web"@en ; skos:definition "HTML pages and feeds."@en .
+ctg:data a skos:Concept ; skos:inScheme base:ContentTypeGroupScheme ; skos:topConceptOf base:ContentTypeGroupScheme ;
+    skos:prefLabel "Data"@en ; skos:definition "Structured data such as CSV, JSON, XML and RDF."@en .

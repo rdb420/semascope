@@ -1,0 +1,22 @@
+[project]
+name = "oss-cli"
+version = "0.1.0"
+description = "The `oss` command for Semascope"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "oss-core",
+    "typer>=0.15",
+    "httpx>=0.28",
+    "rich>=13",
+]
+
+[project.scripts]
+oss = "oss_cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oss_cli"]

@@ -1,0 +1,29 @@
+queries:
+  - cq_id: CQ-001
+    file: cq-001.rq
+    fixture: instances.ttl
+    include_ontology: true
+    include_taxonomy: true
+    entailment: none
+    expected:
+      type: contains_bindings
+      value:
+        - { doc: "https://semascope.dev/example/doc-1", version: "1.0.0", stage: "tag" }
+  - cq_id: CQ-002
+    file: cq-002.rq
+    fixture: instances.ttl
+    include_ontology: true
+    include_taxonomy: false
+    entailment: none
+    expected:
+      type: row_count
+      value: 1
+  - cq_id: CQ-003
+    file: cq-003.rq
+    fixture: instances.ttl
+    include_ontology: true
+    include_taxonomy: false
+    entailment: none
+    expected:
+      type: row_count
+      value: 2

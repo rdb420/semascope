@@ -1,0 +1,33 @@
+site_name: Semascope
+site_description: Searchable, navigable, reviewable knowledge bases on your own hardware
+repo_url: https://github.com/rdb420/semascope
+docs_dir: docs
+theme:
+  name: material
+  features: [navigation.sections, content.code.copy]
+  palette:
+    - scheme: default
+      toggle: { icon: material/brightness-7, name: Dark mode }
+    - scheme: slate
+      toggle: { icon: material/brightness-4, name: Light mode }
+nav:
+  - Home: index.md
+  - Concepts: concepts.md
+  - Development plan: plan.md
+  - Decisions:
+      - adr/index.md
+      - adr/0001-clean-room-apache-2.md
+      - adr/0002-name-and-home.md
+      - adr/0003-solr-10.md
+      - adr/0004-semantic-search-in-1-0.md
+      - adr/0005-demo-corpus.md
+      - adr/0006-stack.md
+      - adr/0007-pack-contract.md
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format

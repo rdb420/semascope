@@ -1,0 +1,7 @@
+{
+  "name": "oss-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Semascope browser UI (React 19, TypeScript, Vite). Scaffolded in Phase 1.",
+  "license": "Apache-2.0"
+}

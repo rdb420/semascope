@@ -1,0 +1,51 @@
+[project]
+name = "semascope-workspace"
+version = "0.0.0"
+description = "Workspace root for Semascope. Not published."
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/oss-core", "packages/oss-server", "packages/oss-pipeline", "packages/oss-cli"]
+
+[tool.uv.sources]
+oss-core = { workspace = true }
+oss-server = { workspace = true }
+oss-pipeline = { workspace = true }
+oss-cli = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.100",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "mkdocs-material>=9.5",
+    "types-PyYAML",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["packages/*/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "N", "W"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/oss-cli/**" = ["B008"]  # typer declares options in signatures by design
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "packages/oss-core/src:packages/oss-server/src:packages/oss-pipeline/src:packages/oss-cli/src"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["packages"]
+addopts = "-q"

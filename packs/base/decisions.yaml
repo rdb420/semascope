@@ -1,0 +1,41 @@
+decisions:
+  - id: DEC-001
+    topic: upper_ontology
+    decision: defer
+    status: accepted
+    rationale: The base model names pipeline units and generic entity types; no cross-domain reasoning requirement justifies BFO, DOLCE or GIST.
+    evidence: []
+    affects: [architecture]
+    date: '2026-10-15'
+  - id: DEC-002
+    topic: import_strategy
+    decision: reuse by reference, no owl:imports
+    status: accepted
+    rationale: dcterms, PROV-O and SKOS terms are used directly by IRI; their ontologies are not imported so the pack stays small and loads offline.
+    evidence: [EV-005, EV-006, EV-007]
+    affects: [interoperability]
+    date: '2026-10-15'
+  - id: DEC-003
+    topic: tag_pattern
+    decision: a Tag is a first-class node
+    status: accepted
+    rationale: A tag needs pack version, stage, confidence and spans, which a plain document-to-concept triple cannot carry.
+    evidence: [EV-004]
+    affects: [graph_projection]
+    date: '2026-10-15'
+  - id: DEC-004
+    topic: domain_range
+    decision: declare domain and range on every object property
+    status: accepted
+    rationale: The base model is small and its properties are not shared with other packs, so global domain and range are safe and help validation.
+    evidence: []
+    affects: [axioms]
+    date: '2026-10-15'
+  - id: DEC-005
+    topic: schema_org_alignment
+    decision: record skos:closeMatch candidates only
+    status: accepted
+    rationale: schema.org Person, Organization and Place are close in intent but their definitions are broader; equivalence is not asserted.
+    evidence: []
+    affects: [mappings]
+    date: '2026-10-15'

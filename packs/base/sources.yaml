@@ -1,0 +1,45 @@
+sources:
+  - id: SRC-001
+    title: DCMI Metadata Terms
+    source_type: standard
+    authority: authoritative
+    status: current
+    publisher: Dublin Core Metadata Initiative
+    date: '2020-01-20'
+    version: '2020-01-20'
+    location: https://www.dublincore.org/specifications/dublin-core/dcmi-terms/
+    content_hash: null
+    notes: Reused for document title, created, modified, language and source.
+  - id: SRC-002
+    title: PROV-O The PROV Ontology
+    source_type: standard
+    authority: authoritative
+    status: current
+    publisher: W3C
+    date: '2013-04-30'
+    version: W3C Recommendation
+    location: https://www.w3.org/TR/prov-o/
+    content_hash: null
+    notes: Reused for the provenance of tags and stage runs.
+  - id: SRC-003
+    title: SKOS Simple Knowledge Organization System Reference
+    source_type: standard
+    authority: authoritative
+    status: current
+    publisher: W3C
+    date: '2009-08-18'
+    version: W3C Recommendation
+    location: https://www.w3.org/TR/skos-reference/
+    content_hash: null
+    notes: Concepts that tag documents are skos:Concept; the content-type group scheme is SKOS.
+  - id: SRC-004
+    title: Semascope rebuild specification, sections 6 to 9
+    source_type: design_document
+    authority: project
+    status: current
+    publisher: Semascope
+    date: '2026-10-15'
+    version: '2026-10-15'
+    location: internal
+    content_hash: null
+    notes: Defines the pipeline units (document, page, chunk, source, collection, tag, stage run) that this model names.

@@ -1,0 +1,57 @@
+ontology:
+  id: semascope-base
+  title: Semascope base knowledge model
+  ontology_iri: https://semascope.dev/ontology/base
+  base_iri: https://semascope.dev/ontology/base#
+  version: 0.1.0
+  status: draft
+  created: '2026-10-15'
+  modified: '2026-10-15'
+  creator: Semascope contributors
+  licence: https://www.apache.org/licenses/LICENSE-2.0
+intended_use:
+  primary: retrieval_cataloguing
+  secondary: [integration, validation]
+audience: [developers, curators]
+scope:
+  inclusions:
+    - the things every indexed corpus has: documents, their pages and chunks, the sources they came from and the collection they belong to
+    - the generic entity types that pattern extractors and named-entity recognition produce
+    - provenance of tags: which pack version and which pipeline stage produced them
+  exclusions:
+    - any domain vocabulary (that is what other packs are for)
+    - document management semantics such as versions, approvals or retention
+    - user accounts, roles and permissions, which are application state
+interoperability:
+  required: true
+  target_ecosystems: [dcterms, prov-o, skos, schema.org]
+standards:
+  rdf: '1.1'
+  turtle: '1.1'
+  rdfs: '1.1'
+  owl: 2 DL
+  skos: '2009'
+  shacl: '2017'
+  sparql: '1.1'
+competency_questions:
+  - id: CQ-001
+    question: Which documents in a collection were tagged with a given concept, and by which pack version and stage?
+    priority: core
+    purpose: retrieval_and_provenance
+    status: active
+  - id: CQ-002
+    question: Which entities of a given type are mentioned in a document?
+    priority: core
+    purpose: retrieval
+    status: active
+  - id: CQ-003
+    question: Which source did a document come from, and what is its content hash?
+    priority: core
+    purpose: provenance
+    status: active
+release_policy:
+  require_all_core_cqs: true
+  require_annotation_coverage: 1.0
+  require_evidence_coverage: 1.0
+  require_external_reasoner: false
+  require_shacl_engine: false

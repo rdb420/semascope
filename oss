@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Semascope entry point. Runs the `oss` CLI inside the app image so no host
+# Python is needed. Developers can call `uv run oss ...` directly instead.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+cmd="${1:-help}"
+case "$cmd" in
+  init)
+    shift; exec uv run --package oss-cli oss init "$@" ;;
+  up)
+    docker compose up -d --wait; exec docker compose run --rm cli oss doctor ;;
+  down)
+    exec docker compose down ;;
+  logs)
+    shift; exec docker compose logs -f "$@" ;;
+  doctor|demo|index|reindex|backup|restore|version)
+    exec docker compose run --rm cli oss "$@" ;;
+  help|-h|--help)
+    cat <<'USAGE'
+usage: ./oss <command>
+
+  init      write .env with generated secrets (needs uv on the host)
+  up        start every service and wait for health
+  down      stop everything (data volumes are kept)
+  logs      follow service logs
+  doctor    check connectivity, versions and schema versions
+  demo      load the public-domain demo corpus and pack
+  index     index a path into a collection
+  reindex   replay a collection from stored extraction
+  backup    dump every store into ./data/backups
+  restore   restore from a backup directory
+  version   print the product version
+USAGE
+    ;;
+  *)
+    echo "unknown command: $cmd" >&2; exit 2 ;;
+esac

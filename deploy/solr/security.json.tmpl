@@ -1,0 +1,13 @@
+{
+  "authentication": {
+    "blockUnknown": true,
+    "class": "solr.BasicAuthPlugin",
+    "credentials": { "semascope": "${SOLR_PASSWORD_HASH}" },
+    "realm": "semascope"
+  },
+  "authorization": {
+    "class": "solr.RuleBasedAuthorizationPlugin",
+    "permissions": [ { "name": "all", "role": "admin" } ],
+    "user-role": { "semascope": "admin" }
+  }
+}

@@ -1,0 +1,178 @@
+@prefix base: <https://semascope.dev/ontology/base#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+<https://semascope.dev/ontology/base> a owl:Ontology ;
+    rdfs:label "Semascope base knowledge model"@en ;
+    dcterms:title "Semascope base knowledge model"@en ;
+    dcterms:description "The things every indexed corpus has: documents, pages, chunks, sources, collections, the generic entity types that pattern extraction and named-entity recognition produce, and the provenance of tags. Domain vocabularies live in other packs."@en ;
+    dcterms:creator "Semascope contributors" ;
+    dcterms:created "2026-10-15"^^xsd:date ;
+    dcterms:modified "2026-10-15"^^xsd:date ;
+    dcterms:license <https://www.apache.org/licenses/LICENSE-2.0> ;
+    owl:versionInfo "0.1.0" ;
+    owl:versionIRI <https://semascope.dev/ontology/base/0.1.0> .
+
+### Pipeline units
+
+base:Document a owl:Class ;
+    rdfs:label "Document"@en ;
+    rdfs:comment "One indexed item from a source, identified within its collection by a stable id and a content hash."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Page a owl:Class ;
+    rdfs:label "Page"@en ;
+    rdfs:comment "One page of a paginated document, numbered from 1."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Chunk a owl:Class ;
+    rdfs:label "Chunk"@en ;
+    rdfs:comment "A passage of a document of a configurable size, anchored to a page where known, that carries a dense vector."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Source a owl:Class ;
+    rdfs:label "Source"@en ;
+    rdfs:comment "A configured connector instance a document was discovered through."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Collection a owl:Class ;
+    rdfs:label "Collection"@en ;
+    rdfs:comment "A named corpus with its own sources, packs, profile and access rules."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+### Generic entity types
+
+base:Entity a owl:Class ;
+    rdfs:label "Entity"@en ;
+    rdfs:comment "Something named in a document that is not a classification concept; the parent of the generic entity types."@en ;
+    owl:disjointWith base:Document ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Person a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Person"@en ;
+    rdfs:comment "A named human being."@en ;
+    skos:closeMatch <https://schema.org/Person> ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Organisation a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Organisation"@en ;
+    rdfs:comment "A named company, agency, institution or other body."@en ;
+    skos:closeMatch <https://schema.org/Organization> ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Place a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Place"@en ;
+    rdfs:comment "A named geographic location."@en ;
+    skos:closeMatch <https://schema.org/Place> ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Event a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Event"@en ;
+    rdfs:comment "A named occurrence with a time."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:EmailAddress a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Email address"@en ;
+    rdfs:comment "An email address found by pattern extraction."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:PhoneNumber a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Phone number"@en ;
+    rdfs:comment "A telephone number found by pattern extraction."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:URL a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "URL"@en ;
+    rdfs:comment "A web address found by pattern extraction."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:MonetaryAmount a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Monetary amount"@en ;
+    rdfs:comment "An amount of money with a currency found by pattern extraction."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:LegalReference a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Legal reference"@en ;
+    rdfs:comment "A citation of a law, regulation, section or case found by pattern extraction."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Hashtag a owl:Class ; rdfs:subClassOf base:Entity ;
+    rdfs:label "Hashtag"@en ;
+    rdfs:comment "A hashtag token found by pattern extraction."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+### Provenance of tags
+
+base:Tag a owl:Class ; rdfs:subClassOf prov:Entity ;
+    rdfs:label "Tag"@en ;
+    rdfs:comment "The assertion that a concept or entity occurs in a document, with the pack version and stage that produced it, a confidence and spans."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:Pack a owl:Class ;
+    rdfs:label "Pack"@en ;
+    rdfs:comment "A version of a knowledge model bundle loaded into the product."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:StageRun a owl:Class ; rdfs:subClassOf prov:Activity ;
+    rdfs:label "Stage run"@en ;
+    rdfs:comment "One execution of a pipeline stage on a document, with its outcome."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+### Object properties
+
+base:fromSource a owl:ObjectProperty ; rdfs:domain base:Document ; rdfs:range base:Source ;
+    rdfs:label "from source"@en ; rdfs:comment "Links a document to the source it was discovered through."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:inCollection a owl:ObjectProperty ; rdfs:domain base:Document ; rdfs:range base:Collection ;
+    rdfs:label "in collection"@en ; rdfs:comment "Links a document to its collection."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:hasPage a owl:ObjectProperty ; rdfs:domain base:Document ; rdfs:range base:Page ;
+    rdfs:label "has page"@en ; rdfs:comment "Links a document to one of its pages."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:hasChunk a owl:ObjectProperty ; rdfs:domain base:Document ; rdfs:range base:Chunk ;
+    rdfs:label "has chunk"@en ; rdfs:comment "Links a document to one of its chunks."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:hasTag a owl:ObjectProperty ; rdfs:domain base:Document ; rdfs:range base:Tag ;
+    rdfs:label "has tag"@en ; rdfs:comment "Links a document to a tag asserted on it."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:tagTarget a owl:ObjectProperty ; rdfs:domain base:Tag ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( skos:Concept base:Entity ) ] ;
+    rdfs:label "tag target"@en ; rdfs:comment "Links a tag to the concept or entity it asserts."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:producedByPack a owl:ObjectProperty ; rdfs:domain base:Tag ; rdfs:range base:Pack ;
+    rdfs:label "produced by pack"@en ; rdfs:comment "Links a tag to the pack version whose vocabulary matched."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:producedByStage a owl:ObjectProperty ; rdfs:subPropertyOf prov:wasGeneratedBy ;
+    rdfs:domain base:Tag ; rdfs:range base:StageRun ;
+    rdfs:label "produced by stage"@en ; rdfs:comment "Links a tag to the stage run that produced it."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+### Datatype properties
+
+base:contentHash a owl:DatatypeProperty ; rdfs:domain base:Document ; rdfs:range xsd:string ;
+    rdfs:label "content hash"@en ; rdfs:comment "SHA-256 of the fetched bytes."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:confidence a owl:DatatypeProperty ; rdfs:domain base:Tag ; rdfs:range xsd:decimal ;
+    rdfs:label "confidence"@en ; rdfs:comment "A number between 0 and 1 expressing how sure the producing stage was."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:packVersion a owl:DatatypeProperty ; rdfs:domain base:Pack ; rdfs:range xsd:string ;
+    rdfs:label "pack version"@en ; rdfs:comment "The version string of a pack."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .
+
+base:pageNumber a owl:DatatypeProperty ; rdfs:domain base:Page ; rdfs:range xsd:positiveInteger ;
+    rdfs:label "page number"@en ; rdfs:comment "Position of a page within its document, from 1."@en ;
+    rdfs:isDefinedBy <https://semascope.dev/ontology/base> .

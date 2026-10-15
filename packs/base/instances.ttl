@@ -1,0 +1,52 @@
+@prefix base: <https://semascope.dev/ontology/base#> .
+@prefix ctg: <https://semascope.dev/ontology/base/content-type-group#> .
+@prefix ex: <https://semascope.dev/example/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+# Fixtures for the competency-question tests. Nothing here is real data.
+
+ex:collection-demo a owl:NamedIndividual, base:Collection ; dcterms:title "demo" .
+ex:source-files a owl:NamedIndividual, base:Source ; dcterms:title "filesystem: ./corpus" .
+ex:pack-demo-1 a owl:NamedIndividual, base:Pack ; base:packVersion "1.0.0" .
+ex:stage-tag-run-1 a owl:NamedIndividual, base:StageRun ; dcterms:title "tag" .
+ex:stage-ner-run-1 a owl:NamedIndividual, base:StageRun ; dcterms:title "ner" .
+
+ex:concept-flood a owl:NamedIndividual, skos:Concept ; skos:prefLabel "Flood narrative"@en .
+ex:entity-troy a owl:NamedIndividual, base:Place ; dcterms:title "Troy" .
+ex:entity-odysseus a owl:NamedIndividual, base:Person ; dcterms:title "Odysseus" .
+
+ex:doc-1 a owl:NamedIndividual, base:Document ;
+    dcterms:title "Fixture document one" ;
+    base:contentHash "0000000000000000000000000000000000000000000000000000000000000001" ;
+    base:inCollection ex:collection-demo ;
+    base:fromSource ex:source-files ;
+    base:hasPage ex:doc-1-page-1 ;
+    base:hasTag ex:tag-1, ex:tag-2 .
+
+ex:doc-1-page-1 a owl:NamedIndividual, base:Page ; base:pageNumber "1"^^xsd:positiveInteger .
+
+ex:tag-1 a owl:NamedIndividual, base:Tag ;
+    base:tagTarget ex:concept-flood ;
+    base:producedByPack ex:pack-demo-1 ;
+    base:producedByStage ex:stage-tag-run-1 ;
+    base:confidence 1.0 .
+
+ex:tag-2 a owl:NamedIndividual, base:Tag ;
+    base:tagTarget ex:entity-troy ;
+    base:producedByStage ex:stage-ner-run-1 ;
+    base:confidence 0.87 .
+
+ex:doc-2 a owl:NamedIndividual, base:Document ;
+    dcterms:title "Fixture document two" ;
+    base:contentHash "0000000000000000000000000000000000000000000000000000000000000002" ;
+    base:inCollection ex:collection-demo ;
+    base:fromSource ex:source-files ;
+    base:hasTag ex:tag-3 .
+
+ex:tag-3 a owl:NamedIndividual, base:Tag ;
+    base:tagTarget ex:entity-odysseus ;
+    base:producedByStage ex:stage-ner-run-1 ;
+    base:confidence 0.91 .

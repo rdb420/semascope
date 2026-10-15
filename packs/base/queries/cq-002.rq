@@ -1,0 +1,7 @@
+# CQ-002: entities of a given type mentioned in a document
+PREFIX base: <https://semascope.dev/ontology/base#>
+SELECT ?entity WHERE {
+  <https://semascope.dev/example/doc-1> base:hasTag ?tag .
+  ?tag base:tagTarget ?entity .
+  ?entity a base:Place .
+}

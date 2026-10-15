@@ -1,0 +1,25 @@
+@prefix base: <https://semascope.dev/ontology/base#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+base:DocumentShape a sh:NodeShape ;
+    sh:targetClass base:Document ;
+    rdfs:label "Document shape"@en ;
+    sh:property [ sh:path base:contentHash ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:pattern "^[0-9a-f]{64}$" ] ;
+    sh:property [ sh:path base:inCollection ; sh:minCount 1 ; sh:maxCount 1 ; sh:class base:Collection ] ;
+    sh:property [ sh:path base:fromSource ; sh:minCount 1 ; sh:maxCount 1 ; sh:class base:Source ] ;
+    sh:property [ sh:path dcterms:title ; sh:maxCount 1 ] .
+
+base:TagShape a sh:NodeShape ;
+    sh:targetClass base:Tag ;
+    rdfs:label "Tag shape"@en ;
+    sh:property [ sh:path base:tagTarget ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path base:producedByStage ; sh:minCount 1 ; sh:maxCount 1 ; sh:class base:StageRun ] ;
+    sh:property [ sh:path base:confidence ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:decimal ; sh:minInclusive 0 ; sh:maxInclusive 1 ] .
+
+base:PageShape a sh:NodeShape ;
+    sh:targetClass base:Page ;
+    rdfs:label "Page shape"@en ;
+    sh:property [ sh:path base:pageNumber ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:positiveInteger ] .
