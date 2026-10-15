@@ -216,3 +216,12 @@ def test_slugify_folds_accents() -> None:
 
     assert slugify("Väinämöinen") == "vainamoinen"
     assert slugify("Hero's journey") == "hero-s-journey"
+
+
+def test_demo_pack_places_carry_coordinates() -> None:
+    demo = REPO / "packs" / "demo" / "pack"
+    rows = derive(demo, load_pack(demo))
+    troy = next(r for r in rows if r["iri"].endswith("#troy"))
+    assert abs(troy["extra"]["lat"] - 39.957) < 0.01 and abs(troy["extra"]["lon"] - 26.239) < 0.01
+    asgard = next(r for r in rows if r["iri"].endswith("#asgard"))
+    assert "lat" not in asgard["extra"]

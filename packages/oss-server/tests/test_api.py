@@ -129,3 +129,27 @@ def test_schedules() -> None:
     assert not is_due("every 15m", t0, t0 + timedelta(minutes=5))
     assert is_due("every 15m", t0, t0 + timedelta(minutes=15))
     assert not is_due("", None, t0)
+
+
+def test_histogram_params_and_parse() -> None:
+    req = SearchIn(q="*:*", histogram="modified_dt", histogram_gap="+1MONTH")
+    params = build_params(req)
+    assert params["facet.range"] == "modified_dt" and params["facet.range.gap"] == "+1MONTH"
+    assert (
+        build_params(SearchIn(q="*:*", histogram="modified_dt", histogram_gap="DROP TABLE"))[
+            "facet.range.gap"
+        ]
+        == "+1YEAR"
+    )
+    body = {
+        "responseHeader": {"QTime": 1},
+        "response": {"numFound": 0, "docs": []},
+        "facet_counts": {
+            "facet_fields": {},
+            "facet_ranges": {
+                "modified_dt": {"counts": ["2025-01-01T00:00:00Z", 3, "2026-01-01T00:00:00Z", 5]}
+            },
+        },
+    }
+    out = parse_response(req, body)
+    assert [(h.value, h.count) for h in out.histogram] == [("2025-01-01", 3), ("2026-01-01", 5)]

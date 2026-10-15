@@ -78,6 +78,28 @@ def tagging_policy(pack_dir: Path) -> dict[str, Any]:
     }
 
 
+_LAT = {"latitude", "lat"}
+_LON = {"longitude", "long", "lon", "lng"}
+
+
+def _coordinates(g: Graph, node: URIRef) -> tuple[float, float] | None:
+    """(lat, lon) from any predicate whose local name is latitude/longitude."""
+
+    lat = lon = None
+    for p, o in g.predicate_objects(node):
+        name = local_name(str(p)).lower()
+        try:
+            if name in _LAT:
+                lat = float(str(o))
+            elif name in _LON:
+                lon = float(str(o))
+        except ValueError:
+            continue
+    if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return lat, lon
+
+
 def derive(
     pack_dir: Path, info: PackInfo, policy: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
@@ -184,6 +206,9 @@ def derive(
         row["type_label"] = (
             rows[type_iri]["pref_label"] if type_iri in rows else local_name(type_iri)
         )
+        coords = _coordinates(g, ind)
+        if coords:
+            row["extra"]["lat"], row["extra"]["lon"] = coords
 
     # scheme slugs for concepts, then paths from the top down
     for row in rows.values():

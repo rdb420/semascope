@@ -85,6 +85,8 @@ class SearchIn(Schema):
     page: int = 1
     page_size: int = 10
     highlight: bool = True
+    histogram: str | None = None  # a date field to bucket, e.g. modified_dt
+    histogram_gap: str = "+1YEAR"  # Solr gap: +1DAY, +1MONTH, +1YEAR, +10YEARS
 
 
 class FacetValue(Schema):
@@ -117,6 +119,7 @@ class SearchOut(Schema):
     took_ms: int
     hits: list[SearchHit]
     facets: dict[str, list[FacetValue]]
+    histogram: list[FacetValue] = []
 
 
 class SuggestOut(Schema):

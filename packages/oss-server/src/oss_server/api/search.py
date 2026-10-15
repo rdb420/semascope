@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from oss_pipeline.clients.solr import SolrClient
@@ -72,6 +73,16 @@ def build_params(req: SearchIn) -> dict[str, Any]:
         params["facet.mincount"] = 1
         params["facet.limit"] = min(req.facet_limit, 100)
         params["facet.field"] = ["{!ex=" + f + "}" + f for f in facets]
+    if req.histogram and (req.histogram.endswith("_dt") or req.histogram.endswith("_dts")):
+        valid = re.fullmatch(r"\+\d{1,3}(DAY|MONTH|YEAR)S?", req.histogram_gap)
+        gap = req.histogram_gap if valid else "+1YEAR"
+        params["facet"] = True
+        params["facet.range"] = req.histogram
+        params["facet.range.start"] = "NOW/YEAR-200YEARS" if "YEAR" in gap else "NOW/DAY-5YEARS"
+        params["facet.range.end"] = "NOW/DAY+1DAY"
+        params["facet.range.gap"] = gap
+        params["facet.range.other"] = "all"
+        params["facet.mincount"] = 1
     return params
 
 
@@ -105,6 +116,15 @@ def parse_response(req: SearchIn, body: dict[str, Any]) -> SearchOut:
         facets[field] = [
             FacetValue(value=str(flat[i]), count=int(flat[i + 1])) for i in range(0, len(flat), 2)
         ]
+    histogram: list[FacetValue] = []
+    ranges = body.get("facet_counts", {}).get("facet_ranges", {})
+    if req.histogram and req.histogram in ranges:
+        flat = ranges[req.histogram].get("counts", [])
+        histogram = [
+            FacetValue(value=str(flat[i])[:10], count=int(flat[i + 1]))
+            for i in range(0, len(flat), 2)
+        ]
+
     return SearchOut(
         total=int(response.get("numFound", 0)),
         page=req.page,
@@ -112,6 +132,7 @@ def parse_response(req: SearchIn, body: dict[str, Any]) -> SearchOut:
         took_ms=int(body.get("responseHeader", {}).get("QTime", 0)),
         hits=hits,
         facets=facets,
+        histogram=histogram,
     )
 
 

@@ -252,6 +252,46 @@ def concept_documents(
     return {"total": body["response"]["numFound"], "docs": body["response"]["docs"]}
 
 
+@router.get("/places", response=list[dict[str, Any]])
+def places(request: HttpRequest, collection: str | None = None) -> list[dict[str, Any]]:
+    """Pack individuals with coordinates and how many documents mention each (for the map)."""
+
+    from oss_server.services import solr_client, solr_documents_collection
+
+    rows = [
+        c
+        for c in Concept.objects.filter(
+            pack__status=Pack.Status.ACTIVE, kind=Concept.Kind.INDIVIDUAL
+        )
+        if c.extra.get("lat") is not None and c.extra.get("lon") is not None
+    ]
+    if not rows:
+        return []
+    fq = [f'collection_s:"{collection}"'] if collection else []
+    body = solr_client().select(
+        solr_documents_collection(),
+        q="*:*",
+        fq=fq,
+        rows=0,
+        hl=False,
+        facet=True,
+        **{"facet.field": "entity_iris_ss", "facet.limit": 2000, "facet.mincount": 1},
+    )
+    flat = body.get("facet_counts", {}).get("facet_fields", {}).get("entity_iris_ss", [])
+    counts = {str(flat[i]): int(flat[i + 1]) for i in range(0, len(flat), 2)}
+    return [
+        {
+            "iri": c.iri,
+            "label": c.pref_label,
+            "type": c.type_label,
+            "lat": c.extra["lat"],
+            "lon": c.extra["lon"],
+            "docs": counts.get(c.iri, 0),
+        }
+        for c in rows
+    ]
+
+
 @router.post("/packs/{pack_id}/sparql", response=list[dict[str, Any]])
 def sparql(request: HttpRequest, pack_id: str, payload: SparqlIn) -> list[dict[str, Any]]:
     """Read-only SELECT or ASK over one pack's triples (staff only)."""
