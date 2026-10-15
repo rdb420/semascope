@@ -38,6 +38,7 @@ def init(
     host: str = typer.Option("localhost", help="Host name the reverse proxy answers for"),
     size: str = typer.Option("small", help="small | medium | large"),
     import_dir: str = typer.Option("./data/import", help="Host folder the workers may read"),
+    https_port: int = typer.Option(8443, help="Host port Caddy listens on"),
     force: bool = typer.Option(False, help="Overwrite an existing file"),
 ) -> None:
     """Write an environment file with generated secrets."""
@@ -49,7 +50,7 @@ def init(
         raise typer.BadParameter("size must be small, medium or large")
     lines = [
         f"SEMASCOPE_HOST={host}",
-        "SEMASCOPE_HTTPS_PORT=8443",
+        f"SEMASCOPE_HTTPS_PORT={https_port}",
         f"SEMASCOPE_SIZE={size}",
         f"SEMASCOPE_SECRET_KEY={secrets.token_urlsafe(48)}",
         f"POSTGRES_PASSWORD={secrets.token_urlsafe(24)}",
