@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from django.db.models import Count
-from django.http import HttpRequest
+from django.http import FileResponse, HttpRequest
 from django.shortcuts import get_object_or_404
-from ninja import NinjaAPI
+from ninja import File, NinjaAPI
 from ninja.errors import HttpError
+from ninja.files import UploadedFile
 
 from oss_core import __version__
 from oss_server.api import accounts
@@ -152,6 +155,55 @@ def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
     return 204, None
 
 
+@api.post("/collections/{slug}/upload", response={202: list[DocumentOut]}, tags=["sources"])
+def upload(
+    request: HttpRequest, slug: str, files: File[list[UploadedFile]]
+) -> tuple[int, list[DocumentOut]]:
+    """Upload one or more files into the collection's `uploads` source and queue them."""
+
+    from oss_core.config import get_settings
+    from oss_pipeline.connectors.upload import store_upload, upload_root
+    from oss_server.catalogue.models import document_id
+    from oss_server.pipeline.tasks import process_document
+
+    c = get_object_or_404(Collection, slug=slug)
+    data_dir = get_settings().semascope_data_dir
+    source, _ = Source.objects.get_or_create(
+        collection=c,
+        name="uploads",
+        defaults={"connector": "upload", "settings": {"path": str(upload_root(data_dir, slug))}},
+    )
+    out: list[DocumentOut] = []
+    for f in files:
+        content = f.read()
+        if not content:
+            continue
+        path = store_upload(data_dir, slug, f.name or "upload", content)
+        digest = path.parent.name
+        uri = f"upload://{slug}/{digest}/{path.name}"
+        doc, _ = Document.objects.update_or_create(
+            id=document_id(slug, uri),
+            defaults={
+                "collection": c,
+                "source": source,
+                "uri": uri,
+                "content_hash": digest,
+                "size": len(content),
+                "status": Document.Status.QUEUED,
+                "error": "",
+            },
+        )
+        item = {
+            "uri": uri,
+            "content_hash": digest,
+            "size": len(content),
+            "metadata": {"path": str(path)},
+        }
+        process_document.delay(doc.id, item)
+        out.append(_document_out(doc))
+    return 202, out
+
+
 # --- documents --------------------------------------------------------------------------------
 
 
@@ -186,6 +238,20 @@ def get_document(request: HttpRequest, doc_id: str) -> DocumentOut:
 def get_document_text(request: HttpRequest, doc_id: str) -> DocumentTextOut:
     d = get_object_or_404(Document, pk=doc_id)
     return DocumentTextOut(id=d.id, text=d.text, pages=d.pages)
+
+
+@api.get("/documents/{doc_id}/preview/{page}", tags=["documents"], url_name="preview")
+def get_preview(request: HttpRequest, doc_id: str, page: int) -> FileResponse:
+    """A rendered page (PDF) or thumbnail (image) as WebP."""
+
+    d = get_object_or_404(Document, pk=doc_id)
+    preview_dir = d.fields.get("preview_dir")
+    if not preview_dir or page < 1:
+        raise HttpError(404, "no preview")
+    file = Path(str(preview_dir)) / f"{page}.webp"
+    if not file.is_file():
+        raise HttpError(404, "no preview for that page")
+    return FileResponse(file.open("rb"), content_type="image/webp")
 
 
 @api.post("/documents/{doc_id}/reindex", response={202: dict[str, str]}, tags=["documents"])

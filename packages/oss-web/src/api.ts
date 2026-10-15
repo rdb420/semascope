@@ -15,6 +15,7 @@ export type SearchHit = {
   page_count: number | null;
   modified_at: string | null;
   indexed_at: string | null;
+  preview_pages: number;
   snippets: string[];
 };
 export type SearchOut = {

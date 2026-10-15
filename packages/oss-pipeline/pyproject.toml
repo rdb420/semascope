@@ -13,6 +13,8 @@ dependencies = [
     "pyshacl>=0.30",
     "watchdog>=6",
     "defusedxml>=0.7",
+    "pypdfium2>=4.30",
+    "pillow>=11",
 ]
 
 [project.optional-dependencies]

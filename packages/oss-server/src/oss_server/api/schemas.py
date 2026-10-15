@@ -106,6 +106,7 @@ class SearchHit(Schema):
     page_count: int | None
     modified_at: str | None
     indexed_at: str | None
+    preview_pages: int
     snippets: list[str]
 
 

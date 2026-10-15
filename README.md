@@ -11,9 +11,9 @@ faceted search, concept and entity pages, a document-entity graph in Neo4j, and
 review queues whose decisions are exported for whatever system owns the data.
 
 Status: **Phase 1, vertical slice.** From a fresh clone the stack starts,
-indexes a folder of mixed files (including OCR of scanned pages) and answers
-searches with facets and highlighted snippets through the API and the CLI.
-No browser UI yet. The development plan is in [`docs/plan.md`](docs/plan.md)
+indexes folders, uploads and web pages (including OCR of scanned pages) and
+answers searches with facets, highlighted snippets and page previews through
+the browser UI, the API and the CLI. The development plan is in [`docs/plan.md`](docs/plan.md)
 and the architecture decisions in [`docs/adr/`](docs/adr/).
 
 ## Quick start (target for 1.0)
@@ -24,8 +24,11 @@ git clone https://github.com/rdb420/semascope && cd semascope
 ./oss up        # starts Solr 10, Tika 3, Neo4j, PostgreSQL, Valkey, Caddy and the app
 ./oss demo      # loads the public-domain demo corpus and its pack (Phase 2)
 ./oss index ./data/import/my-files --collection mine   # anything under SEMASCOPE_IMPORT_DIR
+./oss upload report.pdf notes.docx --collection mine    # or through the API
 ./oss search "what I am looking for" --collection mine
 ```
+
+Then open `https://localhost:8443/` and sign in as `admin`.
 
 The admin site is at `https://localhost:8443/admin/` (user `admin`, password in
 `.env`) and the OpenAPI document at `https://localhost:8443/api/docs`.

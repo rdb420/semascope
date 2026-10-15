@@ -12,8 +12,8 @@ log = logging.getLogger(__name__)
 
 PROFILES: dict[str, list[str]] = {
     "fast": ["fetch", "extract", "structure", "index"],
-    "default": ["fetch", "extract", "structure", "patterns", "index"],
-    "full": ["fetch", "extract", "structure", "patterns", "index"],
+    "default": ["fetch", "extract", "structure", "patterns", "preview", "index"],
+    "full": ["fetch", "extract", "structure", "patterns", "preview", "index"],
 }
 
 
@@ -29,9 +29,14 @@ def _load(group: str) -> dict[str, Any]:
 
 def connectors() -> dict[str, Connector]:
     from oss_pipeline.connectors.filesystem import FilesystemConnector
+    from oss_pipeline.connectors.upload import UploadConnector
     from oss_pipeline.connectors.web import WebConnector
 
-    found: dict[str, Any] = {"filesystem": FilesystemConnector, "web": WebConnector}
+    found: dict[str, Any] = {
+        "filesystem": FilesystemConnector,
+        "web": WebConnector,
+        "upload": UploadConnector,
+    }
     found.update(_load("oss.connectors"))
     return {name: cls() for name, cls in found.items()}
 
@@ -41,6 +46,7 @@ def stages() -> dict[str, Stage]:
     from oss_pipeline.stages.fetch import FetchStage
     from oss_pipeline.stages.index import IndexStage
     from oss_pipeline.stages.patterns import PatternsStage
+    from oss_pipeline.stages.preview import PreviewStage
     from oss_pipeline.stages.structure import StructureStage
 
     found: dict[str, Any] = {
@@ -48,6 +54,7 @@ def stages() -> dict[str, Stage]:
         "extract": ExtractStage,
         "structure": StructureStage,
         "patterns": PatternsStage,
+        "preview": PreviewStage,
         "index": IndexStage,
     }
     found.update(_load("oss.stages"))

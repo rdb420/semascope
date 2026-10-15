@@ -61,7 +61,7 @@
       <str name="ps">3</str>
       <str name="mm">2&lt;-1 5&lt;80%</str>
       <str name="q.alt">*:*</str>
-      <str name="fl">id,collection_s,source_id_s,uri_s,title_txt,media_type_s,content_type_group_s,language_s,size_l,modified_dt,indexed_dt,page_count_i,score</str>
+      <str name="fl">id,collection_s,source_id_s,uri_s,title_txt,media_type_s,content_type_group_s,language_s,size_l,modified_dt,indexed_dt,page_count_i,preview_pages_i,score</str>
       <int name="rows">10</int>
       <str name="hl">true</str>
       <str name="hl.method">unified</str>

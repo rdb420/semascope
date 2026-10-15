@@ -63,6 +63,7 @@ def test_media_groups() -> None:
 
 
 def test_profiles_validate_as_dags() -> None:
+    assert "preview" in PROFILES["default"]
     available = stages()
     for name in PROFILES:
         assert [s.name for s in profile(name, available)] == PROFILES[name]
@@ -106,3 +107,37 @@ def test_media_type_normalisation() -> None:
     assert _normalise_media_type("image/ocr-png") == "image/png"
     assert _normalise_media_type("application/pdf; charset=binary") == "application/pdf"
     assert _normalise_media_type(None) is None
+
+
+def test_preview_renders_pdf_and_image(tmp_path: Path) -> None:
+    import pypdfium2 as pdfium
+    from PIL import Image
+
+    from oss_pipeline.stages.preview import PreviewStage
+
+    pdf = pdfium.PdfDocument.new()
+    pdf.new_page(200, 300)
+    pdf.new_page(200, 300)
+    pdf_path = tmp_path / "two.pdf"
+    pdf.save(str(pdf_path))
+    img_path = tmp_path / "pic.png"
+    Image.new("RGB", (1600, 800), "white").save(img_path)
+    ctx = StageContext(
+        collection="c",
+        profile="default",
+        settings={"blob_dir": str(tmp_path), "preview_pages": 1, "preview_width": 300},
+    )
+
+    doc = _doc("")
+    doc.media_type = "application/pdf"
+    doc.fields["blob_path"] = str(pdf_path)
+    assert PreviewStage().run(doc, ctx).fields["preview_pages"] == 1
+    assert (tmp_path / "previews" / "h" / "1.webp").exists()
+
+    doc2 = _doc("")
+    doc2.content_hash = "i"
+    doc2.media_type = "image/png"
+    doc2.fields["blob_path"] = str(img_path)
+    assert PreviewStage().run(doc2, ctx).fields["preview_pages"] == 1
+    with Image.open(tmp_path / "previews" / "i" / "1.webp") as out:
+        assert out.width == 300

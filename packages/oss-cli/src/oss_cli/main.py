@@ -191,6 +191,22 @@ def index(
 
 
 @app.command()
+def upload(
+    files: list[Path] = typer.Argument(..., exists=True, dir_okay=False),
+    collection: str = typer.Option("default"),
+) -> None:
+    """Upload files through the API (no import folder needed)."""
+
+    with _api() as api:
+        if api.get(f"/collections/{collection}").status_code == 404:
+            _check(api.post("/collections", json={"slug": collection}))
+        payload = [("files", (f.name, f.read_bytes())) for f in files]
+        out = _check(api.post(f"/collections/{collection}/upload", files=payload))
+    for doc in out:
+        console.print(f"queued {doc['id']}  {doc['uri']}")
+
+
+@app.command()
 def search(
     q: str = typer.Argument("*:*"),
     collection: str | None = typer.Option(None),

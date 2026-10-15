@@ -27,6 +27,7 @@ def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -
         "size_l": meta.get("size"),
         "page_count_i": meta.get("page_count"),
         "ocr_b": bool(meta.get("ocr", False)),
+        "preview_pages_i": int(doc.fields.get("preview_pages") or 0),
         "indexed_dt": _iso(indexed_at or datetime.now(UTC)),
     }
     if meta.get("modified_at"):

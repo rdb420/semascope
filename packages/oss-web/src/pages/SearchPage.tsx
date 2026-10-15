@@ -174,7 +174,18 @@ function Facet({
 
 function Hit({ hit }: { hit: SearchHit }) {
   return (
-    <li className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <li className="flex gap-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      {hit.preview_pages > 0 && (
+        <Link to="/documents/$id" params={{ id: hit.id }} className="shrink-0">
+          <img
+            src={`/api/documents/${hit.id}/preview/1`}
+            alt=""
+            loading="lazy"
+            className="h-28 w-20 rounded border border-zinc-200 object-cover object-top dark:border-zinc-700"
+          />
+        </Link>
+      )}
+      <div className="min-w-0 flex-1">
       <Link to="/documents/$id" params={{ id: hit.id }} className="font-medium text-blue-700 hover:underline dark:text-blue-400">
         {hit.title}
       </Link>
@@ -191,6 +202,7 @@ function Hit({ hit }: { hit: SearchHit }) {
         {hit.page_count ? <span>{hit.page_count} pages</span> : null}
         {hit.size ? <span>{(hit.size / 1024).toFixed(0)} KB</span> : null}
       </p>
+      </div>
     </li>
   );
 }

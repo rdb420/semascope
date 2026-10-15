@@ -7,6 +7,13 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Browser UI (React 19, TypeScript, Vite, Tailwind 4): sign-in, search with
+  facets, pagination, highlighted snippets and thumbnails, document page with
+  text per page, page previews, found entities and pipeline stage runs
+- Session auth with CSRF for the UI; web connector (pages, sitemap, bounded
+  crawl); upload connector with `POST /collections/{slug}/upload` and
+  `oss upload`; preview stage (pypdfium2 pages, Pillow thumbnails) and
+  `GET /documents/{id}/preview/{page}`
 - Phase 1 vertical slice: Solr 10 `documents` configset created on first
   start; filesystem connector; fetch, extract (Tika 3 with OCR and language
   detection), structure, patterns and index stages; Django server with

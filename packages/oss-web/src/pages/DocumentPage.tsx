@@ -13,7 +13,8 @@ export function DocumentPage() {
   if (doc.isError) return <p className="text-red-600">{String(doc.error)}</p>;
   if (!doc.data) return <p className="text-zinc-500">Loading…</p>;
   const d = doc.data;
-  const entities = Object.entries(d.fields).filter(([k, v]) => Array.isArray(v) && (v as unknown[]).length && !k.endsWith("_path") && k !== "chunk_pages");
+  const previewPages = Number(d.fields.preview_pages ?? 0);
+  const entities = Object.entries(d.fields).filter(([k, v]) => Array.isArray(v) && (v as unknown[]).length && !k.endsWith("_path") && k !== "chunk_pages" && k !== "preview_pages");
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_18rem]">
@@ -23,6 +24,20 @@ export function DocumentPage() {
         </Link>
         <h1 className="mt-2 text-xl font-semibold">{d.title || d.uri}</h1>
         <p className="truncate text-xs text-zinc-500">{d.uri}</p>
+        {previewPages > 0 && (
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-2">
+            {Array.from({ length: previewPages }, (_, i) => (
+              <a key={i} href={`/api/documents/${d.id}/preview/${i + 1}`} target="_blank" rel="noreferrer" className="shrink-0">
+                <img
+                  src={`/api/documents/${d.id}/preview/${i + 1}`}
+                  alt={`Page ${i + 1}`}
+                  loading="lazy"
+                  className="h-40 rounded border border-zinc-200 dark:border-zinc-700"
+                />
+              </a>
+            ))}
+          </div>
+        )}
         {text.data?.pages.length ? (
           <div className="mt-4 space-y-6">
             {text.data.pages.map((p, i) => (

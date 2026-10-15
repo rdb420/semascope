@@ -89,6 +89,7 @@ def parse_response(req: SearchIn, body: dict[str, Any]) -> SearchOut:
                 page_count=doc.get("page_count_i"),
                 modified_at=doc.get("modified_dt"),
                 indexed_at=doc.get("indexed_dt"),
+                preview_pages=int(doc.get("preview_pages_i") or 0),
                 snippets=snippets,
             )
         )
