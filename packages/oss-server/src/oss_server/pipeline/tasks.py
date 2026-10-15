@@ -62,8 +62,24 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "solr_entities": "entities",
         "ocr": True,
     }
+    base["shapes_ttl"] = active_shapes()
     base.update(collection.settings.get("pipeline", {}))
     return base
+
+
+def active_shapes() -> str:
+    """Every active pack's shapes.ttl, concatenated; rdflib tolerates repeated prefixes."""
+
+    from pathlib import Path
+
+    from oss_server.knowledge.models import Pack
+
+    parts: list[str] = []
+    for pack in Pack.objects.filter(status=Pack.Status.ACTIVE):
+        file = Path(pack.source_path) / "shapes.ttl"
+        if file.exists():
+            parts.append(file.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 @shared_task(name="semascope.discover_source", queue="io")

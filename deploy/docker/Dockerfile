@@ -31,8 +31,10 @@ COPY --from=web /web-out packages/oss-server/src/oss_server/static/web
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --all-packages
 
-# Models (spaCy, embeddings) are baked here in Phase 2 and Phase 4 with
-# pinned URLs and hashes so the image works offline.
+# The demo corpus is fetched from Project Gutenberg at build time (header, footer
+# and trademark stripped by the script) so `oss demo` works offline afterwards.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv run --no-sync packs/demo/build.py || echo "demo corpus not built (no network?)"
 
 RUN useradd --create-home --uid 1000 semascope && mkdir -p /data && chown semascope /data
 USER semascope

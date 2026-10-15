@@ -117,3 +117,28 @@ def test_stage_context_carries_active_pack_versions(monkeypatch: pytest.MonkeyPa
     assert ctx.settings["solr_entities"] == "entities"
     PackBinding.objects.create(collection=c, pack_id="not-imported")
     assert build_context(c).pack_versions == {}, "a binding to an inactive pack yields nothing"
+
+
+@pytest.mark.django_db
+def test_reconciliation_api(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pyoxigraph as ox
+
+    from oss_server.knowledge import store as store_mod
+
+    monkeypatch.setattr(store_mod, "store", lambda: _memory_store(ox))
+    import_pack(REPO / "packs" / "demo" / "pack")
+    manifest = client.get("/api/reconcile").json()
+    assert manifest["versions"] == ["0.2"] and manifest["name"] == "Semascope"
+    body = {
+        "queries": {
+            "q0": {"query": "Ulysses"},
+            "q1": {"query": "jove", "limit": 1},
+            "q2": {"query": "zzz"},
+        }
+    }
+    out = client.post("/api/reconcile", data=body, content_type="application/json").json()
+    assert out["q0"]["result"][0]["name"] == "Odysseus" and out["q0"]["result"][0]["match"] is True
+    assert out["q1"]["result"][0]["name"] == "Zeus"
+    assert out["q2"]["result"] == []
+    form = client.post("/api/reconcile", data={"queries": '{"a": {"query": "Troy"}}'})
+    assert form.json()["a"]["result"][0]["id"].endswith("#troy")

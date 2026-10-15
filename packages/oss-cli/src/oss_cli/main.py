@@ -207,6 +207,53 @@ def upload(
 
 
 @app.command()
+def demo(
+    collection: str = typer.Option("demo", help="Collection to load the demo corpus into"),
+    corpus: Path = typer.Option(
+        Path("/app/packs/demo/corpus"), help="Demo corpus folder as seen by the server"
+    ),
+    pack: Path = typer.Option(
+        Path("/app/packs/demo/pack"), help="Demo pack folder as seen by the server"
+    ),
+) -> None:
+    """Load the public-domain demo corpus and its knowledge model."""
+
+    with _api() as api:
+        out = _check(
+            api.post(
+                "/knowledge/packs/import",
+                json={"path": str(pack), "activate": True, "reindex": False},
+            )
+        )
+        console.print(f"pack {out['pack_id']}@{out['version']} {out['status']}")
+        if api.get(f"/collections/{collection}").status_code == 404:
+            _check(
+                api.post(
+                    "/collections",
+                    json={"slug": collection, "name": "Demo: sacred texts and mythology"},
+                )
+            )
+        sources = _check(api.get(f"/collections/{collection}/sources"))
+        src = next((s for s in sources if s["name"] == "demo-corpus"), None)
+        if src is None:
+            src = _check(
+                api.post(
+                    f"/collections/{collection}/sources",
+                    json={
+                        "name": "demo-corpus",
+                        "connector": "filesystem",
+                        "settings": {"path": str(corpus)},
+                    },
+                )
+            )
+        run = _check(api.post(f"/sources/{src['id']}/run"))
+        console.print(f"queued the demo corpus (source {src['id']}, task {run['task_id']})")
+        console.print(
+            "open the UI, pick the demo collection and try the traditions and themes facets"
+        )
+
+
+@app.command()
 def search(
     q: str = typer.Argument("*:*"),
     collection: str | None = typer.Option(None),

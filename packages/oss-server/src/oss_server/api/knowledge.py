@@ -67,6 +67,7 @@ class ConceptOut(Schema):
 class ImportIn(Schema):
     path: str
     activate: bool = True
+    reindex: bool = True
 
 
 class SparqlIn(Schema):
@@ -142,7 +143,30 @@ def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Pack
     except ValueError as exc:
         raise HttpError(422, str(exc)) from exc
     sync_dictionary(pack.pack_id, pack.version)
+    if payload.activate and payload.reindex:
+        _reindex_collections_using(pack.pack_id)
     return 201, _pack_out(pack)
+
+
+def _reindex_collections_using(pack_id: str) -> int:
+    """Queue a reindex of every collection that tags with this pack (bound, or unbound = all)."""
+
+    from oss_server.catalogue.models import Collection
+    from oss_server.knowledge.models import PackBinding
+    from oss_server.pipeline.tasks import reindex_collection
+
+    bound = set(
+        PackBinding.objects.filter(pack_id=pack_id, enabled=True).values_list(
+            "collection__slug", flat=True
+        )
+    )
+    unbound = set(
+        Collection.objects.exclude(pack_bindings__isnull=False).values_list("slug", flat=True)
+    )
+    slugs = sorted(bound | unbound)
+    for slug in slugs:
+        reindex_collection.delay(slug)
+    return len(slugs)
 
 
 @router.get("/packs/{pack_id}", response=PackDetailOut)
@@ -172,6 +196,7 @@ def activate(request: HttpRequest, pack_id: str, version: str) -> PackOut:
     p = get_object_or_404(Pack, pack_id=pack_id, version=version)
     activate_pack(p)
     sync_dictionary(p.pack_id, p.version)
+    _reindex_collections_using(p.pack_id)
     return _pack_out(p)
 
 

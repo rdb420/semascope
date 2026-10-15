@@ -1,0 +1,13 @@
+.git
+.venv
+node_modules
+**/node_modules
+data
+packs/demo/cache
+packs/demo/corpus
+packs/*/validation
+site
+reports
+.env
+.env.*
+!.env.example

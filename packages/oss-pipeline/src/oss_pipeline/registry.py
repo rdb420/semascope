@@ -61,6 +61,7 @@ def stages() -> dict[str, Stage]:
     from oss_pipeline.stages.preview import PreviewStage
     from oss_pipeline.stages.structure import StructureStage
     from oss_pipeline.stages.tag import TagStage
+    from oss_pipeline.stages.validate import ValidateStage
 
     found: dict[str, Any] = {
         "fetch": FetchStage,
@@ -70,6 +71,7 @@ def stages() -> dict[str, Stage]:
         "tag": TagStage,
         "ner": NerStage,
         "link": LinkStage,
+        "validate": ValidateStage,
         "preview": PreviewStage,
         "index": IndexStage,
     }

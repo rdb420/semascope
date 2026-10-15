@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from django.db.models import Count
 from django.http import FileResponse, HttpRequest
@@ -12,7 +13,7 @@ from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
 from oss_core import __version__
-from oss_server.api import accounts, knowledge
+from oss_server.api import accounts, knowledge, reconcile
 from oss_server.api import search as search_mod
 from oss_server.api.auth import AUTH
 from oss_server.api.schemas import (
@@ -34,6 +35,7 @@ from oss_server.services import solr_client, solr_documents_collection
 api = NinjaAPI(title="Semascope", version=__version__, auth=AUTH, urls_namespace="api")
 api.add_router("/auth", accounts.router)
 api.add_router("/knowledge", knowledge.router)
+api.add_router("/reconcile", reconcile.router)
 
 
 # --- collections ------------------------------------------------------------------------------
@@ -272,7 +274,28 @@ def search(request: HttpRequest, payload: SearchIn) -> SearchOut:
     return search_mod.search(solr_client(), solr_documents_collection(), payload)
 
 
-@api.get("/suggest", response=SuggestOut, tags=["search"])
+@api.post("/search/tag-query", response=list[dict[str, Any]], tags=["search"])
+def tag_query(request: HttpRequest, payload: dict[str, str]) -> list[dict[str, Any]]:
+    """Concepts and entities a query names, for facet suggestions."""
+
+    from oss_server.api.reconcile import reconcile_one
+
+    q = str(payload.get("q") or "").strip()
+    if not q:
+        return []
+    found: list[dict[str, Any]] = []
+    words = q.split()
+    seen: set[str] = set()
+    for size in (3, 2, 1):
+        for i in range(0, max(0, len(words) - size + 1)):
+            phrase = " ".join(words[i : i + size])
+            for cand in reconcile_one(phrase, limit=3):
+                if cand["score"] >= 90 and cand["id"] not in seen:
+                    seen.add(cand["id"])
+                    found.append({"phrase": phrase, **cand})
+    return found
+
+
 def suggest(request: HttpRequest, q: str, collection: str | None = None) -> SuggestOut:
     client = solr_client()
     params: dict[str, object] = {
