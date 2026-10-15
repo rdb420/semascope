@@ -8,6 +8,7 @@ case "$cmd" in
   init)
     shift; exec uv run --package oss-cli oss init "$@" ;;
   up)
+    docker compose pull --ignore-buildable 2>/dev/null || true
     docker compose up -d --wait; exec docker compose run --rm cli oss doctor ;;
   down)
     exec docker compose down ;;

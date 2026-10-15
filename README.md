@@ -10,13 +10,15 @@ bundles, called *packs*), and lets people explore and curate the result through
 faceted search, concept and entity pages, a document-entity graph in Neo4j, and
 review queues whose decisions are exported for whatever system owns the data.
 
-Status: **Phase 2 complete, Phase 3 (graph and exploration) next.** From a
-fresh clone the stack starts, indexes folders, uploads, web pages, feeds,
-mail, archives and tables (including OCR of scanned pages), tags every
-document against the knowledge models you import (hierarchical facets,
-named entities linked to your individuals, SHACL checks), and answers
-searches through the browser UI, the API and the CLI. `./oss demo` loads
-sixteen public-domain texts and a demo model to explore. The development plan is in [`docs/plan.md`](docs/plan.md)
+Status: **Phase 3 complete, Phase 4 (semantic layer and 1.0) in progress.**
+From a fresh clone the stack starts, indexes folders, uploads, web pages,
+feeds, mail, archives, tables, S3 buckets and RDF (including OCR of scanned
+pages), tags every document against the knowledge models you import
+(hierarchical facets, named entities linked to your individuals, SHACL
+checks), projects it into Neo4j, and answers keyword, semantic and hybrid
+searches through the browser UI, the API and the CLI. Curators review what
+the machine proposed; every decision is logged and exported through the
+outbox. `./oss demo` loads sixteen public-domain texts and a demo model. The development plan is in [`docs/plan.md`](docs/plan.md)
 and the architecture decisions in [`docs/adr/`](docs/adr/).
 
 ## Quick start (target for 1.0)
@@ -29,6 +31,7 @@ git clone https://github.com/rdb420/semascope && cd semascope
 ./oss index ./data/import/my-files --collection mine   # anything under SEMASCOPE_IMPORT_DIR
 ./oss upload report.pdf notes.docx --collection mine    # or through the API
 ./oss search "what I am looking for" --collection mine
+./oss backup                                            # Postgres, Solr and the data volume
 ```
 
 Then open `https://localhost:8443/` and sign in as `admin`.

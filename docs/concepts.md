@@ -91,3 +91,30 @@ human decisions. A collection can pseudonymise named-entity keys. The UI
 graph page shows the hubs of a collection and expands neighbourhoods;
 `/api/graph` offers neighbours, shortest paths and a staff-only read-only
 Cypher console.
+
+## Search modes
+
+`keyword` matches words and phrases (Solr edismax over title and text, with
+highlighting). `semantic` embeds the query with the bundled FastEmbed model
+and ranks documents by their best-matching chunks, returning the passages.
+`hybrid` fuses both rankings with reciprocal rank fusion. Every document's
+chunks are embedded by the `embed` stage into the `chunks` collection; an
+OpenAI-compatible `/embeddings` endpoint can replace the bundled model
+(`SEMASCOPE_EMBEDDER=openai`).
+
+## Roles
+
+`reader` searches and reads; `curator` decides reviews, tags and annotates;
+`editor` manages collections, sources and packs; `admin` does everything and
+is what Django staff and superusers are. Roles are per collection or global
+(`CollectionRole` in the admin). A signed-in user without roles gets
+`SEMASCOPE_DEFAULT_ROLE`. Local accounts always work; set the
+`SEMASCOPE_OIDC_*` variables to add single sign-on through OpenID Connect.
+
+## Backup and restore
+
+`./oss backup` writes Postgres, the three Solr collections and the data
+volume (originals, previews, uploads, the pack store) into
+`data/backups/<stamp>`; `--with-graph` also dumps Neo4j (which otherwise
+`./oss reindex` rebuilds). `./oss restore <dir>` loads a backup back. Keep
+`.env` with the backup: it holds the secrets the data was written with.

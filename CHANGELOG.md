@@ -7,6 +7,16 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Phase 3 graph and exploration: Neo4j projection with CURATED edges and
+  optional pseudonymisation; graph API and view with hubs, neighbourhoods
+  and shortest paths; review queue, proposals with stable refs, annotations,
+  event outbox and webhooks; saved searches with alerts, list search, CSV
+  export, result terms, timeline, media grid, map of pack places; S3 and
+  RDF connectors
+- Phase 4 so far: chunk embeddings (FastEmbed, model baked into the image,
+  or any OpenAI-compatible endpoint), semantic and hybrid search, roles per
+  collection, optional OpenID Connect, backup and restore
+
 - Phase 2 knowledge model: pack registry and importer on an embedded
   Oxigraph store with competency tests at import; Solr `entities`
   dictionary and Tagger; tag, ner, link and validate stages; hierarchical

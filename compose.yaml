@@ -3,11 +3,14 @@
 
 name: semascope
 
+# The image is pulled from GHCR (SEMASCOPE_IMAGE_TAG, default `main`) and built
+# locally only when `docker compose build` is run or the pull fails.
 x-app: &app
-  image: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-dev}
+  image: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-main}
   build:
     context: .
     dockerfile: deploy/docker/Dockerfile
+  pull_policy: missing
   env_file:
     - path: .env
       required: false
