@@ -10,10 +10,13 @@ bundles, called *packs*), and lets people explore and curate the result through
 faceted search, concept and entity pages, a document-entity graph in Neo4j, and
 review queues whose decisions are exported for whatever system owns the data.
 
-Status: **Phase 1 complete, Phase 2 (knowledge model) next.** From a fresh clone the stack starts,
-indexes folders, uploads and web pages (including OCR of scanned pages) and
-answers searches with facets, highlighted snippets and page previews through
-the browser UI, the API and the CLI. The development plan is in [`docs/plan.md`](docs/plan.md)
+Status: **Phase 2 complete, Phase 3 (graph and exploration) next.** From a
+fresh clone the stack starts, indexes folders, uploads, web pages, feeds,
+mail, archives and tables (including OCR of scanned pages), tags every
+document against the knowledge models you import (hierarchical facets,
+named entities linked to your individuals, SHACL checks), and answers
+searches through the browser UI, the API and the CLI. `./oss demo` loads
+sixteen public-domain texts and a demo model to explore. The development plan is in [`docs/plan.md`](docs/plan.md)
 and the architecture decisions in [`docs/adr/`](docs/adr/).
 
 ## Quick start (target for 1.0)

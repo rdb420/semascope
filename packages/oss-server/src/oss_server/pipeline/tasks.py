@@ -189,6 +189,7 @@ def reindex_document(doc_id: str) -> str:
     """Replay enrichment and indexing from the stored extraction; no Tika."""
 
     doc_row = Document.objects.select_related("collection", "source").get(pk=doc_id)
+    Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
     work = WorkingDocument(
         id=doc_row.id,
         collection=doc_row.collection.slug,
