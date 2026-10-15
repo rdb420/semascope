@@ -13,7 +13,9 @@ from oss_pipeline.registry import connectors
 
 
 def test_registry_lists_every_builtin_connector() -> None:
-    assert {"filesystem", "web", "upload", "feed", "mail", "archive", "table"} <= set(connectors())
+    assert {"filesystem", "web", "upload", "feed", "mail", "archive", "table", "s3", "rdf"} <= set(
+        connectors()
+    )
 
 
 def test_archive_members_and_nested_archives(tmp_path: Path) -> None:
@@ -84,3 +86,40 @@ def test_table_rows_become_documents(tmp_path: Path) -> None:
     }
     text = Path(items[0].metadata["path"]).read_text()
     assert "role: Owner" in text and "notes: Likes maps" in text
+
+
+def test_rdf_subjects_become_documents(tmp_path: Path) -> None:
+    from oss_pipeline.connectors.rdf import RdfConnector
+
+    (tmp_path / "data.ttl").write_text(
+        """@prefix ex: <https://e/> . @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        ex:troy a ex:Place ; rdfs:label "Troy" ; ex:region ex:anatolia .
+        ex:odysseus a ex:Hero ; rdfs:label "Odysseus" ; ex:home ex:ithaca .
+        """,
+        encoding="utf-8",
+    )
+    src = SourceConfig(
+        id="s",
+        collection="c",
+        connector="rdf",
+        settings={"path": str(tmp_path), "types": ["https://e/Place"]},
+    )
+    items = list(RdfConnector().discover(src, None))
+    assert [i.uri for i in items] == ["https://e/troy"]
+    assert items[0].metadata["title"] == "Troy" and items[0].metadata["fields"] == {
+        "x_subject_s": "https://e/troy"
+    }
+    assert "region: anatolia" in Path(items[0].metadata["path"]).read_text()
+    assert (
+        len(
+            list(
+                RdfConnector().discover(
+                    SourceConfig(
+                        id="s", collection="c", connector="rdf", settings={"path": str(tmp_path)}
+                    ),
+                    None,
+                )
+            )
+        )
+        == 2
+    )

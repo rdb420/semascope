@@ -247,6 +247,7 @@ def tick() -> dict[str, int]:
             discover_source.delay(source.id)
             started += 1
     deliver_webhooks.delay()
+    check_alerts.delay()
     return {"started": started}
 
 
@@ -365,3 +366,41 @@ def deliver_webhooks() -> int:
                 break
         hook.save(update_fields=["last_event_id", "last_error"])
     return sent
+
+
+@shared_task(name="semascope.check_alerts", queue="io")
+def check_alerts() -> int:
+    """Run every saved search with an alert; emit an event when its total grew."""
+
+    from oss_server.api import search as search_mod
+    from oss_server.api.schemas import SearchIn
+    from oss_server.catalogue.models import SavedSearch
+    from oss_server.curation.services import emit
+
+    fired = 0
+    for saved in SavedSearch.objects.filter(alert=True).select_related("user"):
+        try:
+            req = SearchIn(**saved.query).model_copy(
+                update={"page": 1, "page_size": 5, "facets": []}
+            )
+            res = search_mod.search(solr_client(), solr_documents_collection(), req)
+        except Exception:  # noqa: BLE001
+            log.exception("alert %s failed", saved.pk)
+            continue
+        if saved.last_checked_at is not None and res.total > saved.last_total:
+            emit(
+                "alert.saved_search",
+                collection=str(saved.query.get("collection") or ""),
+                subject=saved.name,
+                payload={
+                    "user": saved.user.username,
+                    "new": res.total - saved.last_total,
+                    "total": res.total,
+                    "hits": [h.model_dump() for h in res.hits],
+                },
+            )
+            fired += 1
+        saved.last_total = res.total
+        saved.last_checked_at = timezone.now()
+        saved.save(update_fields=["last_total", "last_checked_at"])
+    return fired

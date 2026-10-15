@@ -123,3 +123,22 @@ class ApiToken(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.prefix}…)"
+
+
+class SavedSearch(models.Model):
+    """A named search a user keeps; with `alert` it emits an event when new documents match."""
+
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="saved_searches")
+    name = models.CharField(max_length=200)
+    query = models.JSONField(default=dict, help_text="the SearchIn payload")
+    alert = models.BooleanField(default=False)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    last_total = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["user", "name"], name="uniq_saved_search")]
+
+    def __str__(self) -> str:
+        return self.name

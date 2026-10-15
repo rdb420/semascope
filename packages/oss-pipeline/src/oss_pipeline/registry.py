@@ -55,6 +55,8 @@ def connectors() -> dict[str, Connector]:
     from oss_pipeline.connectors.feed import FeedConnector
     from oss_pipeline.connectors.filesystem import FilesystemConnector
     from oss_pipeline.connectors.mail import MailConnector
+    from oss_pipeline.connectors.rdf import RdfConnector
+    from oss_pipeline.connectors.s3 import S3Connector
     from oss_pipeline.connectors.table import TableConnector
     from oss_pipeline.connectors.upload import UploadConnector
     from oss_pipeline.connectors.web import WebConnector
@@ -67,6 +69,8 @@ def connectors() -> dict[str, Connector]:
         "mail": MailConnector,
         "archive": ArchiveConnector,
         "table": TableConnector,
+        "s3": S3Connector,
+        "rdf": RdfConnector,
     }
     found.update(_load("oss.connectors"))
     return {name: cls() for name, cls in found.items()}
