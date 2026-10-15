@@ -71,7 +71,7 @@ case "$cmd" in
     fi
     docker compose up -d --wait server worker beat >/dev/null
     echo "restored from $src; run ./oss doctor" ;;
-  doctor|demo|reindex|version|search|stats)
+  doctor|demo|reindex|version|search|stats|upload|pack)
     exec docker compose run --rm cli oss "$@" ;;
   help|-h|--help)
     cat <<'USAGE'
@@ -88,8 +88,13 @@ usage: ./oss <command>
   backup    dump Postgres, the Solr collections and the data volume into ./data/backups/<stamp> (--with-graph adds Neo4j)
   restore   restore from a backup directory (stops the app services while it runs)
   version   print the product version
+  pack      pack import|list|validate
+  upload    upload files through the API
+  search    search a collection (--mode keyword|semantic|hybrid)
+  stats     counts of collections, sources and documents
 USAGE
     ;;
   *)
-    echo "unknown command: $cmd" >&2; exit 2 ;;
+    # anything else is handed to the CLI inside the stack (`oss --help` lists it)
+    exec docker compose run --rm cli oss "$@" ;;
 esac
