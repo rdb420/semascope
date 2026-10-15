@@ -1,6 +1,6 @@
 [project]
 name = "oss-cli"
-version = "0.1.0"
+version = "1.0.0rc1"
 description = "The `oss` command for Semascope"
 requires-python = ">=3.12"
 license = "Apache-2.0"

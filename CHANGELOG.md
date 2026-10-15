@@ -3,7 +3,12 @@
 All notable changes are recorded here. The format follows Keep a Changelog
 and the project follows semantic versioning.
 
-## [Unreleased]
+## [1.0.0-rc.1] - 2026-10-15
+
+First release candidate: every phase of the development plan is
+implemented and the fresh-clone exit test passes (init, up, index, search in
+three modes, packs, UI, backup). Images are published by the release
+workflow once the repository is on GitHub.
 
 ### Added
 

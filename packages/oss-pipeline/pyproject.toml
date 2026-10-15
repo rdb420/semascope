@@ -1,6 +1,6 @@
 [project]
 name = "oss-pipeline"
-version = "0.1.0"
+version = "1.0.0rc1"
 description = "Semascope pipeline: connectors, stages, Celery workers and store clients"
 requires-python = ">=3.12"
 license = "Apache-2.0"
