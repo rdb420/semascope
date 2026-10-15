@@ -10,6 +10,7 @@ export function GraphPage() {
   const user = useUser();
   const navigate = useNavigate({ from: "/graph" });
   const [depth, setDepth] = useState(1);
+  const collectionsQ = useQuery({ queryKey: ["collections"], queryFn: api.collections, enabled: user.isSuccess });
   const [other, setOther] = useState("");
   const [pathTarget, setPathTarget] = useState<string | null>(null);
   const hubsAll = useQuery({ queryKey: ["graph-hubs-all", collection], queryFn: () => api.graphShared(collection || undefined), enabled: user.isSuccess && !!id });
@@ -24,8 +25,8 @@ export function GraphPage() {
     enabled: user.isSuccess && !id,
   });
   const graph = useQuery({
-    queryKey: ["graph-neighbours", id, depth],
-    queryFn: () => api.graphNeighbours(id, depth),
+    queryKey: ["graph-neighbours", id, depth, collection],
+    queryFn: () => api.graphNeighbours(id, depth, collection || undefined),
     enabled: user.isSuccess && !!id,
   });
   const select = useCallback(
@@ -40,6 +41,16 @@ export function GraphPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">Graph</h1>
+        <select
+          value={collection}
+          onChange={(e) => navigate({ search: (prev) => ({ ...prev, collection: e.target.value }) })}
+          className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm dark:border-zinc-700"
+        >
+          <option value="">All collections</option>
+          {collectionsQ.data?.map((c) => (
+            <option key={c.slug} value={c.slug}>{c.name}</option>
+          ))}
+        </select>
         {id && (
           <>
             <span className="truncate text-sm text-zinc-500">{id}</span>

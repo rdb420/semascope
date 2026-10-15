@@ -206,8 +206,10 @@ export const api = {
   document: (id: string) => request<Document>(`/api/documents/${id}`),
   documentText: (id: string) => request<DocumentText>(`/api/documents/${id}/text`),
   stats: () => request<Stats>("/api/stats"),
-  graphNeighbours: (id: string, depth = 1) =>
-    request<GraphOut>(`/api/graph/neighbours?id=${encodeURIComponent(id)}&depth=${depth}`),
+  graphNeighbours: (id: string, depth = 1, collection?: string) =>
+    request<GraphOut>(
+      `/api/graph/neighbours?id=${encodeURIComponent(id)}&depth=${depth}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`,
+    ),
   graphPath: (a: string, b: string) =>
     request<GraphOut>(`/api/graph/path?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   listSearch: (names: string[], collection?: string) =>

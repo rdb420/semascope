@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Map as MapLibreMap, Marker } from "maplibre-gl";
+import { Map as MapLibreMap, Marker, setWorkerUrl } from "maplibre-gl";
+import type { Marker as MarkerType } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+// The worker and its shared chunk are copied beside index.html by vite.config.ts.
+setWorkerUrl("/maplibre-gl-worker.mjs");
 import { api } from "../api";
 import { useUser } from "../components/Shell";
 
@@ -29,7 +33,7 @@ export function MapPage() {
   useEffect(() => {
     if (!ref.current || !places.data) return;
     const map = new MapLibreMap({ container: ref.current, style: STYLE, center: [20, 35], zoom: 2.5 });
-    const markers: Marker[] = [];
+    const markers: MarkerType[] = [];
     for (const p of places.data) {
       const el = document.createElement("button");
       el.className = "rounded-full border-2 border-white bg-blue-600 shadow";

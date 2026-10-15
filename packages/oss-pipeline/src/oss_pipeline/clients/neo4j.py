@@ -22,9 +22,18 @@ CONSTRAINTS = {
 }
 
 
+_CONSTRAINED: set[str] = set()
+
+
+def uri_key(driver: Driver) -> str:
+    return str(id(driver))
+
+
 class GraphClient:
     def __init__(self, uri: str, user: str, password: str) -> None:
-        self._driver: Driver = GraphDatabase.driver(uri, auth=(user, password))
+        self._driver: Driver = GraphDatabase.driver(
+            uri, auth=(user, password), notifications_min_severity="WARNING"
+        )
 
     def close(self) -> None:
         self._driver.close()
@@ -33,6 +42,11 @@ class GraphClient:
         self._driver.verify_connectivity()
 
     def ensure_constraints(self) -> None:
+        """Create the constraints once per process; later calls return at once."""
+
+        if uri_key(self._driver) in _CONSTRAINED:
+            return
+        _CONSTRAINED.add(uri_key(self._driver))
         with self._driver.session() as session:
             for label, key in CONSTRAINTS.items():
                 session.run(

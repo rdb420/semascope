@@ -111,6 +111,7 @@ def neighbours(
     depth: int = 1,
     limit: int = 150,
     kinds: str = "Concept,Entity,Document",
+    collection: str | None = None,
 ) -> GraphOut:
     """The neighbourhood of a node: `id` is `Document:<id>`, `Concept:<iri>` or `Entity:<key>`."""
 
@@ -127,13 +128,21 @@ def neighbours(
     }[kind]
     depth = max(1, min(depth, 3))
     wanted = [k for k in kinds.split(",") if k in LABELS] or list(LABELS)
+    scope = (
+        " AND all(x IN nodes(p) WHERE NOT x:Document OR x.collection = $collection)"
+        if collection
+        else ""
+    )
     cypher = (
         f"MATCH (n:{kind} {{{prop}: $key}}) "
         f"MATCH p = (n)-[:TAGGED|MENTIONS|CURATED|FROM|IN*1..{depth}]-(m) "
-        f"WHERE any(l IN labels(m) WHERE l IN $wanted) "
+        f"WHERE any(l IN labels(m) WHERE l IN $wanted){scope} "
         f"RETURN p LIMIT $limit"
     )
-    return _collect(_raw(cypher, key=key, wanted=wanted, limit=max(1, min(limit, 1000))))
+    rows = _raw(
+        cypher, key=key, wanted=wanted, limit=max(1, min(limit, 1000)), collection=collection
+    )
+    return _collect(rows)
 
 
 @router.get("/path", response=GraphOut)
