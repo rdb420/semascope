@@ -265,6 +265,8 @@ def test_access_tells_readers_from_curators(world: dict[str, Any], client: Clien
         ("modified_dt:[2020 TO 2021] (Troy OR Ithaca)", ["troy", "ithaca"]),
         ("{!knn f=v}[1,2]", []),
         ("a I x", []),
+        ("Ulysses and Minerva", ["ulysses", "minerva"]),
+        ('"the wine" the', ["the wine"]),
     ],
 )
 def test_query_terms(q: str, terms: list[str]) -> None:

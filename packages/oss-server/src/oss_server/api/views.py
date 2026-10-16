@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_right
+from functools import cache
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse
@@ -93,12 +94,20 @@ _TEXT_FIELDS = ("title_txt", "text_txt")
 _STRIP = re.compile(r"""[\\+\-!(){}\[\]^"~:/]""")
 
 
+@cache
+def _stopwords() -> frozenset[str]:
+    from oss_server.api.searchplus import _stopwords as deployed
+
+    return frozenset(deployed())
+
+
 def query_terms(q: str) -> list[str]:
     """The words and phrases of a keyword query worth highlighting.
 
     Field clauses count only on text fields; negated clauses, ranges, boosts,
     local parameters and `*:*` are left out. A trailing `*` keeps its meaning (a
-    prefix). Returns lower-cased terms, phrases with single spaces, in query order.
+    prefix). Single stopwords (`and`, `the`) are left out; phrases keep theirs.
+    Returns lower-cased terms, phrases with single spaces, in query order.
     """
 
     q = (q or "").strip()
@@ -122,6 +131,8 @@ def query_terms(q: str) -> list[str]:
             term = _STRIP.sub("", word)
         term = term.lower()
         if len(term.replace("*", "").replace("?", "")) < 2 or term in out:
+            continue
+        if " " not in term and term in _stopwords():
             continue
         out.append(term)
     return out

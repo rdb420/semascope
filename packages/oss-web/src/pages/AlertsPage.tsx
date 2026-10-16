@@ -97,7 +97,7 @@ export function AlertsPage() {
                 ) : (
                   <span className="font-medium">{a.name}</span>
                 )}
-                <span className="text-zinc-500">{a.total === null ? "" : `${a.total.toLocaleString()} documents`}</span>
+                <span className="text-zinc-500">{a.total === null ? "" : `${a.total.toLocaleString()} document${a.total === 1 ? "" : "s"}`}</span>
                 <label className="ml-auto flex items-center gap-1">
                   <input type="checkbox" checked={a.alert} disabled={toggle.isPending || !s} onChange={() => toggle.mutate(a)} />
                   alert
