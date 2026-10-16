@@ -298,6 +298,8 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
     )
     if existing is not None and unchanged and not force:
         log.info("pack %s@%s unchanged; skipping import", info.id, info.version)
+        if activate and existing.status != Pack.Status.ACTIVE:
+            activate_pack(existing)
         return existing
 
     triple_count = store.load_bundle(info.rdf, info.id, info.version)

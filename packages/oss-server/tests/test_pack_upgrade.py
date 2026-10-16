@@ -296,3 +296,53 @@ def test_the_store_is_closed_between_operations(
     assert (
         store_mod.query("SELECT * WHERE { ?s ?p ?o }", pack_id=info.id, version=info.version) == []
     )
+
+
+def _load_in_child(data_dir: str) -> None:
+    import os
+
+    os.environ["SEMASCOPE_DATA_DIR"] = data_dir
+    from oss_server.knowledge import store as store_mod
+
+    info = load_pack(DEMO)
+    store_mod.load_bundle(info.rdf, info.id, "fork")
+
+
+def test_a_forked_worker_can_write_after_the_parent_did(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guard: the gunicorn master imports the bundled packs, then forks its workers, and a
+    worker's write then hung on a live stack (RocksDB threads do not survive a fork). This
+    test does not reproduce that hang reliably; the live stack check in the hardening
+    report does. It keeps the fork-then-write path working."""
+
+    import multiprocessing
+
+    from oss_server.knowledge import store as store_mod
+
+    monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path))
+    info = load_pack(DEMO)
+    store_mod.load_bundle(info.rdf, info.id, info.version)
+    child = multiprocessing.get_context("fork").Process(
+        target=_load_in_child, args=(str(tmp_path),)
+    )
+    child.start()
+    child.join(timeout=60)
+    if child.is_alive():
+        child.kill()
+        pytest.fail("a write in a forked process hung")
+    assert child.exitcode == 0
+    rows = store_mod.query(
+        "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }", pack_id=info.id, version="fork"
+    )
+    assert int(rows[0]["n"]) > 100
+
+
+@pytest.mark.django_db
+def test_unchanged_import_with_activation_activates(world: dict[str, Any]) -> None:
+    newer = import_pack(world["candidate"])
+    assert newer.status == Pack.Status.ACTIVE
+    old = import_pack(DEMO)  # unchanged: skipped, but activation is still asked for
+    old.refresh_from_db()
+    newer.refresh_from_db()
+    assert old.status == Pack.Status.ACTIVE and newer.status == Pack.Status.RETIRED
