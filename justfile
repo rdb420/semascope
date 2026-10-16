@@ -30,9 +30,15 @@ packs:
     uv run oss pack validate packs/base
     uv run oss pack validate packs/demo/pack
 
-# Build the demo corpus from Project Gutenberg (cached under packs/demo/cache)
+# Build the demo corpus from Project Gutenberg (cached under packs/demo/cache); fails if a
+# text no longer matches the hash pinned in packs/demo/sources.yaml
 demo-corpus:
-    uv run python packs/demo/build.py
+    uv run packs/demo/build.py
+
+# Derive the mixed-1k benchmark corpus (about 1,000 chapters in twelve formats) from the
+# demo corpus into packs/demo/derived/; fails if it differs from packs/demo/mixed-1k.sha256
+mixed-1k: demo-corpus
+    uv run packs/demo/derive.py
 
 # Start the development stack with exposed ports and hot reload
 dev:

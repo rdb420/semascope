@@ -68,6 +68,7 @@ export type Document = {
 };
 export type DocumentText = { id: string; text: string; pages: string[] };
 export type User = { username: string; is_staff: boolean; is_superuser: boolean };
+export type UiConfig = { map_tile_url: string; map_tile_attribution: string };
 export type Stats = {
   collections: number;
   sources: number;
@@ -196,6 +197,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   me: () => request<User>("/api/auth/me"),
+  uiConfig: () => request<UiConfig>("/api/ui/config"),
   providers: () => request<{ local: boolean; oidc: { name: string; url: string } | null }>("/api/auth/providers"),
   login: (username: string, password: string) =>
     request<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),

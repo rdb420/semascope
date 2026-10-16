@@ -5,6 +5,7 @@ node_modules
 data
 packs/demo/cache
 packs/demo/corpus
+packs/demo/derived
 packs/*/validation
 site
 reports

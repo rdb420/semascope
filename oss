@@ -9,7 +9,7 @@ cmd="${1:-help}"
 env_file="${SEMASCOPE_ENV_FILE:-.env}"
 if [ "$env_file" != .env ]; then export SEMASCOPE_ENV_FILE COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$env_file}"; fi
 # The runtime chosen at `oss init` picks the compose overlay for every command below.
-runtime="$(grep -E '^SEMASCOPE_RUNTIME=' "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')"
+runtime="$(grep -E '^SEMASCOPE_RUNTIME=' "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
 case "${runtime:-cpu}" in
   gpu) export COMPOSE_FILE="${COMPOSE_FILE:-compose.yaml:compose.gpu.yaml}" ;;
 esac
@@ -25,7 +25,7 @@ case "$cmd" in
     shift; exec docker compose logs -f "$@" ;;
   index)
     shift
-    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' "$env_file" 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//')"
+    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' "$env_file" 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//' || true)"
     import_dir="$(cd "${import_dir:-./data/import}" 2>/dev/null && pwd -P || echo "")"
     target="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/$(basename "$1")"
     case "$target" in

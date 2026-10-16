@@ -36,22 +36,26 @@ Grafana.
 
 ## Memory and CPU
 
-`oss init --size` sets the Java heaps of Solr, Neo4j and Tika:
+`oss init --size` sets the Java heaps of Solr, Neo4j and Tika, and the
+worker's processes and memory cap:
 
-| Size | Heaps (each) | Suits | Host |
-|---|---|---|---|
-| small | 1 GB | a laptop, a first look | about 6 GB RAM, 2 cores |
-| medium | 2 GB | a team server, tens of thousands of documents | 12 GB RAM or more recommended |
-| large | 4 GB | hundreds of thousands of documents | 24 GB RAM or more recommended |
+| Size | Heaps (each) | Worker | Suits | Host |
+|---|---|---|---|---|
+| small | 1 GB | 1 process, 4 GB cap | a laptop, a first look | about 6 GB RAM, 2 cores (estimate) |
+| medium | 2 GB | 2 processes, 6 GB cap | a team server, tens of thousands of documents | 16 GB RAM (measured, below) |
+| large | 4 GB | 4 processes, 12 GB cap | hundreds of thousands of documents | 32 GB RAM (estimate) |
 
-The worker is capped at 4 GB (8 GB on the `gpu` runtime) and runs two
-processes; raise `--concurrency` on `oss-worker` in `compose.yaml` for more
-throughput. On the `gpu` runtime each worker process holds 5 to 11 GB of
-GPU memory; two processes peaked at 22 GB on an RTX 3090.
-
-The medium and large host figures are estimates from the heap sizes plus
-PostgreSQL, the worker and the operating system; they have not yet been
-measured (see [Benchmarks](benchmarks.md)).
+Measured for medium on the CPU runtime (2026-10-16, [Quality
+numbers](../quality.md#benchmark-run-2026-10-16-rc2-cpu-medium)), indexing the
+demo corpus and then the 988 documents of `mixed-1k`: the containers peaked
+together at 11.2 GiB (worker 3.8, Neo4j 3.0, Solr 2.8, Tika 1.1, server 0.7,
+PostgreSQL 0.1 GiB). The worker then ran two processes under the old 4 GB
+cap, and each grew to about 2.2 GB resident, so the cap was reached; that is
+why medium now has 6 GB. The small and large host figures are still
+estimates from the heaps and worker caps. `SEMASCOPE_WORKER_CONCURRENCY` and
+`SEMASCOPE_WORKER_MEMORY` in `.env` override the size's choice. On the `gpu`
+runtime the worker is capped at 8 GB and each worker process holds 5 to 11 GB
+of GPU memory; two processes peaked at 22 GB on an RTX 3090.
 
 ## Storage
 
@@ -64,10 +68,17 @@ measured (see [Benchmarks](benchmarks.md)).
 | `valkey` | queued tasks | small; safe to lose |
 | backups | `data/backups/<stamp>` | each backup is a full copy |
 
-Index and graph size per document have not yet been measured. Until they
-are, a working assumption (not a measurement) is three times the corpus
-size, plus room for backups; watch the volumes with `docker system df -v`
-and replace this line with the benchmark figures.
+Measured on the CPU runtime (2026-10-16, [Quality
+numbers](../quality.md#benchmark-run-2026-10-16-rc2-cpu-medium)) for 1,000
+documents of `mixed-1k` (chapters of about 16,000 characters, 35 MB of
+originals in twelve formats, a fifth of them PDFs): about 310 MB in all, 8.7
+times the originals. The blob store holds most of it (235 MB: the originals
+plus 200 MB of page previews of the PDFs and images); Solr 42 MB (documents
+15, chunks 27), PostgreSQL 23 MB, Neo4j 7 MB. For whole books (the sixteen
+demo texts, 16.7 MB) the stores took 7.7 times the originals, mostly Solr
+(the `documents` core at 2.8 times, because the full text is stored and
+indexed). Plan for ten times the corpus, plus room for backups, and check
+with `scripts/bench_size.py` on a sample of your own documents.
 
 ## Authentication and access
 
@@ -147,8 +158,12 @@ images are used.
 
 What still needs a network:
 
-- the **map** loads its background tiles from OpenStreetMap; offline it
-  shows the places without a base map;
+- the **map** loads its background tiles from OpenStreetMap by default. Set
+  `SEMASCOPE_MAP_TILE_URL` in `.env` to your own tile server (an XYZ raster
+  template such as `https://tiles.example.org/{z}/{x}/{y}.png`, with
+  `SEMASCOPE_MAP_TILE_ATTRIBUTION`), or leave it empty
+  (`SEMASCOPE_MAP_TILE_URL=`) for no base map: the places are then drawn on
+  a plain background and the browser makes no tile requests;
 - the web, feed and S3 connectors, and SPARQL-endpoint sources;
 - the `remote` runtime's services and any OpenAI-compatible endpoint;
 - an embedding model other than the bundled one, which FastEmbed downloads

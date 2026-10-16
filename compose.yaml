@@ -36,7 +36,7 @@ x-app: &app
 
 services:
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     ports:
       - "${SEMASCOPE_HTTPS_PORT:-8443}:443"
     volumes:
@@ -57,16 +57,18 @@ services:
       timeout: 5s
       retries: 12
 
+  # Worker processes and their memory cap follow `oss init --size` (small 1, medium 2, large 4
+  # processes); a .env written before those settings existed keeps the earlier two processes.
   worker:
     <<: *app
-    command: oss-worker --queues io,cpu,ocr,nlp,graph
+    command: oss-worker --queues io,cpu,ocr,nlp,graph --concurrency ${SEMASCOPE_WORKER_CONCURRENCY:-2}
     volumes:
       - blobs:/data
       - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro
     deploy:
       resources:
         limits:
-          memory: 4g
+          memory: ${SEMASCOPE_WORKER_MEMORY:-4g}
 
   beat:
     <<: *app
@@ -82,7 +84,7 @@ services:
       - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
       POSTGRES_DB: semascope
       POSTGRES_USER: semascope
@@ -97,7 +99,7 @@ services:
     restart: unless-stopped
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
     command: ["valkey-server", "--save", "60", "1", "--appendonly", "yes"]
     volumes:
       - valkey:/data
@@ -109,7 +111,7 @@ services:
     restart: unless-stopped
 
   solr:
-    image: solr:10.0.0
+    image: solr:10.0.0@sha256:4316295f16175f676ac6798769f7a21729131ab555f1ba8663839dd7abd92e13
     environment:
       SOLR_HEAP: ${SOLR_HEAP:-1g}
       SOLR_OPTS: -Dsolr.disable.allowUrls=false
@@ -123,7 +125,7 @@ services:
     restart: unless-stopped
 
   neo4j:
-    image: neo4j:5.26-community
+    image: neo4j:5.26-community@sha256:f1e52d4dc6da122468c4a3c1050a4f5e117f6d3268625237c34d49166f0d6082
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
       NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP:-1g}
@@ -139,7 +141,7 @@ services:
     restart: unless-stopped
 
   tika:
-    image: apache/tika:3.3.0.0-full
+    image: apache/tika:3.3.0.0-full@sha256:ecdd37e204308266b1f8e28569f8516ebd5b96d7a4518a71d3904710b20c03b3
     command: ["--config", "/tika-config.xml", "--host", "0.0.0.0", "--port", "9998"]
     environment:
       JAVA_TOOL_OPTIONS: -Xmx${TIKA_HEAP:-1g}

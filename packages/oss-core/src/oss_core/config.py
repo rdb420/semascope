@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     semascope_extract_base_url: str | None = None
     semascope_extract_api_key: SecretStr | None = None
 
+    # Map background: an XYZ raster tile URL template, shown to the UI. Empty means no base map
+    # (offline and air-gapped installs); the places are drawn either way.
+    semascope_map_tile_url: str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    semascope_map_tile_attribution: str = "© OpenStreetMap contributors"
+
     # Optional answer generation through any OpenAI-compatible endpoint
     semascope_llm_base_url: str | None = None
     semascope_llm_api_key: SecretStr | None = None

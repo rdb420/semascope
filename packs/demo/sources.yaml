@@ -14,18 +14,27 @@ texts:
   traditions:
   - christianity
   - judaism
+  fetched_at: '2026-10-16'
+  sha256: 8d4cd267149795cdb66793a4728da9320bcbe7799a81e4d80ccb78b0eb2029b1
+  bytes: 4336576
 - id: 216
   slug: tao-teh-king
   title: The Tao Teh King
   creator: James Legge (1815-1897), translator
   traditions:
   - taoism
+  fetched_at: '2026-10-16'
+  sha256: 0abfd421eccf824a75ac92425fab4aab6d8dbd17f45838d3a2a820d0f70c3457
+  bytes: 59131
 - id: 4094
   slug: confucian-analects
   title: 'The Chinese Classics, volume 1: Confucian Analects'
   creator: James Legge (1815-1897), translator
   traditions:
   - confucianism
+  fetched_at: '2026-10-16'
+  sha256: 6d456dc71c0d664fb6a7c711ee50e26f4b7b53169e48f4b46c69b5941b8eb91d
+  bytes: 246510
 - id: 2017
   slug: dhammapada
   title: Dhammapada
@@ -53,18 +62,27 @@ texts:
   - zoroastrianism
   - buddhism
   - islam
+  fetched_at: '2026-10-16'
+  sha256: cf2cbf71e7299fbf631539c29cdaabbbef0233ebbfd9fa46575d4a25a36c6088
+  bytes: 1011332
 - id: 2800
   slug: koran-rodwell
   title: The Koran
   creator: J. M. Rodwell (1808-1900) and G. Margoliouth (1853-1924)
   traditions:
   - islam
+  fetched_at: '2026-10-16'
+  sha256: 05ac961a2cfc5874fbf9507946f944394cf80f130c10394f6706e0855f6e1f24
+  bytes: 1098847
 - id: 28282
   slug: egyptian-literature
   title: Egyptian Literature
   creator: Epiphanius Wilson (1845-1916), editor
   traditions:
   - ancient-egypt
+  fetched_at: '2026-10-16'
+  sha256: 99e044d6390ab4b952e042020201ce6fdc3be44fed1116859b43719e8ec6c21c
+  bytes: 874638
 - id: 1727
   slug: odyssey
   title: The Odyssey
@@ -89,6 +107,9 @@ texts:
   creator: G. K. Chesterton (1874-1936), introduction; Arthur Rackham (1867-1939), illustrations
   traditions:
   - greek
+  fetched_at: '2026-10-16'
+  sha256: afc3d9d895a3320314e4a6d59c1462db4167efd8a4cc049483ed72f54913c4af
+  bytes: 215795
 - id: 4928
   slug: bulfinch-mythology
   title: Bulfinch's Mythology
@@ -125,12 +146,18 @@ texts:
   creator: Jacob and Wilhelm Grimm; Margaret Hunt (1831-1912), translator
   traditions:
   - germanic-folklore
+  fetched_at: '2026-10-16'
+  sha256: d3ab723b1af116dc773d7fffc7007e54181b700f9a65ec7cea33f3819adc84c4
+  bytes: 1508729
 - id: 3623
   slug: golden-bough
   title: The Golden Bough
   creator: James George Frazer (1854-1941)
   traditions:
   - comparative-religion
+  fetched_at: '2026-10-16'
+  sha256: d3213172290c4b6fa8c6e7cdbd615f36b667eca919e10dceef60de1162a118dd
+  bytes: 2273971
 excluded:
 - id: 7700
   title: Lysistrata

@@ -10,11 +10,16 @@ Reads `sources.yaml`, downloads each text's plain-text UTF-8 edition into
 mention of the trademark, writes the result to `corpus/<slug>.txt`, and records
 `fetched_at` and `sha256` back into `sources.yaml`.
 
-Derived formats (HTML, EPUB, DOCX, ODT, PDF with and without a text layer, page
-images, zip, CSV, mbox, Turtle) are produced by `derive.py` in Phase 1, once
-the extraction stages exist to consume them.
+The corpus is pinned: a text whose hash differs from the one already recorded
+in `sources.yaml` fails the build (Project Gutenberg does revise files), unless
+`--accept-changes` is given. `corpus.sha256` lists every text in `sha256sum -c`
+format; its own hash is the corpus manifest hash benchmark reports cite.
 
-Usage: uv run packs/demo/build.py [--only slug] [--force]
+Derived formats (HTML, EPUB, DOCX, ODT, PDF with and without a text layer, page
+images, zip, CSV, mbox, Turtle) are produced by `derive.py` (the `mixed-1k`
+benchmark corpus).
+
+Usage: uv run packs/demo/build.py [--only slug] [--force] [--accept-changes]
 """
 
 from __future__ import annotations
@@ -78,6 +83,9 @@ def main() -> int:
     )
     ap.add_argument("--only", help="build one slug")
     ap.add_argument("--force", action="store_true", help="re-download even if cached")
+    ap.add_argument(
+        "--accept-changes", action="store_true", help="record new hashes instead of failing"
+    )
     args = ap.parse_args()
 
     manifest = yaml.safe_load((HERE / "sources.yaml").read_text(encoding="utf-8"))
@@ -85,6 +93,7 @@ def main() -> int:
     CACHE.mkdir(exist_ok=True)
     CORPUS.mkdir(exist_ok=True)
 
+    changed: list[str] = []
     with httpx.Client(timeout=60.0, headers={"User-Agent": "semascope-demo-builder/0.1"}) as client:
         for entry in manifest["texts"]:
             if args.only and entry["slug"] != args.only:
@@ -93,14 +102,29 @@ def main() -> int:
             if args.force or not raw_path.exists():
                 print(f"fetching #{entry['id']} {entry['title']}")
                 raw_path.write_bytes(fetch(client, base, int(entry["id"])))
-                entry["fetched_at"] = datetime.now(UTC).date().isoformat()
             text = raw_path.read_text(encoding="utf-8", errors="replace")
-            body = strip(text)
+            body = strip(text).encode("utf-8")
             out = CORPUS / f"{entry['slug']}.txt"
-            out.write_text(body, encoding="utf-8")
-            entry["sha256"] = hashlib.sha256(body.encode("utf-8")).hexdigest()
-            entry["bytes"] = len(body.encode("utf-8"))
+            out.write_bytes(body)
+            digest = hashlib.sha256(body).hexdigest()
+            if entry.get("sha256") and entry["sha256"] != digest:
+                changed.append(f"{out.name}: {entry['sha256'][:12]} recorded, {digest[:12]} built")
+                if not args.accept_changes:
+                    continue
+            if entry.get("sha256") != digest:  # a new or accepted text: record when it was fetched
+                entry["fetched_at"] = datetime.now(UTC).date().isoformat()
+            entry["sha256"] = digest
+            entry["bytes"] = len(body)
             print(f"  wrote {out.name} ({entry['bytes']:,} bytes)")
+
+    if changed and not args.accept_changes:
+        print(
+            "these texts differ from the hashes in sources.yaml (the archive revised them?):\n  "
+            + "\n  ".join(changed)
+            + "\nrerun with --accept-changes to record the new versions",
+            file=sys.stderr,
+        )
+        return 1
 
     (HERE / "sources.yaml").write_text(
         "# Demo corpus sources. Every text is public domain: each author and translator\n"
@@ -111,7 +135,15 @@ def main() -> int:
         + yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True, width=200),
         encoding="utf-8",
     )
+    write_corpus_manifest(manifest["texts"])
     return 0
+
+
+def write_corpus_manifest(texts: list[dict[str, object]]) -> None:
+    """corpus.sha256: one `sha256sum -c` line per recorded text, in sources.yaml order."""
+
+    lines = [f"{t['sha256']}  corpus/{t['slug']}.txt\n" for t in texts if t.get("sha256")]
+    (HERE / "corpus.sha256").write_text("".join(lines), encoding="utf-8")
 
 
 if __name__ == "__main__":
