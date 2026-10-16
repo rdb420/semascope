@@ -14,6 +14,8 @@ import httpx
 import pytest
 from _stack import collection, demo_texts, indexing_done, oss, wait_for
 
+BASE = "https://semascope.dev/ontology/base#"
+
 NOTE = "integration test decision"
 decided: dict[str, Any] = {}
 
@@ -119,8 +121,10 @@ def test_the_decision_is_in_every_store(api: httpx.Client) -> None:
     edges = curated_edges(api, tag["document_id"], "Concept")
     edge = edges.get(f"Concept:{tag['target']}")
     assert edge and edge["decision"] == "accept" and edge["note"] == NOTE, edges
+    # named entities are keyed in the graph as "<Class>/<label>", as the graph stage writes them
     rejected = curated_edges(api, link["document_id"], "Entity")
-    assert rejected.get(f"Entity:{link['target']}", {}).get("decision") == "reject", rejected
+    key = "Entity:" + link["target"].removeprefix(BASE)
+    assert rejected.get(key, {}).get("decision") == "reject", rejected
 
 
 def test_reindex_keeps_the_decision(api: httpx.Client) -> None:
