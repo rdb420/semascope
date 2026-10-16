@@ -186,8 +186,15 @@ class Bench:
         """Every document is in, none queued or processing, and no retry is still due.
 
         A document indexed with a transiently failed stage keeps `indexed` while its retry
-        waits; its error then ends with "retry n/m in Ns" until the last run.
+        waits; its error then ends with "retry n/m in Ns" until the last run. From 1.0 a
+        document whose graph write waits for Neo4j is `indexed` with `graph_status` pending.
         """
+
+        graph = self.c.psql(
+            "SELECT count(*) FROM information_schema.columns WHERE table_name = "
+            "'catalogue_document' AND column_name = 'graph_status'"
+        ) == [["1"]]
+        pending = " OR d.graph_status = 'pending'" if graph else ""
 
         def done() -> bool:
             s = self.statuses(collection)
@@ -195,8 +202,8 @@ class Bench:
                 return False
             due = self.c.psql(
                 "SELECT count(*) FROM catalogue_document d JOIN catalogue_collection c ON "
-                f"c.id = d.collection_id WHERE c.slug = {q(collection)} AND d.error ~ "
-                "'; retry [0-9]+/[0-9]+ in [0-9]+s'"
+                f"c.id = d.collection_id WHERE c.slug = {q(collection)} AND (d.error ~ "
+                f"'; retry [0-9]+/[0-9]+ in [0-9]+s'{pending})"
             )
             return due[0] == ["0"]
 
