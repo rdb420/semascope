@@ -7,3 +7,9 @@ This product includes software developed at The Apache Software Foundation
 Semascope is an independent, clean-room implementation. It was inspired by
 Open Semantic Search (https://opensemanticsearch.org, GPL-3.0) but contains
 none of its code, configuration, templates or documentation.
+
+deploy/solr/configsets/documents/conf/lang/ holds stop word, contraction and
+stemmer-override lists copied unchanged from Apache Solr 10.0.0's _default
+configset (Apache License 2.0). Several of them come, as their headers say, from
+the Snowball project (https://snowballstem.org, BSD licence) and from Jacques
+Savoy's CLEF lists (BSD licence); each file keeps its original notice.

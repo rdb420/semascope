@@ -23,13 +23,71 @@
   <field name="title_txt" type="text_general" indexed="true" stored="true"/>
   <field name="title_s" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="text_txt" type="text_general" indexed="true" stored="true" termVectors="true" termPositions="true" termOffsets="true"/>
-  <field name="text_txt_en" type="text_en" indexed="true" stored="false"/>
   <field name="language_s" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="media_type_s" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="content_type_group_s" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="size_l" type="plong" indexed="true" stored="true" docValues="true"/>
   <field name="page_count_i" type="pint" indexed="true" stored="true" docValues="true"/>
   <field name="ocr_b" type="boolean" indexed="true" stored="true" docValues="true"/>
+
+  <!-- Per-language copies of title and text (oss_pipeline/languages.py routes a document
+       to the fields of its language). Not stored: hits show the neutral fields. -->
+  <field name="title_txt_ar" type="text_ar" indexed="true" stored="false"/>
+  <field name="text_txt_ar" type="text_ar" indexed="true" stored="false"/>
+  <field name="title_txt_bg" type="text_bg" indexed="true" stored="false"/>
+  <field name="text_txt_bg" type="text_bg" indexed="true" stored="false"/>
+  <field name="title_txt_ca" type="text_ca" indexed="true" stored="false"/>
+  <field name="text_txt_ca" type="text_ca" indexed="true" stored="false"/>
+  <field name="title_txt_cs" type="text_cs" indexed="true" stored="false"/>
+  <field name="text_txt_cs" type="text_cs" indexed="true" stored="false"/>
+  <field name="title_txt_da" type="text_da" indexed="true" stored="false"/>
+  <field name="text_txt_da" type="text_da" indexed="true" stored="false"/>
+  <field name="title_txt_de" type="text_de" indexed="true" stored="false"/>
+  <field name="text_txt_de" type="text_de" indexed="true" stored="false"/>
+  <field name="title_txt_el" type="text_el" indexed="true" stored="false"/>
+  <field name="text_txt_el" type="text_el" indexed="true" stored="false"/>
+  <field name="title_txt_en" type="text_en" indexed="true" stored="false"/>
+  <field name="text_txt_en" type="text_en" indexed="true" stored="false"/>
+  <field name="title_txt_es" type="text_es" indexed="true" stored="false"/>
+  <field name="text_txt_es" type="text_es" indexed="true" stored="false"/>
+  <field name="title_txt_fa" type="text_fa" indexed="true" stored="false"/>
+  <field name="text_txt_fa" type="text_fa" indexed="true" stored="false"/>
+  <field name="title_txt_fi" type="text_fi" indexed="true" stored="false"/>
+  <field name="text_txt_fi" type="text_fi" indexed="true" stored="false"/>
+  <field name="title_txt_fr" type="text_fr" indexed="true" stored="false"/>
+  <field name="text_txt_fr" type="text_fr" indexed="true" stored="false"/>
+  <field name="title_txt_hi" type="text_hi" indexed="true" stored="false"/>
+  <field name="text_txt_hi" type="text_hi" indexed="true" stored="false"/>
+  <field name="title_txt_hu" type="text_hu" indexed="true" stored="false"/>
+  <field name="text_txt_hu" type="text_hu" indexed="true" stored="false"/>
+  <field name="title_txt_id" type="text_id" indexed="true" stored="false"/>
+  <field name="text_txt_id" type="text_id" indexed="true" stored="false"/>
+  <field name="title_txt_it" type="text_it" indexed="true" stored="false"/>
+  <field name="text_txt_it" type="text_it" indexed="true" stored="false"/>
+  <field name="title_txt_ja" type="text_cjk" indexed="true" stored="false"/>
+  <field name="text_txt_ja" type="text_cjk" indexed="true" stored="false"/>
+  <field name="title_txt_ko" type="text_cjk" indexed="true" stored="false"/>
+  <field name="text_txt_ko" type="text_cjk" indexed="true" stored="false"/>
+  <field name="title_txt_lv" type="text_lv" indexed="true" stored="false"/>
+  <field name="text_txt_lv" type="text_lv" indexed="true" stored="false"/>
+  <field name="title_txt_nl" type="text_nl" indexed="true" stored="false"/>
+  <field name="text_txt_nl" type="text_nl" indexed="true" stored="false"/>
+  <field name="title_txt_no" type="text_no" indexed="true" stored="false"/>
+  <field name="text_txt_no" type="text_no" indexed="true" stored="false"/>
+  <field name="title_txt_pl" type="text_pl" indexed="true" stored="false"/>
+  <field name="text_txt_pl" type="text_pl" indexed="true" stored="false"/>
+  <field name="title_txt_pt" type="text_pt" indexed="true" stored="false"/>
+  <field name="text_txt_pt" type="text_pt" indexed="true" stored="false"/>
+  <field name="title_txt_ro" type="text_ro" indexed="true" stored="false"/>
+  <field name="text_txt_ro" type="text_ro" indexed="true" stored="false"/>
+  <field name="title_txt_ru" type="text_ru" indexed="true" stored="false"/>
+  <field name="text_txt_ru" type="text_ru" indexed="true" stored="false"/>
+  <field name="title_txt_sv" type="text_sv" indexed="true" stored="false"/>
+  <field name="text_txt_sv" type="text_sv" indexed="true" stored="false"/>
+  <field name="title_txt_tr" type="text_tr" indexed="true" stored="false"/>
+  <field name="text_txt_tr" type="text_tr" indexed="true" stored="false"/>
+  <field name="title_txt_zh" type="text_cjk" indexed="true" stored="false"/>
+  <field name="text_txt_zh" type="text_cjk" indexed="true" stored="false"/>
 
   <!-- Dates -->
   <field name="modified_dt" type="pdate" indexed="true" stored="true" docValues="true"/>
@@ -56,7 +114,6 @@
   <field name="places_ss" type="string" indexed="true" stored="true" docValues="true" multiValued="true"/>
 
   <copyField source="title_txt" dest="title_s" maxChars="256"/>
-  <copyField source="text_txt" dest="text_txt_en"/>
 
   <!-- Dynamic fields: one suffix per type -->
   <dynamicField name="*_s" type="string" indexed="true" stored="true" docValues="true"/>
@@ -89,9 +146,13 @@
   <fieldType name="knn_vector_384" class="solr.DenseVectorField" vectorDimension="384"
              similarityFunction="cosine" knnAlgorithm="hnsw" hnswMaxConnections="16" hnswBeamWidth="100"/>
 
-  <!-- Language-neutral text: used for every document regardless of language.
-       English stop words are dropped at query time only, so "Ulysses and Minerva"
-       neither requires nor highlights "and"; the index keeps every token for phrases. -->
+  <!-- Language-neutral text: every document, whatever its language. Lowercased and
+       accent-folded, nothing removed or stemmed, so phrases and exact forms match in any
+       language (docs/search.md). At query time, the labels of the active packs expand to
+       each other (synonyms_packs.txt, written by oss_server.knowledge.synonyms when a pack
+       is activated): "Ulysses" also finds "Odysseus", and "flood" finds "deluge" at half
+       weight (`deluge|0.5`, read by delimitedBoost). The synonym filter sits before the
+       folding because it matches the lowercased query words with their accents. -->
   <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100">
     <analyzer type="index">
       <tokenizer name="standard"/>
@@ -100,29 +161,260 @@
     </analyzer>
     <analyzer type="query">
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
       <filter name="lowercase"/>
+      <filter name="synonymGraph" synonyms="synonyms_packs.txt" ignoreCase="true" expand="true"/>
+      <filter name="delimitedBoost"/>
       <filter name="asciiFolding" preserveOriginal="false"/>
     </analyzer>
   </fieldType>
 
-  <!-- English: stop words and light stemming -->
-  <fieldType name="text_en" class="solr.TextField" positionIncrementGap="100">
-    <analyzer type="index">
+  <!-- One analysed type per language: its stop words and stemmer (Lucene's, through
+       Solr; the word lists in lang/ are Solr 10.0.0's, with their licence headers). -->
+  <!-- Arabic -->
+  <fieldType name="text_ar" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
       <filter name="lowercase"/>
-      <filter name="englishPossessive"/>
-      <filter name="keywordMarker" protected="protwords.txt"/>
-      <filter name="englishMinimalStem"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_ar.txt"/>
+      <filter name="arabicNormalization"/>
+      <filter name="arabicStem"/>
     </analyzer>
-    <analyzer type="query">
+  </fieldType>
+  <!-- Bulgarian -->
+  <fieldType name="text_bg" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
       <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_bg.txt"/>
+      <filter name="bulgarianStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Catalan -->
+  <fieldType name="text_ca" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="elision" ignoreCase="true" articles="lang/contractions_ca.txt"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_ca.txt"/>
+      <filter name="snowballPorter" language="Catalan"/>
+    </analyzer>
+  </fieldType>
+  <!-- Czech -->
+  <fieldType name="text_cs" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_cs.txt"/>
+      <filter name="czechStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Danish -->
+  <fieldType name="text_da" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_da.txt" format="snowball"/>
+      <filter name="snowballPorter" language="Danish"/>
+    </analyzer>
+  </fieldType>
+  <!-- German -->
+  <fieldType name="text_de" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_de.txt" format="snowball"/>
+      <filter name="germanNormalization"/>
+      <filter name="germanLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Greek -->
+  <fieldType name="text_el" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="greekLowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_el.txt"/>
+      <filter name="greekStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- English -->
+  <fieldType name="text_en" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
       <filter name="englishPossessive"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
       <filter name="keywordMarker" protected="protwords.txt"/>
-      <filter name="englishMinimalStem"/>
+      <filter name="porterStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Spanish -->
+  <fieldType name="text_es" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_es.txt" format="snowball"/>
+      <filter name="spanishLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Persian -->
+  <fieldType name="text_fa" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <charFilter name="persian"/>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="arabicNormalization"/>
+      <filter name="persianNormalization"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_fa.txt"/>
+      <filter name="persianStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Finnish -->
+  <fieldType name="text_fi" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_fi.txt" format="snowball"/>
+      <filter name="finnishLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- French -->
+  <fieldType name="text_fr" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="elision" ignoreCase="true" articles="lang/contractions_fr.txt"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_fr.txt" format="snowball"/>
+      <filter name="frenchLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Hindi -->
+  <fieldType name="text_hi" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="indicNormalization"/>
+      <filter name="hindiNormalization"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_hi.txt"/>
+      <filter name="hindiStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Hungarian -->
+  <fieldType name="text_hu" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_hu.txt" format="snowball"/>
+      <filter name="hungarianLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Indonesian -->
+  <fieldType name="text_id" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_id.txt"/>
+      <filter name="indonesianStem" stemDerivational="true"/>
+    </analyzer>
+  </fieldType>
+  <!-- Italian -->
+  <fieldType name="text_it" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="elision" ignoreCase="true" articles="lang/contractions_it.txt"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_it.txt" format="snowball"/>
+      <filter name="italianLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Latvian -->
+  <fieldType name="text_lv" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_lv.txt"/>
+      <filter name="latvianStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Dutch -->
+  <fieldType name="text_nl" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_nl.txt" format="snowball"/>
+      <filter name="stemmerOverride" dictionary="lang/stemdict_nl.txt" ignoreCase="false"/>
+      <filter name="snowballPorter" language="Dutch"/>
+    </analyzer>
+  </fieldType>
+  <!-- Norwegian -->
+  <fieldType name="text_no" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_no.txt" format="snowball"/>
+      <filter name="norwegianLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Polish (Stempel stemmer: needs Solr's analysis-extras module) -->
+  <fieldType name="text_pl" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stempelPolishStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Portuguese -->
+  <fieldType name="text_pt" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_pt.txt" format="snowball"/>
+      <filter name="portugueseLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Romanian -->
+  <fieldType name="text_ro" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_ro.txt"/>
+      <filter name="snowballPorter" language="Romanian"/>
+    </analyzer>
+  </fieldType>
+  <!-- Russian -->
+  <fieldType name="text_ru" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_ru.txt" format="snowball"/>
+      <filter name="russianLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Swedish -->
+  <fieldType name="text_sv" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_sv.txt" format="snowball"/>
+      <filter name="swedishLightStem"/>
+    </analyzer>
+  </fieldType>
+  <!-- Turkish -->
+  <fieldType name="text_tr" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="apostrophe"/>
+      <filter name="turkishLowercase"/>
+      <filter name="stop" ignoreCase="true" words="lang/stopwords_tr.txt"/>
+      <filter name="snowballPorter" language="Turkish"/>
+    </analyzer>
+  </fieldType>
+  <!-- Chinese, Japanese and Korean: overlapping bigrams of CJK characters -->
+  <fieldType name="text_cjk" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="cjkWidth"/>
+      <filter name="lowercase"/>
+      <filter name="cjkBigram"/>
     </analyzer>
   </fieldType>
 
