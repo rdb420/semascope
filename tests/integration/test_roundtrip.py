@@ -7,8 +7,12 @@ project other than the default one (COMPOSE_PROJECT_NAME, e.g. sem-ci).
 
 from __future__ import annotations
 
+import json
 import os
+import shlex
+import shutil
 import subprocess
+import tarfile
 import time
 from typing import Any
 
@@ -145,3 +149,57 @@ def test_backup_wipe_restore(api: httpx.Client, indexed: dict[str, Any]) -> None
         new = restored.get("/curation/events", params={"since_id": before["outbox_cursor"]}).json()
         assert [e["kind"] for e in new] == ["proposal.accept_tag"], new
         assert new[0]["id"] > before["outbox_cursor"]
+
+
+def failing_oss(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run ./oss expecting a non-zero exit; returns the finished process."""
+
+    cmd = [*shlex.split(os.environ.get("SEMASCOPE_IT_OSS", "./oss")), *args]
+    proc = subprocess.run(  # noqa: S603 - the project's own entry point
+        cmd, cwd=ROOT, capture_output=True, text=True, timeout=900, check=False
+    )
+    print(f"$ {shlex.join(cmd)}\n{proc.stdout}{proc.stderr}")
+    assert proc.returncode != 0, f"{shlex.join(cmd)} succeeded on a corrupt backup"
+    return proc
+
+
+def solr_collections() -> set[str]:
+    listing = (
+        'curl -sS -u "semascope:$SEMASCOPE_SOLR_PASSWORD" '
+        '"http://localhost:8983/solr/admin/collections?action=LIST&wt=json"'
+    )
+    cmd = ["docker", "compose", "-p", PROJECT, "exec", "-T", "solr", "sh", "-c", listing]
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True)  # noqa: S603
+    return set(json.loads(proc.stdout)["collections"])
+
+
+def test_a_corrupt_backup_leaves_the_data_as_it_was(
+    api: httpx.Client, indexed: dict[str, Any]
+) -> None:
+    before = snapshot(api)
+    good = ROOT / "data" / "backups" / f"it-{PROJECT}-good-{int(time.time())}"
+    oss("backup", str(good))
+
+    # a truncated Postgres dump: refused before anything is stopped
+    truncated = good.with_name(good.name.replace("-good-", "-truncated-"))
+    shutil.copytree(good, truncated)
+    data = (truncated / "postgres.sql.gz").read_bytes()
+    (truncated / "postgres.sql.gz").write_bytes(data[: len(data) // 2])
+    proc = failing_oss("restore", str(truncated))
+    assert "postgres.sql.gz is corrupt" in proc.stderr
+    assert snapshot(api) == before
+
+    # a Solr backup that is a readable archive but not a backup: Solr refuses to restore it,
+    # after the app services were stopped; the live collections are kept and the app restarts
+    bogus = good.with_name(good.name.replace("-good-", "-bogus-"))
+    shutil.copytree(good, bogus)
+    with tarfile.open(bogus / "solr" / "documents.tar", "w") as tar:
+        junk = bogus / "junk.txt"
+        junk.write_text("not a Solr backup\n", encoding="utf-8")
+        tar.add(junk, arcname="./documents/junk.txt")
+    proc = failing_oss("restore", str(bogus))
+    assert "restore FAILED" in proc.stderr and "nothing was changed" in proc.stderr
+    wait_for(answering, timeout=300, what="the app after the refused restore")
+    with make_client() as after:
+        assert snapshot(after) == before
+    assert not {c for c in solr_collections() if c.endswith("_restoring")}

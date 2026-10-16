@@ -123,6 +123,22 @@ upgrade or a projection change.
 `./oss backup [dir] [--with-graph]` and `./oss restore <dir>` are described
 in [Concepts](concepts.md#backup-and-restore). Keep `.env` with the backup.
 
+A backup fails (non-zero exit, a message naming the step) when any part
+cannot be written or read back: the Postgres dump, a Solr backup that Solr
+reports as failed or that wrote nothing, the data archive or the Neo4j
+dump; the directory is then incomplete and should not be kept. A restore
+checks the backup's files first (gzip and tar integrity, one Solr archive
+per collection); then it stops the server, worker and beat, restores each
+Solr collection under a staging name and Postgres into a staging database.
+If any of that fails, the staging copies are removed, the application
+starts again on the existing data, and the command exits non-zero. Only
+then does it switch: the old database is renamed and dropped at the end,
+each Solr collection is replaced from the verified backup, the data
+volume is unpacked and, with a dump, Neo4j is loaded. A failure after the
+switch names what is restored and where the staged copy is. The staging
+needs free disk for a second copy of the Solr collections and the
+database while the restore runs.
+
 ## Secrets
 
 `.env` holds every secret. The server, workers and beat refuse to start

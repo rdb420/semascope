@@ -127,8 +127,11 @@ browsers will not trust. For a server:
 `./oss backup [dir] [--with-graph]` writes a PostgreSQL dump, Solr backups
 of the three collections and an archive of the data volume to
 `data/backups/<stamp>`; `--with-graph` also dumps Neo4j (stopping it
-briefly). `./oss restore <dir>` stops the application, restores all of
-them and starts it again. Keep `.env` with every backup: it holds the
+briefly); any step that fails stops the backup with a non-zero exit.
+`./oss restore <dir>` checks the backup, stops the application, loads the
+backup beside the live data (needs disk for a second copy of Postgres and
+Solr while it runs), switches over only when every part loaded, and starts
+the application again; a backup that cannot be read changes nothing. Keep `.env` with every backup: it holds the
 secrets the data was written with. Copy backups off the host; Semascope does
 not.
 

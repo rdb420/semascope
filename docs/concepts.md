@@ -178,6 +178,12 @@ volume (originals, previews, uploads, the pack store) into
 `data/backups/<stamp>`; `--with-graph` also dumps Neo4j (which otherwise
 `./oss reindex` rebuilds). `./oss restore <dir>` loads a backup back. Keep
 `.env` with the backup: it holds the secrets the data was written with.
+Both stop with a non-zero exit and a message at the first step that fails.
+A restore first checks every file of the backup, then loads Postgres and
+each Solr collection beside the live data (a `semascope_restore` database,
+`<collection>_restoring` collections); only when all of them loaded does it
+switch over. A backup that cannot be read leaves the existing data as it was
+and the application running.
 
 ## Operations profiles
 
