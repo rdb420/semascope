@@ -40,7 +40,8 @@ Also recognised:
   Validation and import **verify** it: a file whose hash differs, a listed
   file that is missing, an unlisted file, or an id or version that differs
   from `requirements.yaml` is a `manifest_mismatch` error, or a warning with
-  `--force`. A pack without a manifest gets a `no_manifest` warning.
+  `--force`. A pack without a manifest gets a `no_manifest` warning, or an
+  error (a warning with `--force`) when its status is `released`.
   `oss pack validate --manifest` rewrites it, so a stale one is then not an
   error.
 
@@ -186,7 +187,9 @@ and graph class. Individuals with coordinates appear on the map.
   them.
 - A **new version** is a new import. Activating it retires the previous
   version, re-syncs the dictionary and queues a reindex of the collections
-  that use the pack. `POST /api/knowledge/packs/{id}/activate?version=`
+  that use the pack. Imports and activations run as jobs in a worker; the
+  request answers 202 with the job, one job per pack at a time (409 while
+  one is queued or running). `POST /api/knowledge/packs/{id}/activate?version=`
   switches back.
 - **An upgrade is a diff and a reindex plan.** Whenever activation would
   replace an active version (a new version, or changed content under the
@@ -240,7 +243,7 @@ build.
 | error | `bad_id`, `bad_version` | the id is not 1-64 letters, digits, `-` or `_`; the version is not 1-32 of letters, digits and `. + _ -` |
 | warning | `version_format` | the version is not semantic versioning |
 | error | `manifest_mismatch` | `release-manifest.json` differs from the files (warning with `--force`) |
-| warning | `no_manifest` | there is no `release-manifest.json` |
+| warning | `no_manifest` | there is no `release-manifest.json` (an error, a warning with `--force`, for a `released` pack) |
 | error | `rdf_parse` | an RDF file does not parse, or JSON-LD names a remote context |
 | error | `no_label`, `no_definition` | an OWL class or property inside `base_iri` lacks `rdfs:label`, or lacks `rdfs:comment`/`skos:definition` |
 | error | `no_preflabel` | a SKOS concept has no `skos:prefLabel` |
@@ -285,9 +288,11 @@ import, in `oss pack validate` it fails the run.
 |---|---|---|
 | validate | `oss pack validate PATH [--manifest] [--force]` | — |
 | diff and reindex plan | `oss pack diff PATH [--force]` | `POST /api/knowledge/packs/diff` (editor); `GET …/packs/{id}/diff?version=` for an imported version (editor) |
-| import | `oss pack import PATH [--activate] [--reindex] [--force] [--yes]` | `POST /api/knowledge/packs/import` (editor; `confirm`) |
+| import | `oss pack import PATH [--activate] [--reindex] [--force] [--yes] [--no-wait]` | `POST /api/knowledge/packs/import` (editor; `confirm`; 202 with a job) |
+| import a plain list | `oss pack import-list FILE --id ID [--version] [--title] [--scheme] [--yes]` | `POST /api/knowledge/packs/import-list` (editor; `confirm`; 202 with a job) |
+| follow a job | (the commands above wait for it) | `GET /api/knowledge/pack-jobs`, `GET …/pack-jobs/{id}` (editor) |
 | list | `oss pack list` | `GET /api/knowledge/packs` |
-| activate or roll back | `oss pack activate ID --version V [--yes]` | `POST /api/knowledge/packs/{id}/activate?version=&confirm=` (editor) |
+| activate or roll back | `oss pack activate ID --version V [--yes] [--no-wait]` | `POST /api/knowledge/packs/{id}/activate?version=&confirm=` (editor; 202 with a job) |
 | remove a version | `oss pack remove ID --version V [--yes]` | `DELETE /api/knowledge/packs/{id}/versions/{version}` (admin) |
 | curator proposals | — | `GET`/`POST /api/knowledge/packs/{id}/deltas`, `GET …/deltas/export` |
 
