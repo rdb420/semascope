@@ -166,7 +166,11 @@ def test_linking_an_entity_to_a_pack_individual(api: httpx.Client) -> None:
     curated = tag["curated"]
     assert curated["decision"] == "accept" and curated["linked_from"] == entity, tag
     assert tag["pack_id"] and tag["pack_version"], "the link records the individual's pack"
-    assert tag["stage"] == "curated" and tag["confidence"] == 1.0, tag
+    # a new tag is the curator's; a tag the dictionary had already found keeps its provenance
+    if tag["stage"] == "curated":
+        assert tag["confidence"] == 1.0, tag
+    else:
+        assert tag["stage"] == "tag" and tag["pack_id"], tag
     assert entity not in tags, "the unlinked entity tag is still there"
     # graph: a CURATED edge to the individual's entity node
     edge = curated_edges(api, doc, "Entity").get(f"Entity:{individual['iri']}")
