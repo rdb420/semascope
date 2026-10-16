@@ -198,7 +198,7 @@ def test_pin_text_rewrites_fixed_tags_only() -> None:
 
 
 def test_committed_compose_files_are_pinned() -> None:
-    for path in ROOT.glob("compose*.yaml"):
+    for path in [*ROOT.glob("compose*.yaml"), ROOT / "tests/integration/stack/compose.yaml"]:
         assert pin.unpinned(path.read_text()) == [], path.name
 
 

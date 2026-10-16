@@ -14,6 +14,10 @@
 #   SEMASCOPE_IMAGE_TAG   <project>    built from the checkout (SEMASCOPE_IT_BUILD=0 skips)
 #   SEMASCOPE_DEMO_ONLY   odyssey iliad dhammapada song-celestial
 #   SEMASCOPE_IT_ARTIFACTS  reports/integration (screenshots, logs)
+#
+# tests/integration/stack/compose.yaml is layered over compose.yaml: test-only
+# services (a fixture web site, webhook receiver and mock IdP; MinIO; Oxigraph)
+# that the URL-source, webhook and sign-on tests talk to.
 set -euo pipefail
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
 cd "$(dirname "$self")/.."
@@ -25,7 +29,8 @@ export SEMASCOPE_HTTPS_PORT="${SEMASCOPE_HTTPS_PORT:-8473}"
 export SEMASCOPE_IMAGE_TAG="${SEMASCOPE_IMAGE_TAG:-$COMPOSE_PROJECT_NAME}"  # one image per stack, so parallel runs never test each other's build
 export SEMASCOPE_DEMO_ONLY="${SEMASCOPE_DEMO_ONLY:-odyssey iliad dhammapada song-celestial}"
 export SEMASCOPE_IT_URL="${SEMASCOPE_IT_URL:-https://localhost:$SEMASCOPE_HTTPS_PORT}"
-export COMPOSE_FILE=compose.yaml  # the cpu runtime, whatever the env file says
+# the cpu runtime, whatever the env file says, plus the test-only services
+export COMPOSE_FILE=compose.yaml:tests/integration/stack/compose.yaml
 artifacts="${SEMASCOPE_IT_ARTIFACTS:-reports/integration}"
 
 case "$COMPOSE_PROJECT_NAME" in
@@ -70,7 +75,7 @@ demo() {
 }
 
 integration_tests() {
-  uv run pytest tests/integration -p no:cacheprovider -o addopts= -v --durations=10 \
+  SEMASCOPE_IT_REQUIRE_FIXTURES=1 uv run pytest tests/integration -p no:cacheprovider -o addopts= -v --durations=10 \
     --ignore=tests/integration/test_roundtrip.py
 }
 

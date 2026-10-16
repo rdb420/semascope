@@ -14,7 +14,9 @@ Every advertised capability, with its state and the evidence for it.
 `smoke` is the Playwright browser journey (`tests/e2e/ui_smoke.py`, run by
 hand against a live stack); `bench` and `quality` are
 `scripts/bench.py` and `scripts/tag_quality.py`, whose results are in
-[Quality numbers](../quality.md).
+[Quality numbers](../quality.md). [`evidence.yaml`](evidence.yaml) names the
+tests behind each row; `scripts/tests/test_claims.py` fails when a row marked
+implemented has none, or names a test that does not exist.
 
 ## Inputs
 

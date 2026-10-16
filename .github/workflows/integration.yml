@@ -1,10 +1,13 @@
 name: integration
 
 # The real stack, built from the checkout: Solr, Tika, Neo4j, Postgres, Valkey,
-# Caddy, server, worker and beat, with a subset of the demo corpus. Runs the
-# HTTP API tests (tests/integration), the browser smoke test and a backup ->
-# wipe -> restore round trip. scripts/integration.sh holds every step, so
-# `just integration` runs the same thing on a workstation.
+# Caddy, server, worker and beat, with a subset of the demo corpus, plus the
+# test-only services of tests/integration/stack/compose.yaml (a fixture web site,
+# feeds, webhook receiver and mock OpenID Connect provider; MinIO; Oxigraph).
+# Runs the HTTP API tests (tests/integration: sources of every URL kind, uploads,
+# curation, graph, search, webhooks, alerts, sign-on), the browser smoke test and
+# a backup -> wipe -> restore round trip. scripts/integration.sh holds every step,
+# so `just integration` runs the same thing on a workstation.
 #
 # Pushes and pull requests run on amd64. The weekly schedule and a manual run
 # also run the job on an arm64 runner, which builds and exercises the arm64 image.
@@ -73,7 +76,7 @@ jobs:
       - name: Load the demo subset (oss demo --only ...)
         id: demo
         run: scripts/integration.sh demo
-      - name: Integration tests (HTTP API)
+      - name: Integration tests (HTTP API and test services)
         if: ${{ !cancelled() && steps.demo.outcome == 'success' }}
         run: scripts/integration.sh test
       - name: Browser smoke test

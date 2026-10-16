@@ -158,9 +158,15 @@ on a throwaway copy, the same way the `integration` workflow does in CI:
 2. `demo`: `oss demo --only …` loads four demo texts (`SEMASCOPE_DEMO_ONLY`).
 3. `test`: `tests/integration/` against the HTTP API through Caddy: document
    counts by state, pack tags against `packs/demo/golden.yaml`, flat and
-   hierarchical facets, keyword, semantic and hybrid search, list search, graph
-   neighbours and a shortest path, a review decision through the outbox to a
-   `CURATED` edge, and `oss reindex` keeping it.
+   hierarchical facets, keyword, semantic and hybrid search (the fusion scores),
+   suggest, list search, CSV export, graph neighbours, paths and hubs, the Cypher
+   console, review and tag decisions through the outbox to `CURATED` edges, and
+   `oss reindex` keeping them; web (pages, sitemap, crawl), feed, S3, SPARQL and
+   upload sources, OCR, schedules and deletion detection; webhooks, alerts and
+   single sign-on. The test-only services those need are layered over
+   `compose.yaml` from `tests/integration/stack/compose.yaml`: a fixture server
+   (web site, feeds, webhook receiver, mock OpenID Connect provider), MinIO and
+   Oxigraph, each on a port Docker picks on 127.0.0.1.
 4. `smoke`: `tests/e2e/ui_smoke.py` in Chromium; screenshots land in
    `reports/integration/screenshots/` and any console error fails it.
 5. `roundtrip`: `oss backup --with-graph`, `compose down --volumes`, a fresh

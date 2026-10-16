@@ -1,0 +1,405 @@
+# Evidence for the capability matrix (capabilities.md): what proves each row.
+#
+# Keys are "<section> | <first cell of the row>", exactly as in capabilities.md.
+# Every row whose state says "implemented" needs an entry here;
+# scripts/tests/test_claims.py fails when one is missing, when a key names no row,
+# or when an item names a test or file that does not exist. Experimental rows may
+# list their evidence too, which shows what a promotion would rest on.
+#
+# Items:
+#   path::test_name            a pytest test (parametrised ids omitted). Unit tests run
+#                              in the ci workflow; tests/integration/ runs in the
+#                              integration workflow against the real stack
+#   path                       a script or workflow that is itself the evidence
+#                              (tests/e2e/ui_smoke.py runs in the integration workflow;
+#                              scripts/bench.py and scripts/tag_quality.py by hand, results
+#                              in docs/quality.md)
+#   "check: <what>"            a recorded manual check (the fresh-clone check)
+
+# --- Inputs ------------------------------------------------------------------------------------
+
+"Inputs | Folder (`filesystem`), include and exclude globs, change detection by content hash":
+  - packages/oss-pipeline/tests/test_filesystem.py::test_discover_respects_globs_and_hashes
+  - packages/oss-server/tests/test_api.py::test_collection_and_source_lifecycle
+  - tests/integration/test_api.py::test_every_document_is_indexed
+
+"Inputs | Upload (`oss upload`, `POST /collections/{slug}/upload`)":
+  - packages/oss-pipeline/tests/test_filesystem.py::test_upload_connector_round_trip
+  - packages/oss-server/tests/test_authz_matrix.py::test_route_answers_each_user_as_its_rule_says
+  - tests/integration/test_sources.py::test_upload_endpoint_end_to_end
+  - tests/integration/test_sources.py::test_upload_needs_an_existing_collection
+
+"Inputs | Mail: mbox and `.eml`, attachments as child documents":
+  - packages/oss-pipeline/tests/test_connectors.py::test_mail_messages_and_attachments
+
+"Inputs | Archives: zip and tar (gz, bz2, xz), nested, with size, ratio and depth limits":
+  - packages/oss-pipeline/tests/test_connectors.py::test_archive_members_and_nested_archives
+
+"Inputs | Tables: CSV, TSV and XLSX, one document per row, chosen columns as facets":
+  - packages/oss-pipeline/tests/test_connectors.py::test_table_rows_become_documents
+
+"Inputs | RDF files (`.ttl`, `.nt`, `.n3`, `.rdf`, `.owl`, `.jsonld`, `.trig`), one document per subject":
+  - packages/oss-pipeline/tests/test_connectors.py::test_rdf_subjects_become_documents
+
+"Inputs | RDF from a SPARQL endpoint":
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_sparql_endpoint_subjects_of_the_chosen_types
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_sparql_without_types_reads_every_subject_and_caps_the_response
+  - packages/oss-pipeline/tests/test_guard.py::test_sparql_endpoint_on_a_private_address_is_refused
+  - tests/integration/test_sources.py::test_rdf_from_a_sparql_endpoint
+
+"Inputs | Web pages, sitemaps and bounded same-host crawl, robots.txt respected":
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_crawl_stays_on_the_host_within_depth_robots_and_size
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_crawl_stops_at_max_pages
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_include_and_exclude_patterns
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_robots_can_be_ignored_in_pages_mode
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_sitemap_index_is_followed_and_robots_applied
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_pages_over_the_cap_are_skipped_with_or_without_a_length
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_a_redirect_to_a_private_address_is_not_followed
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_a_private_seed_fails_the_run
+  - packages/oss-pipeline/tests/test_web.py::test_links_are_resolved_and_deduplicated
+  - packages/oss-pipeline/tests/test_guard.py::test_redirects_to_private_addresses_are_refused
+  - tests/integration/test_sources.py::test_web_crawl_is_bounded_and_respects_robots_and_caps
+  - tests/integration/test_sources.py::test_web_crawl_stops_at_max_pages
+  - tests/integration/test_sources.py::test_web_pages_mode_and_robots_switch
+  - tests/integration/test_sources.py::test_web_sitemap_index_and_robots
+  - tests/integration/test_sources.py::test_web_source_on_a_private_address_is_refused
+  - tests/integration/test_sources.py::test_web_source_with_a_non_http_url_is_rejected
+
+"Inputs | RSS and Atom feeds":
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_rss_entries_become_html_documents
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_atom_entries_with_linked_pages
+  - packages/oss-pipeline/tests/test_url_sources_live.py::test_feed_max_entries_and_an_unreachable_feed
+  - tests/integration/test_sources.py::test_rss_feed_entries
+  - tests/integration/test_sources.py::test_atom_feed_with_linked_pages
+
+"Inputs | S3-compatible buckets":
+  - packages/oss-pipeline/tests/test_guard.py::test_s3_items_carry_no_credentials_and_fetch_reads_the_source
+  - packages/oss-pipeline/tests/test_guard.py::test_s3_endpoint_on_a_private_address_is_refused
+  - tests/integration/test_sources.py::test_s3_bucket_through_minio
+  - tests/integration/test_sources.py::test_deleted_objects_are_detected_on_the_next_run
+
+"Inputs | Scheduled sources (cron or `every 15m`) and deletion detection":
+  - packages/oss-server/tests/test_api.py::test_schedules
+  - tests/integration/test_sources.py::test_a_scheduled_source_is_started_by_the_beat
+  - tests/integration/test_sources.py::test_deleted_objects_are_detected_on_the_next_run
+
+"Inputs | Connector plugins (`oss.connectors` entry point)":
+  - packages/oss-pipeline/tests/test_plugins.py::test_a_connector_plugin_is_discovered_and_runs
+  - packages/oss-pipeline/tests/test_plugins.py::test_a_plugin_can_replace_a_builtin
+  - packages/oss-pipeline/tests/test_plugins.py::test_a_broken_plugin_is_skipped_not_fatal
+
+"Inputs | Text extraction of any format Tika 3 reads":
+  - tests/integration/test_api.py::test_every_stage_ran
+  - tests/integration/test_sources.py::test_web_crawl_is_bounded_and_respects_robots_and_caps
+  - tests/integration/test_sources.py::test_s3_bucket_through_minio
+  - tests/e2e/ui_smoke.py
+
+"Inputs | OCR of images and scanned PDFs (Tesseract, English)":
+  - tests/integration/test_sources.py::test_ocr_of_an_uploaded_image
+
+"Inputs | Language detection":
+  - tests/integration/test_api.py::test_flat_facets
+
+"Inputs | MinerU extraction (`--extract mineru`)":
+  - packages/oss-pipeline/tests/test_extract_routing.py::test_extract_sends_pdf_and_office_to_mineru
+  - packages/oss-pipeline/tests/test_extract_routing.py::test_mineru_handles_pdf_office_and_raster_images
+  - packages/oss-pipeline/tests/test_providers.py::test_mineru_client_runs_the_job_flow
+
+# --- Enrichment --------------------------------------------------------------------------------
+
+"Enrichment | Pages and chunks (`structure`)":
+  - packages/oss-pipeline/tests/test_stages.py::test_structure_pages_and_chunks
+
+"Enrichment | Patterns: emails, URLs, phone numbers, amounts, hashtags":
+  - packages/oss-pipeline/tests/test_stages.py::test_patterns_find_every_entity_type
+
+"Enrichment | Dictionary tagging against packs, hierarchical facet per scheme (`tag`)":
+  - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_tag_attributes_a_shared_iri_to_the_higher_precedence_pack
+  - packages/oss-pipeline/tests/test_stages.py::test_expand_paths
+  - tests/integration/test_api.py::test_golden_tags
+  - tests/integration/test_api.py::test_golden_recall
+  - tests/integration/test_api.py::test_hierarchical_facet
+  - scripts/tag_quality.py
+
+"Enrichment | Named entities, spaCy on CPU":
+  - packages/oss-pipeline/tests/test_stages.py::test_ner_name_filter
+  - tests/integration/test_api.py::test_every_stage_ran
+  - scripts/bench.py
+
+"Enrichment | Named entities, GLiNER2 zero-shot on GPU, pack classes as labels":
+  - packages/oss-pipeline/tests/test_providers.py::test_gliner_results_flat_and_nested
+
+"Enrichment | Named entities, remote `/entities` service":
+  - packages/oss-pipeline/tests/test_providers.py::test_remote_provider_posts_windows_with_labels_and_token
+
+"Enrichment | Linking entities to pack individuals by label (`link`)":
+  - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_link_picks_the_higher_precedence_pack_for_a_shared_label
+  - tests/integration/test_api.py::test_curation_endpoint_lists_pack_tags
+  - scripts/tag_quality.py
+
+"Enrichment | SHACL validation of document metadata (`validate`)":
+  - packages/oss-pipeline/tests/test_validate.py::test_document_graph_conforms_to_base_shapes
+  - packages/oss-pipeline/tests/test_validate.py::test_document_graph_reports_violations
+
+"Enrichment | Previews: PDF pages and image thumbnails":
+  - packages/oss-pipeline/tests/test_stages.py::test_preview_renders_pdf_and_image
+
+"Enrichment | Chunk embeddings, FastEmbed bge-small on CPU or CUDA":
+  - tests/integration/test_api.py::test_every_document_is_indexed
+  - tests/integration/test_api.py::test_vector_search
+  - scripts/bench.py
+
+"Enrichment | Embeddings through an OpenAI-compatible endpoint or a sidecar":
+  - packages/oss-pipeline/tests/test_providers.py::test_sidecar_embedder_records_the_served_model
+  - packages/oss-pipeline/tests/test_embed_dimensions.py::test_vectors_go_to_the_field_of_their_dimension
+  - packages/oss-server/tests/test_semantic_field.py::test_knn_uses_the_models_field
+
+"Enrichment | Duplicate detection":
+  - tests/integration/test_sources.py::test_upload_endpoint_end_to_end
+  - packages/oss-pipeline/tests/test_filesystem.py::test_discover_respects_globs_and_hashes
+
+"Enrichment | Partial replay (`oss reindex --stage …`)":
+  - packages/oss-server/tests/test_runtime.py::test_replay_set_adds_followers_and_publishers
+  - packages/oss-server/tests/test_runtime.py::test_stage_list_accepts_profile_stages_only
+  - packages/oss-pipeline/tests/test_embed_dimensions.py::test_an_unsupported_dimension_fails_before_deleting_chunks
+  - tests/integration/test_curation.py::test_reindex_keeps_the_decision
+
+# --- Search ------------------------------------------------------------------------------------
+
+"Search | Keyword search, highlighting":
+  - packages/oss-server/tests/test_api.py::test_search_params_and_parse
+  - tests/integration/test_api.py::test_keyword_search
+
+"Search | Semantic search over chunks, passages returned":
+  - packages/oss-server/tests/test_semantic_filters.py::test_filtered_semantic_pages_are_full_and_totals_count_the_filtered_set
+  - packages/oss-server/tests/test_read_access.py::test_semantic_chunks_are_filtered_too
+  - tests/integration/test_api.py::test_vector_search
+  - scripts/bench.py
+
+"Search | Hybrid search (reciprocal rank fusion)":
+  - tests/integration/test_graph_search.py::test_hybrid_is_reciprocal_rank_fusion
+  - tests/integration/test_api.py::test_vector_search
+  - scripts/bench.py
+
+"Search | Facets, hierarchical facets, multi-select":
+  - packages/oss-pipeline/tests/test_stages.py::test_expand_paths
+  - tests/integration/test_api.py::test_flat_facets
+  - tests/integration/test_api.py::test_hierarchical_facet
+  - tests/e2e/ui_smoke.py
+
+"Search | Date histogram and timeline":
+  - packages/oss-server/tests/test_api.py::test_histogram_params_and_parse
+  - tests/e2e/ui_smoke.py
+
+"Search | Query tagging (concepts recognised in the query)":
+  - tests/integration/test_graph_search.py::test_query_tagging_names_pack_concepts
+  - tests/e2e/ui_smoke.py
+
+"Search | Saved searches":
+  - packages/oss-server/tests/test_searchplus.py::test_saved_searches_round_trip
+  - packages/oss-server/tests/test_read_access.py::test_saving_a_search_on_an_unreadable_collection_is_refused
+  - tests/integration/test_outbound.py::test_saved_search_with_an_invalid_query_is_refused
+
+"Search | Alerts on saved searches":
+  - packages/oss-server/tests/test_outbound_tasks.py::test_alerts_fire_only_when_the_total_grows
+  - packages/oss-server/tests/test_outbound_tasks.py::test_alerts_see_only_what_their_owner_may_read
+  - packages/oss-server/tests/test_outbound_tasks.py::test_a_failing_alert_does_not_stop_the_others
+  - packages/oss-server/tests/test_read_access.py::test_alerts_only_see_what_their_owner_may_read
+  - tests/integration/test_outbound.py::test_saved_search_alert_fires_when_the_total_grows
+
+"Search | List search (a batch of names)":
+  - tests/integration/test_api.py::test_list_search
+  - tests/integration/test_graph_search.py::test_list_search_counts_and_limits
+  - tests/e2e/ui_smoke.py
+
+"Search | Significant terms":
+  - packages/oss-server/tests/test_searchplus.py::test_stopwords_include_solr_list_and_extras
+  - tests/integration/test_graph_search.py::test_significant_terms_of_a_result_set
+  - tests/e2e/ui_smoke.py
+
+"Search | Suggest / autocomplete":
+  - packages/oss-server/tests/test_routes_and_telemetry.py::test_suggest_is_routed
+  - packages/oss-server/tests/test_routes_and_telemetry.py::test_suggest_query_escapes_and_prefixes_the_last_word
+  - tests/integration/test_graph_search.py::test_suggest_completes_titles
+
+# --- UI surfaces (the browser journey runs in the integration workflow) -------------------------
+
+"UI surfaces | Sign-in (local accounts; single sign-on button when configured)":
+  - tests/e2e/ui_smoke.py
+  - packages/oss-server/tests/test_api.py::test_session_login_and_me
+  - tests/integration/test_oidc.py::test_the_sign_in_page_offers_the_provider
+
+"UI surfaces | Search: list, media grid, terms, timeline, facets, mode switch, CSV export":
+  - tests/e2e/ui_smoke.py
+  - tests/integration/test_graph_search.py::test_csv_export_matches_the_search
+
+"UI surfaces | Document: text per page, page previews, tags with decisions, annotations, stage runs":
+  - tests/e2e/ui_smoke.py
+
+"UI surfaces | Packs and pack page: scheme tree, competency questions, deltas":
+  - tests/e2e/ui_smoke.py
+
+"UI surfaces | Concept and individual page with its documents; propose a change":
+  - tests/e2e/ui_smoke.py
+
+"UI surfaces | Graph: hubs, neighbourhood expansion, shortest path":
+  - tests/e2e/ui_smoke.py
+  - tests/integration/test_api.py::test_graph_shortest_path
+
+"UI surfaces | Review queue":
+  - tests/e2e/ui_smoke.py
+
+"UI surfaces | Map of pack places":
+  - tests/e2e/ui_smoke.py
+  - packages/oss-server/tests/test_knowledge.py::test_demo_pack_places_carry_coordinates
+
+"UI surfaces | List search":
+  - tests/e2e/ui_smoke.py
+
+"UI surfaces | Administration (Django admin)":
+  - packages/oss-server/tests/test_admin.py::test_admin_index_lists_the_semascope_apps
+  - packages/oss-server/tests/test_admin.py::test_every_registered_model_has_working_pages
+  - packages/oss-server/tests/test_admin.py::test_the_admin_needs_a_staff_account
+
+# --- Graph operations --------------------------------------------------------------------------
+
+"Graph operations | Projection of documents, sources, collections, concepts, entities and packs into Neo4j":
+  - packages/oss-pipeline/tests/test_graph_stage.py::test_entity_keys_and_classes
+  - tests/integration/test_api.py::test_graph_neighbours
+  - tests/integration/test_graph_search.py::test_cypher_console_reads
+
+"Graph operations | Pseudonymised entity keys per collection":
+  - packages/oss-pipeline/tests/test_graph_stage.py::test_entity_keys_and_classes
+  - packages/oss-server/tests/test_curation_log.py::test_curated_edge_is_pseudonymised_like_the_graph_stage
+
+"Graph operations | Neighbours (depth 1 to 3)":
+  - tests/integration/test_api.py::test_graph_neighbours
+  - tests/integration/test_graph_search.py::test_neighbours_depth_kinds_and_scope
+  - packages/oss-server/tests/test_read_access.py::test_graph_reads_pass_the_readable_collections
+  - tests/e2e/ui_smoke.py
+
+"Graph operations | Shortest path between two nodes":
+  - tests/integration/test_api.py::test_graph_shortest_path
+  - tests/integration/test_graph_search.py::test_path_respects_max_length
+  - tests/e2e/ui_smoke.py
+
+"Graph operations | Hubs of a collection":
+  - tests/integration/test_api.py::test_graph_neighbours
+  - tests/integration/test_graph_search.py::test_shared_concepts_and_entities
+  - tests/e2e/ui_smoke.py
+
+"Graph operations | Read-only Cypher console (staff)":
+  - tests/integration/test_graph_search.py::test_cypher_console_reads
+  - tests/integration/test_graph_search.py::test_cypher_console_refuses_writes
+  - packages/oss-server/tests/test_authz_matrix.py::test_route_answers_each_user_as_its_rule_says
+
+# --- Review actions ----------------------------------------------------------------------------
+
+"Review actions | Review queue: low-confidence tags, link candidates, SHACL violations":
+  - packages/oss-server/tests/test_curation.py::test_queue_reviews_opens_items_for_low_confidence_and_violations
+  - tests/integration/test_curation.py::test_accepting_and_rejecting_reviews
+
+"Review actions | Accept, reject, defer a review item":
+  - packages/oss-server/tests/test_curation.py::test_review_decisions_through_the_api
+  - packages/oss-server/tests/test_read_access.py::test_a_decided_review_cannot_be_decided_again
+  - tests/integration/test_curation.py::test_accepting_and_rejecting_reviews
+  - tests/integration/test_curation.py::test_the_decision_is_in_every_store
+
+"Review actions | Accept, reject, add, remove a tag on a document":
+  - packages/oss-server/tests/test_curation_log.py::test_direct_tag_decisions_flip_back_and_forth
+  - packages/oss-server/tests/test_curation.py::test_annotations_and_direct_tag_decisions
+  - tests/integration/test_decisions.py::test_add_reject_and_remove_tags
+  - tests/integration/test_curation.py::test_the_decision_is_in_every_store
+
+"Review actions | Link an entity to a pack individual":
+  - packages/oss-server/tests/test_curation_log.py::test_linking_keys_the_edge_by_the_individual_iri
+  - tests/integration/test_decisions.py::test_linking_an_entity_to_a_pack_individual
+  - tests/integration/test_decisions.py::test_link_reviews_need_a_target
+  # xfail: the linked document is missing from the individual's documents
+  - tests/integration/test_decisions.py::test_a_linked_document_is_one_of_the_individuals_documents
+
+"Review actions | Annotations on documents":
+  - packages/oss-server/tests/test_curation.py::test_annotations_and_direct_tag_decisions
+  - packages/oss-server/tests/test_read_access.py::test_annotations_need_curator_and_authors_may_delete_their_own
+
+"Review actions | Proposals with stable references, applied at once, kept across reindexing":
+  - packages/oss-server/tests/test_curation_log.py::test_accept_reject_accept_ends_accepted
+  - packages/oss-server/tests/test_curation_log.py::test_first_decision_keeps_the_rc2_reference
+  - packages/oss-server/tests/test_curation_log.py::test_a_retry_applies_a_decision_a_store_missed
+  - tests/integration/test_curation.py::test_reindex_keeps_the_decision
+
+"Review actions | Curator changes to a pack as deltas":
+  - packages/oss-server/tests/test_knowledge.py::test_deltas_export_as_bundle_fragment
+  - packages/oss-server/tests/test_pack_precedence.py::test_draft_labels_are_scoped_and_survive_a_dictionary_sync
+
+# --- Export targets ----------------------------------------------------------------------------
+
+"Export targets | Outbox of decision events, read by cursor":
+  - packages/oss-server/tests/test_curation.py::test_propose_is_idempotent_and_emits_events
+  - tests/integration/test_curation.py::test_accepting_and_rejecting_reviews
+
+"Export targets | Proposals, read by cursor":
+  - tests/integration/test_decisions.py::test_add_reject_and_remove_tags
+
+"Export targets | Webhooks with HMAC signature":
+  - packages/oss-server/tests/test_outbound_tasks.py::test_webhooks_are_signed_filtered_and_retried
+  - packages/oss-server/tests/test_outbound_tasks.py::test_unsigned_disabled_and_unreachable_webhooks
+  - tests/integration/test_outbound.py::test_webhook_delivery_signature_filter_and_retry
+
+"Export targets | Pack deltas as `taxonomy.delta.ttl` and `model.delta.yaml`":
+  - packages/oss-server/tests/test_knowledge.py::test_deltas_export_as_bundle_fragment
+
+"Export targets | Search results as CSV (first 10,000)":
+  - tests/integration/test_graph_search.py::test_csv_export_matches_the_search
+
+"Export targets | W3C Reconciliation API 0.2":
+  - packages/oss-server/tests/test_knowledge.py::test_reconciliation_api
+
+"Export targets | SPARQL over pack graphs (staff)":
+  - tests/integration/test_graph_search.py::test_sparql_over_a_pack_graph
+  # xfail: a query that starts with PREFIX is refused
+  - tests/integration/test_graph_search.py::test_sparql_over_a_pack_graph_with_prefixes
+
+# --- Operation ---------------------------------------------------------------------------------
+
+"Operation | `oss init`, `oss up`, sizes small, medium and large":
+  - packages/oss-cli/tests/test_cli.py::test_init_writes_secrets
+  - packages/oss-cli/tests/test_init_size.py::test_init_size_sets_heaps_and_workers
+  - packages/oss-cli/tests/test_init_size.py::test_compose_worker_reads_the_size_settings
+  - scripts/integration.sh
+  - "check: fresh-clone check (docs/assess/deployment.md)"
+
+"Operation | Runtimes `cpu`, `gpu`, `remote`, a provider per heavy stage":
+  - packages/oss-cli/tests/test_cli.py::test_init_runtime_and_provider_flags
+  - packages/oss-server/tests/test_runtime.py::test_stage_settings_carry_the_providers
+  - scripts/integration.sh
+  - scripts/bench.py
+
+"Operation | Local accounts and API tokens":
+  - packages/oss-server/tests/test_api.py::test_session_login_and_me
+  - packages/oss-server/tests/test_api.py::test_token_required
+
+"Operation | Single sign-on (OpenID Connect)":
+  - packages/oss-server/tests/test_oidc_config.py::test_sign_on_is_off_without_an_issuer
+  - packages/oss-server/tests/test_oidc_config.py::test_an_issuer_and_client_turn_on_the_openid_connect_provider
+  - tests/integration/test_oidc.py::test_the_sign_in_page_offers_the_provider
+  # xfail: PyJWT is not installed, so the callback fails
+  - packages/oss-server/tests/test_oidc_config.py::test_the_libraries_the_openid_connect_callback_needs_are_installed
+  - tests/integration/test_oidc.py::test_sign_in_through_the_provider
+
+"Operation | Roles per collection":
+  - packages/oss-server/tests/test_authz_matrix.py::test_every_route_has_a_rule
+  - packages/oss-server/tests/test_authz_matrix.py::test_route_answers_each_user_as_its_rule_says
+  - packages/oss-server/tests/test_access.py::test_roles_resolve_per_collection_with_default
+  - packages/oss-server/tests/test_read_access.py::test_default_none_limits_reading_to_granted_collections
+
+"Operation | Backup and restore":
+  - tests/integration/test_roundtrip.py::test_backup_wipe_restore
+  - "check: fresh-clone check (docs/assess/deployment.md)"
+
+"Operation | OpenTelemetry traces and metrics":
+  - packages/oss-server/tests/test_routes_and_telemetry.py::test_telemetry_sets_trace_and_metric_providers
+  - packages/oss-server/tests/test_routes_and_telemetry.py::test_worker_starts_telemetry_in_each_pool_process
+
+"Operation | Multi-arch images (amd64, arm64) with SBOM and provenance":
+  - .github/workflows/release.yml
