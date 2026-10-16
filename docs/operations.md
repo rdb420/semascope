@@ -37,6 +37,11 @@ The remote contracts are small and any service can implement them:
   nested). Health: `GET {url}/health`.
 - extraction, `mineru`: MinerU's v1 jobs API (`/v1/parse/jobs`, polled, with
   the Markdown fetched from `/v1/files`). Health: `GET {url}/v1/health`.
+  MinerU takes PDF, OOXML Office and raster images, chosen by media type
+  (from the file's first bytes when its name says nothing); every other
+  format stays with Tika, with Tika's OCR. `mineru` without
+  `SEMASCOPE_EXTRACT_BASE_URL` fails each document with a configuration
+  error rather than quietly using Tika.
 
 `--remote-token` (or `SEMASCOPE_REMOTE_API_KEY`) is sent as a bearer token to
 every remote service, which is what a GPU router in front of them checks;
@@ -94,11 +99,68 @@ a late one.
 `settings.pipeline` holds tuning only. A collection may set `chunk_words`,
 `chunk_overlap`, `ocr`, `detect_language`, `patterns`, `preview_pages`,
 `preview_width`, `ner_max_chars`, `ner_min_length`, `ner_window_chars`,
-`embed`, `embed_max_chunks`, `pseudonymise` and the four retry settings
-above. Service addresses, credentials, Solr collection names, paths and
+`embed`, `embed_max_chunks`, `pseudonymise`, `ocr_languages`,
+`embedded_max_items`, `embedded_max_chars` and the four retry settings
+above. `ocr_languages` is a list of Tesseract language codes (`"deu"`,
+`"eng+fra"`, or a list), sent to Tika for that collection's OCR; anything
+else is refused. The Tika image in `compose.yaml` has `deu`, `eng`, `fra`,
+`ita`, `jpn` and `spa`; a language it does not have gives no OCR text at
+all, so a collection that needs another one needs a Tika image with that
+Tesseract language installed. The default is the Tika configuration's
+`eng`. `embedded_max_items` (100) and `embedded_max_chars` (1,000,000) bound
+the text of embedded items (attachments, the files of a zip, the images of
+a Word file) that is added to a document's own text. Service addresses, credentials, Solr collection names, paths and
 secrets come from `.env` only: the API refuses a collection that sets any
 other key (422), and the workers ignore other keys in collections saved
 before 1.0.0-rc.4 or edited in the admin, with a warning in the worker log.
+
+## Source runs and deletion
+
+A source has one run at a time: a run claims the source (`running`) before
+it reads anything, the API answers `409` to a run request while a run is in
+progress, and the scheduler skips a running source. A run that fails (an
+exception, or `recover` finding its worker gone) leaves the source `failed`
+and counts as its scheduled run, so a failing source is tried again at its
+next scheduled time, not every minute.
+
+A full run deletes the documents it no longer sees only when it is sure
+they are gone ([ADR-0013](adr/0013-deletion-and-retention.md)):
+
+| The run... | Deletes |
+|---|---|
+| read everything it tried and saw at least half of the source's documents | what it did not see |
+| could not read some items (5xx, 429, 401 or 403 answers, timeouts, names that do not resolve, folders it may not list, corrupt archives) | nothing; `last_error` names the first such item |
+| stopped at a limit (`max_pages`, a SPARQL `limit`, ten times `max_pages` sitemap URLs) | nothing |
+| saw nothing, or less than `min_yield` (0.5) of a source of ten or more documents | nothing; `last_error` says how many it saw |
+| could read nothing at all (the site, feed or first sitemap is down) | nothing: the run fails |
+| belongs to a feed source | nothing, unless the source sets `delete_missing: true` |
+
+Set a source's `min_yield` to 0 to let a run delete everything it did not
+see, and `delete_missing` to `false` to keep everything a source ever had.
+A document a run deleted comes back when its source has it again.
+
+Deleting reaches every store. A document deleted by a run leaves Solr
+(document and passages), the graph (its edges, its properties, and the
+entities only it mentioned; a node stays only to carry curator decisions)
+and the disk (its blob and page previews, unless another document has the
+same content, and its work file); the Postgres row stays as a tombstone with
+its content cleared. Deleting a source or a collection through the API takes
+its documents out of search at once, then removes their graph nodes
+(curator decisions included), blobs, previews, the source's work area and,
+for the collection's upload source or the collection, the uploaded files.
+
+Web, feed, mail, archive, table, RDF and S3 sources write what they download
+or unpack to a work area on the data volume (`/data/work/<collection>/<source
+id>/`), which every worker shares; the document task removes each file once
+the original is in the blob store. Once a day the `gc` task removes blobs
+and previews no document uses (left for a day after their last use, so a run
+in progress keeps its files), work files older than a week, and expired
+leases.
+
+Webhook deliveries and alert checks run every minute and can take longer;
+each webhook, and the alert check, is held by one run at a time (a lease in
+Postgres that expires on its own if its holder dies), and a webhook's cursor
+only moves forward, so no event is sent twice.
 
 ## Crashes and recovery
 
@@ -234,7 +296,7 @@ traces.
 
 | Volume | Holds |
 |---|---|
-| `blobs` (`/data`) | originals by content hash, previews, uploads, the pack store, the scheduler state |
+| `blobs` (`/data`) | originals by content hash, previews, uploads, sources' work areas (`work/`), the pack store, the scheduler state |
 | `postgres` | collections, sources, documents with extracted text, packs and concepts, reviews, proposals, events |
 | `solr` | the `documents`, `entities` and `chunks` collections |
 | `neo4j` | the graph projection |
@@ -256,8 +318,10 @@ on a throwaway copy, the same way the `integration` workflow does in CI:
    suggest, list search, CSV export, graph neighbours, paths and hubs, the Cypher
    console, review and tag decisions through the outbox to `CURATED` edges, and
    `oss reindex` keeping them; web (pages, sitemap, crawl), feed, S3, SPARQL and
-   upload sources, OCR, schedules and deletion detection; webhooks, alerts and
-   single sign-on. The test-only services those need are layered over
+   upload sources, OCR, schedules and deletion detection; a site going down
+   and coming back, a feed rolling over, one run per source, an archive
+   bomb and what deleting a collection removes; webhooks, alerts and single
+   sign-on. The test-only services those need are layered over
    `compose.yaml` from `tests/integration/stack/compose.yaml`: a fixture server
    (web site, feeds, webhook receiver, mock OpenID Connect provider), MinIO and
    Oxigraph, each on a port Docker picks on 127.0.0.1.
