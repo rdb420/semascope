@@ -94,7 +94,10 @@ in [Concepts](concepts.md#backup-and-restore). Keep `.env` with the backup.
 
 `.env` holds every secret. To rotate: `oss init --force --import-dir <same>`
 writes new ones; PostgreSQL, Neo4j and Solr then need their passwords
-changed to match (or recreate their volumes on a fresh install). The API
+changed to match (or recreate their volumes on a fresh install). Solr's
+basic authentication is set up from `SOLR_PASSWORD` on first start; the
+[Solr notes](https://github.com/rdb420/semascope/blob/main/deploy/solr/README.md)
+show how to change it. The API
 token (`SEMASCOPE_API_TOKEN`) can also be replaced by creating a token in the
 admin and putting its value in `.env`.
 

@@ -79,9 +79,12 @@ and replace this line with the benchmark figures.
   `SEMASCOPE_OIDC_CLIENT_ID` and `SEMASCOPE_OIDC_CLIENT_SECRET` are set.
   New users get `SEMASCOPE_DEFAULT_ROLE`.
 - **Roles.** `reader`, `curator`, `editor`, `admin`, global or per
-  collection. In rc.2 roles govern writing; every signed-in user can read
-  every collection, so use separate deployments for corpora that must be
-  kept apart.
+  collection, for reading and writing. With the default
+  `SEMASCOPE_DEFAULT_ROLE=reader` every signed-in user can read every
+  collection; set it to `none` to keep collections apart, so that each user
+  reads only the collections they hold a role on (see
+  [Roles](../concepts.md#roles)). Releases up to 1.0.0-rc.2 did not restrict
+  reading per collection.
 
 There is no anonymous access to the UI or the search API. The
 Reconciliation API (`/api/reconcile`) is public by design, so that
@@ -160,6 +163,7 @@ What still needs a network:
 - [ ] A real host name and a trusted certificate
 - [ ] `.env` backed up somewhere safe, outside the host
 - [ ] A scheduled `./oss backup` copied off the host, and one restore tried
-- [ ] Roles assigned; `SEMASCOPE_DEFAULT_ROLE` chosen deliberately
+- [ ] Roles assigned; `SEMASCOPE_DEFAULT_ROLE` chosen deliberately (`none`
+      when collections must be kept apart)
 - [ ] The `remote` runtime pointed only at services you control, because
       document text is sent to them
