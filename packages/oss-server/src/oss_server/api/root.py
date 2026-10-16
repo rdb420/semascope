@@ -41,6 +41,7 @@ api.add_router("/graph", graph.router)
 api.add_router("/curation", curation.router)
 api.add_router("/search", searchplus.router)
 api.add_router("/ui", ui.router)
+api.add_router("", "oss_server.api.views.router")  # originals, views of a search, feeds
 
 
 # --- collections ------------------------------------------------------------------------------
