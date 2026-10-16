@@ -1,8 +1,10 @@
 """extract: text and metadata through Tika, with OCR when the format needs it.
 
-With `extract_provider: mineru`, PDF, Office and image files are parsed by a
-MinerU server (layout-aware Markdown, GPU OCR) and Tika only reads their
-metadata; every other format still goes through Tika.
+With `extract_provider: mineru`, PDF, Office (Word, PowerPoint and Excel in
+their OOXML formats) and raster image files are parsed by a MinerU server
+(layout-aware Markdown, GPU OCR) and Tika only reads their metadata; every
+other format still goes through Tika. The choice is by media type
+(`mineru_handles`), not by content-type group, which stays the coarse facet.
 """
 
 from __future__ import annotations
@@ -16,7 +18,24 @@ from oss_pipeline.clients.tika import TikaClient
 from oss_pipeline.media import content_type_group
 
 _TITLE_KEYS = ("dc:title", "title", "pdf:docinfo:title", "og:title")
-MINERU_GROUPS = ("pdf", "office", "image")
+MINERU_MEDIA_TYPES = frozenset(
+    {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+)
+MINERU_IMAGE_EXCLUDED = frozenset({"image/svg+xml"})  # vector drawings: Tika reads their text
+
+
+def mineru_handles(media_type: str | None) -> bool:
+    """Whether a MinerU server parses this media type: PDF, OOXML Office and raster images."""
+
+    mt = (media_type or "").split(";")[0].strip().lower()
+    if mt in MINERU_MEDIA_TYPES:
+        return True
+    return mt.startswith("image/") and mt not in MINERU_IMAGE_EXCLUDED
 
 
 class ExtractStage:
@@ -54,7 +73,7 @@ class ExtractStage:
         media_type = probe.media_type or doc.media_type or ""
         result = probe
         extractor = "tika"
-        if mineru is not None and content_type_group(media_type) in MINERU_GROUPS:
+        if mineru is not None and mineru_handles(media_type):
             try:
                 markdown = mineru.parse(path, media_type, ocr_mode="auto" if ocr else "txt")
             except (MineruError, OSError) as exc:
