@@ -262,3 +262,37 @@ def test_remove_a_version(client: Client, world: dict[str, Any]) -> None:
         "/api/knowledge/packs/semascope-demo/versions/0.1.0", headers=world["admin"]
     )
     assert active.status_code == 409
+
+
+def test_the_store_is_closed_between_operations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another process (a second server worker) can open the store after an operation:
+    holding it open locked every other worker out of pack operations."""
+
+    import subprocess
+    import sys
+
+    from oss_server.knowledge import store as store_mod
+
+    monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path))
+    info = load_pack(DEMO)
+    assert store_mod.load_bundle(info.rdf, info.id, info.version) > 100
+    assert store_mod.query("ASK { ?s ?p ?o }", pack_id=info.id, version=info.version)
+    other = subprocess.run(  # noqa: S603 - our interpreter, a fixed script
+        [
+            sys.executable,
+            "-c",
+            "import sys, pyoxigraph as ox; s = ox.Store(sys.argv[1]); "
+            "print(len(list(s.named_graphs())))",
+            str(tmp_path / "packs.oxigraph"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert other.returncode == 0 and other.stdout.strip() == "1", other.stderr
+    store_mod.drop_graph(info.id, info.version)
+    assert (
+        store_mod.query("SELECT * WHERE { ?s ?p ?o }", pack_id=info.id, version=info.version) == []
+    )

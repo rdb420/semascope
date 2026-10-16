@@ -38,10 +38,9 @@ def test_derive_base_pack_vocabulary() -> None:
 def test_import_base_pack_runs_cq_tests_and_builds_dictionary(
     tmp_path: Path, settings: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from oss_server.knowledge import store as store_mod
-
-    monkeypatch.setattr(store_mod, "_store", None)
     import pyoxigraph as ox
+
+    from oss_server.knowledge import store as store_mod
 
     monkeypatch.setattr(store_mod, "store", lambda: _memory_store(ox))
     pack = import_pack(BASE)
