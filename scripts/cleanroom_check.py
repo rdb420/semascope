@@ -11,7 +11,8 @@ In CI the legacy path is a scratch checkout of github.com/opensemanticsearch
 at pinned commits (scripts/fetch_legacy.sh), outside the repository and
 deleted with the runner; it is never part of this repository. A legacy path
 that is missing or holds fewer than --min-legacy-files comparable files is an
-error, so the check cannot pass by comparing against nothing.
+error, and so is running without --legacy at all, so the check cannot pass by
+comparing against nothing.
 """
 
 from __future__ import annotations
@@ -60,8 +61,12 @@ def main() -> int:
     )
     args = ap.parse_args()
     if args.legacy is None:
-        print("no --legacy path given; nothing compared")
-        return 0
+        print(
+            "ERROR no --legacy path given; nothing would be compared "
+            "(scripts/fetch_legacy.sh fetches the pinned legacy tree)",
+            file=sys.stderr,
+        )
+        return 2
     if not args.legacy.is_dir():
         print(f"ERROR legacy path {args.legacy} is not a directory", file=sys.stderr)
         return 2
