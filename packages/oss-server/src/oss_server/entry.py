@@ -120,6 +120,23 @@ def prepare() -> None:
         log.exception("bundled pack import failed")
 
 
+def prepare_in_child() -> None:
+    """Run `prepare` in a short-lived process, so the server's master never opens the stores.
+
+    The bundled pack import opens the embedded pack store (RocksDB), whose threads do not
+    survive gunicorn's fork; a master that held it could leave its workers hanging.
+    """
+
+    import subprocess
+
+    code = (
+        "import logging; from oss_server import entry; "
+        "logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s'); "
+        "entry._django(); entry.prepare()"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603 - fixed argv
+
+
 def server() -> None:
     parser = argparse.ArgumentParser(prog="oss-server")
     parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - container-internal
@@ -128,8 +145,8 @@ def server() -> None:
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    prepare_in_child()
     _django()
-    prepare()
     if args.reload:
         from django.core.management import call_command
 

@@ -4,7 +4,7 @@
 runs a collection's whole profile in one worker process; `io` holds everything light
 (discovery, deletes, graph re-projection, the scheduler tick, recovery, webhooks and
 alerts), so those never wait behind a backlog of documents. Stages do not have queues of
-their own (docs/adr/0009-one-task-per-document.md).
+their own (docs/adr/0010-one-task-per-document.md).
 
 Delivery is at least once: a task is acknowledged when it ends (`task_acks_late`), so a
 worker that dies leaves it in Valkey, which hands it out again after
@@ -30,6 +30,10 @@ app.conf.update(
     task_default_queue="cpu",
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    # take a task only when a process is free to start it: a killed worker then holds no
+    # waiting tasks that only the visibility timeout would bring back, just running ones,
+    # which `recover` finds as documents left `processing`
+    worker_disable_prefetch=True,
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],

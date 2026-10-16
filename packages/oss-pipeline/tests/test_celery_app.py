@@ -3,6 +3,7 @@ def test_queues_are_declared() -> None:
 
     assert {q.name for q in app.conf.task_queues} == {"io", "cpu"}
     assert app.conf.task_acks_late is True
+    assert app.conf.worker_disable_prefetch is True  # a dead worker holds only running tasks
 
 
 def test_redelivery_waits_longer_than_a_task_can_run() -> None:
