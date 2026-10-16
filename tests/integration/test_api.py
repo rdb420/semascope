@@ -163,7 +163,9 @@ def test_list_search(api: httpx.Client, indexed: dict[str, Any]) -> None:
     )
     assert "odyssey.txt" in {h["uri"].rsplit("/", 1)[-1] for h in out["Odysseus"]["hits"]}
     assert {h["uri"].rsplit("/", 1)[-1] for h in out["Arjuna"]["hits"]} == {"song-celestial.txt"}
-    assert out["Xyzzy Nonesuch"] == {"total": 0, "hits": []}
+    assert out["Odysseus"]["method"] == "phrase" and out["Odysseus"]["best_score"] > 0
+    # nothing found by the phrase, the words or near spellings
+    assert out["Xyzzy Nonesuch"] == {"total": 0, "hits": [], "method": None, "best_score": None}
 
 
 # --- graph -------------------------------------------------------------------------------------
