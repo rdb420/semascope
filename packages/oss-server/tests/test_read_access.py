@@ -361,3 +361,32 @@ def test_a_decided_review_cannot_be_decided_again(
     assert decide("reject") == 200  # a deferred item can still be decided
     assert decide("accept") == 409
     assert decide("defer") == 409
+
+
+def test_deleting_a_document_removes_its_passages_too(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.pipeline import tasks
+
+    calls: list[tuple[str, Any]] = []
+
+    class S:
+        def delete_by_id(self, collection: str, ids: list[str]) -> None:
+            calls.append((collection, ids))
+
+        def delete_by_query(self, collection: str, query: str) -> None:
+            calls.append((collection, query))
+
+    class G:
+        def execute(self, *a: Any, **k: Any) -> None:
+            return None
+
+    from oss_server import services
+
+    monkeypatch.setattr(tasks, "solr_client", lambda: S())
+    monkeypatch.setattr(services, "graph_client", lambda: G())
+    doc = world["doc_a"]
+    tasks.delete_document(doc.id)
+    assert ("chunks", f'document_id:"{doc.id}"') in calls
+    doc.refresh_from_db()
+    assert doc.status == Document.Status.DELETED and doc.text == ""

@@ -381,7 +381,10 @@ def tick() -> dict[str, int]:
 
 @shared_task(name="semascope.delete_document", queue="io")
 def delete_document(doc_id: str) -> None:
+    from oss_server.services import solr_chunks_collection
+
     solr_client().delete_by_id(solr_documents_collection(), [doc_id])
+    solr_client().delete_by_query(solr_chunks_collection(), f'document_id:"{doc_id}"')
     try:
         from oss_server.services import graph_client
 
