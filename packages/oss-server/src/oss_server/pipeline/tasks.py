@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 
 from celery import shared_task
@@ -26,7 +27,8 @@ from oss_core.contracts import (
     WorkingDocument,
 )
 from oss_pipeline.registry import connectors, profile
-from oss_pipeline.stages.base import run_profile
+from oss_pipeline.retry import backoff, is_transient
+from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile
 from oss_server.catalogue.models import Collection, Document, Source, document_id
 from oss_server.services import solr_client, solr_documents_collection
 
@@ -233,12 +235,64 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
     return counts
 
 
-@shared_task(name="semascope.process_document", queue="cpu", acks_late=True)
-def process_document(doc_id: str, item: dict[str, Any]) -> str:
+TASK_RETRIES = 3  # re-runs of a document task after transient failures (settings: task_retries)
+TASK_BACKOFF_S = 60.0  # first wait, doubling: 60 s, 120 s, 240 s (settings: task_retry_backoff_s)
+
+
+def _retry_policy(collection: Collection) -> tuple[int, float]:
+    pipeline = collection.settings.get("pipeline", {}) or {}
+    return (
+        max(0, int(pipeline.get("task_retries", TASK_RETRIES))),
+        float(pipeline.get("task_retry_backoff_s", TASK_BACKOFF_S)),
+    )
+
+
+def _retry_if_transient(task: Any, row: Document, work: WorkingDocument) -> None:
+    """After `_store`: re-queue the task when every failed stage failed transiently.
+
+    The stored result stays (what is published is what Postgres says); a failed
+    document is shown as queued again with the reason. Nothing is retried when any
+    stage failed permanently, and never more than `task_retries` times.
+    """
+
+    transient = set(work.fields.get(TRANSIENT_FAILURES) or [])
+    failed = {r.stage for r in work.stage_runs if r.outcome == "failed"}
+    if not transient or not failed or not failed <= transient:
+        return
+    retries, base = _retry_policy(row.collection)
+    attempt = int(getattr(task.request, "retries", 0) or 0) + 1
+    if attempt > retries:
+        return
+    countdown = backoff(attempt, base)
+    note = f"; retry {attempt}/{retries} in {countdown:.0f}s ({', '.join(sorted(failed))})"
+    Document.objects.filter(pk=row.pk).update(
+        status=Document.Status.QUEUED if row.status == Document.Status.FAILED else row.status,
+        error=(row.error + note)[:2000],
+    )
+    raise task.retry(countdown=countdown, max_retries=retries)
+
+
+@shared_task(bind=True, name="semascope.process_document", queue="cpu", acks_late=True)
+def process_document(self: Any, doc_id: str, item: dict[str, Any]) -> str:
     doc_row = Document.objects.select_related("collection", "source").get(pk=doc_id)
     Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
     connector = connectors()[doc_row.source.connector]
-    fetched = connector.fetch(SourceItem.model_validate(item))
+    try:
+        fetched = connector.fetch(SourceItem.model_validate(item))
+    except Exception as exc:  # noqa: BLE001 - recorded on the document
+        retries, base = _retry_policy(doc_row.collection)
+        attempt = int(getattr(self.request, "retries", 0) or 0) + 1
+        transient = is_transient(exc)
+        error = f"fetch: {type(exc).__name__}: {exc}"[:1900]
+        if transient and attempt <= retries:
+            countdown = backoff(attempt, base)
+            Document.objects.filter(pk=doc_id).update(
+                status=Document.Status.QUEUED,
+                error=f"{error}; retry {attempt}/{retries} in {countdown:.0f}s",
+            )
+            raise self.retry(exc=exc, countdown=countdown, max_retries=retries) from exc
+        Document.objects.filter(pk=doc_id).update(status=Document.Status.FAILED, error=error)
+        return str(Document.Status.FAILED)
     meta = fetched.item.metadata
     fields: dict[str, Any] = {"local_path": fetched.path} if fetched.path else {}
     fields.update({k: v for k, v in (meta.get("fields") or {}).items() if str(k).startswith("x_")})
@@ -264,6 +318,7 @@ def process_document(doc_id: str, item: dict[str, Any]) -> str:
     ctx = build_context(doc_row.collection)
     work = run_profile(profile(ctx.profile), work, ctx)
     _store(doc_row, work)
+    _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
 
@@ -286,8 +341,8 @@ def replay_set(stages: list[str] | None) -> set[str]:
     return wanted
 
 
-@shared_task(name="semascope.reindex_document", queue="cpu")
-def reindex_document(doc_id: str, stages: list[str] | None = None) -> str:
+@shared_task(bind=True, name="semascope.reindex_document", queue="cpu")
+def reindex_document(self: Any, doc_id: str, stages: list[str] | None = None) -> str:
     """Replay enrichment and indexing from the stored extraction; no Tika.
 
     `stages` limits the replay to those stages of the profile (plus the stages they feed and
@@ -325,6 +380,7 @@ def reindex_document(doc_id: str, stages: list[str] | None = None) -> str:
     # stays as it was and the document reports the failure
     work = run_profile(todo, work, ctx, stop_on_failure=tuple(wanted - set(PUBLISH)))
     _store(doc_row, work)
+    _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
 
@@ -367,9 +423,16 @@ def tick() -> dict[str, int]:
     return {"started": started}
 
 
-@shared_task(name="semascope.delete_document", queue="io")
-def delete_document(doc_id: str) -> None:
-    solr_client().delete_by_id(solr_documents_collection(), [doc_id])
+@shared_task(bind=True, name="semascope.delete_document", queue="io")
+def delete_document(self: Any, doc_id: str) -> None:
+    try:
+        solr_client().delete_by_id(solr_documents_collection(), [doc_id])
+    except Exception as exc:
+        if is_transient(exc) and self.request.retries < TASK_RETRIES:
+            raise self.retry(
+                exc=exc, countdown=backoff(self.request.retries + 1, TASK_BACKOFF_S)
+            ) from exc
+        raise
     try:
         from oss_server.services import graph_client
 
@@ -388,13 +451,16 @@ def delete_document(doc_id: str) -> None:
 def _store(row: Document, work: WorkingDocument) -> None:
     failed = [r for r in work.stage_runs if r.outcome == "failed"]
     indexed = bool(work.fields.get("indexed"))
+    _record_metrics(row, work, indexed)
     row.media_type = work.media_type or ""
     row.language = work.language or ""
     row.title = work.title or ""
     row.text = work.text or ""
     row.pages = work.pages
     row.metadata = _jsonable(work.metadata)
-    row.fields = _jsonable({k: v for k, v in work.fields.items() if k not in ("local_path",)})
+    row.fields = _jsonable(
+        {k: v for k, v in work.fields.items() if k not in ("local_path", TRANSIENT_FAILURES)}
+    )
     row.tags = [t.model_dump(mode="json") for t in work.tags]
     row.stage_runs = [r.model_dump(mode="json") for r in work.stage_runs]
     row.blob_path = str(work.fields.get("blob_path") or "")
@@ -420,6 +486,34 @@ def _store(row: Document, work: WorkingDocument) -> None:
             )
         except Exception:  # noqa: BLE001 - never fail indexing on curation bookkeeping
             log.exception("review queue failed for %s", row.id)
+
+
+@lru_cache(maxsize=1)
+def _instruments() -> tuple[Any, Any]:
+    """OpenTelemetry instruments; no-ops until the worker sets a meter provider."""
+
+    from opentelemetry import metrics
+
+    meter = metrics.get_meter("semascope.pipeline")
+    return (
+        meter.create_counter(
+            "semascope.documents", unit="{document}", description="Documents processed, by status"
+        ),
+        meter.create_histogram(
+            "semascope.stage.duration", unit="ms", description="Stage run time, by outcome"
+        ),
+    )
+
+
+def _record_metrics(row: Document, work: WorkingDocument, indexed: bool) -> None:
+    try:
+        documents, stage_duration = _instruments()
+        collection = row.collection.slug
+        documents.add(1, {"collection": collection, "status": "indexed" if indexed else "failed"})
+        for r in work.stage_runs:
+            stage_duration.record(r.duration_ms, {"stage": r.stage, "outcome": r.outcome})
+    except Exception:  # noqa: BLE001 - metrics never fail indexing
+        log.debug("metrics not recorded", exc_info=True)
 
 
 def _jsonable(value: Any) -> Any:
