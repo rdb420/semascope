@@ -186,9 +186,7 @@ def test_excluded_values_leave_documents_out(
     assert {"de", "it"} <= counted
 
 
-def test_date_range_and_drill_down(
-    api: httpx.Client, languages: dict[str, dict[str, Any]]
-) -> None:
+def test_date_range_and_drill_down(api: httpx.Client, languages: dict[str, dict[str, Any]]) -> None:
     # uploads carry no modification date; the indexing date serves the same way
     every = names(search(api))
     wide = {"field": "indexed_dt", "start": "2000-01-01", "end": "2200-01-01"}
