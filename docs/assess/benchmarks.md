@@ -48,19 +48,27 @@ chosen; it must be redistributable or re-downloadable by a pinned script.
 
 | Scenario | Expected behaviour | Pass condition |
 |---|---|---|
-| Kill a worker in the middle of a document | the task is acknowledged late, so Valkey redelivers it to the next worker (measured on rc.2: **fails**, see [Quality numbers](../quality.md)) | every document reaches `indexed` exactly once |
+| Kill a worker in the middle of a document | a pool process that dies hands its task back to the queue at once; when the whole worker dies, `recover` queues its documents again after 5 minutes, and Valkey's later redelivery finds them done; a document that kills its worker three times is held as failed | every document reaches `indexed` exactly once |
 | Restart Valkey during indexing | the append-only file keeps queued tasks | no document is lost |
-| Stop Solr or Neo4j during indexing | the stage is retried in place, then the document task is retried with backoff; after that the document is marked failed and `oss reindex` recovers it (measured on rc.2: a Neo4j outage left documents `indexed` with the graph stage failed) | after recovery, counts match a clean run |
+| Stop Solr or Neo4j during indexing | the stage is retried in place, then the document task is retried with backoff; after that the document is marked failed and `oss reindex` recovers it. A Neo4j outage leaves documents indexed and searchable with their graph projection `pending`, which is written again once Neo4j answers | after recovery, counts match a clean run |
 | A `remote` service answers errors | transient errors are retried against the same service, never a CPU model; after the retries the stage fails and reindex recovers | no mixed-model chunks in the index |
 | Restore a backup onto a fresh host | `./oss restore` | search, facets, review decisions and the outbox cursor match the source |
 | Replace the embedding model | chunks of the old model stop being searched; `oss reindex --stage embed` | semantic search returns to the old recall level |
 
-rc.2 had no automatic retries; the next release retries transient
-failures twice in place and then the document task three times with
-backoff, and `oss reindex` recovers whatever is left. The two worker-loss
-scenarios failed on rc.2 and are open: a killed pool process leaves its
-document in `processing`, and a killed worker container is redelivered
-only after the queue's visibility timeout.
+rc.2 had no automatic retries and failed both worker-loss scenarios: a
+killed pool process left its document in `processing` for good, and a
+killed worker container was redelivered only after Valkey's visibility
+timeout (about 50 minutes), processing a finished document a second time.
+1.0 retries transient failures twice in place and then the document task
+three times with backoff; hands a dead pool process's task back to the
+queue; requeues documents left `processing` by a dead worker (`recover`,
+every two minutes); skips reprocessing a document already indexed from the
+same content and settings; and keeps a document whose graph write waited
+for Neo4j searchable, with the projection written later. On 2026-10-17 all
+eight scenarios passed on CPU (60 documents each): a killed pool process
+recovered in 37 s and a killed worker container in 354 s, with nothing
+lost or duplicated ([Quality numbers](../quality.md#recovery-run-2026-10-17-worker-hardening-cpu-medium)).
+See [Operations](../operations.md#crashes-and-recovery) for the settings.
 
 ## Reporting
 
@@ -79,7 +87,7 @@ cent between releases are called out in the changelog.
 | 4 Query latency | three modes, five queries, with and without two facet filters, the first query apart; demo and `mixed-1k`, CPU | 2026-10-15 (no filters), 2026-10-16 |
 | 5 Reviewer throughput | `mixed-1k`: open items per 1,000 documents by kind, decision latency, decisions per minute end to end | 2026-10-16 |
 | 6 Tagging quality | document level, demo pack 0.1.0: precision 1.00, recall 0.98; reproduced on the pinned corpus | 2026-10-15, 2026-10-16 |
-| 7 Failure and recovery | the six scenarios on 60 documents each, CPU | 2026-10-16 |
+| 7 Failure and recovery | the six scenarios on 60 documents each, CPU; rerun after the worker hardening, all passing | 2026-10-16, 2026-10-17 |
 
 Not measured yet: `scale-100k`, the small and large sizes, the `gpu` and
 `remote` runtimes on `mixed-1k`, arm64, and cold start after `./oss up`
