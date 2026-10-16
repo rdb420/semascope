@@ -41,7 +41,6 @@ def mineru_handles(media_type: str | None) -> bool:
 class ExtractStage:
     name = "extract"
     version = "1"
-    queue = "cpu"
     requires = ("blob_path",)
     provides = ("text", "media_type", "language", "title", "metadata")
 

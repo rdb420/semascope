@@ -273,3 +273,87 @@ graph stage leaves documents `indexed` with an error rather than `failed`,
 so a status filter does not find them (a reindex of the collection does);
 and the run needed a fix to the `./oss` shim, which exited on a host without
 `.env` (fixed on this branch).
+
+Both worker-loss failures and the graph finding are fixed for 1.0; see the
+[recovery run of 2026-10-17](#recovery-run-2026-10-17-worker-hardening-cpu-medium).
+
+## Recovery run 2026-10-17: worker hardening, CPU, medium
+
+`scripts/bench_recovery.py` again, all scenarios, on a stack built from the
+`hardening/worker` branch (commit `1fb1736`): a dead pool process hands its
+task back to the queue, `recover` requeues documents a dead worker left
+`processing`, a document already indexed from the same content and settings
+is not processed again, a Neo4j outage leaves documents searchable with their
+graph projection pending, and the worker takes a task only when a process is
+free to start it ([Operations](operations.md#crashes-and-recovery)).
+
+| item | value |
+|---|---|
+| CPU | AMD Ryzen AI MAX+ 395 (16 cores, 32 threads) |
+| RAM | 121 GiB |
+| Disk | Lexar NQ790 4 TB NVMe SSD, ext4 (Docker root) |
+| GPUs on the host | RTX 3090 and Radeon 8060S, both unused: `--runtime cpu` |
+| OS | Ubuntu 26.04.1 LTS, kernel 7.0.0-38 |
+| Docker | Engine 29.9.1, Compose 5.6.0 |
+| `oss init` | `--size medium --runtime cpu`: heaps 2 GB each, worker concurrency 2, worker cap 6 GB (pool processes replaced above 2,048 MiB) |
+| Image | `ghcr.io/rdb420/semascope:worker`, built locally from `1fb1736`, image id `sha256:c241e75612726bb00675aa6d424c9002121037eeef18286c27921e3cc7e5f08d` (not published) |
+| Service images | as pinned in `compose.yaml` on 2026-10-16 |
+| `mixed-1k` corpus | `packs/demo/mixed-1k.sha256` sha256 `9a2794eecc7080afe222446697485dcdfe1910bcd6fcf71c6c7bb9919fa7936f` |
+| Host load | other stacks were running; load average 50 to 65 during the run |
+
+```bash
+uv run --package oss-cli oss init --env-file .env.worker --size medium --runtime cpu \
+  --https-port 8493 --import-dir "$PWD/packs/demo"
+echo "SEMASCOPE_IMAGE_TAG=worker" >> .env.worker
+echo "SEMASCOPE_ENV_FILE=.env.worker" >> .env.worker   # so the containers read it too
+B="--project sem-worker --env-file .env.worker"
+docker compose -p sem-worker --env-file .env.worker build server
+docker compose -p sem-worker --env-file .env.worker up -d --wait
+uv run scripts/bench_recovery.py $B --docs 60 --corpus-manifest packs/demo/mixed-1k.sha256
+docker compose -p sem-worker --env-file .env.worker down -v
+```
+
+Clean run: 60 documents in 47 s (60 Solr documents, 690 chunks, 60 graph
+documents, 2,313 tags; fewer tags than on rc.2 because tagging changed since).
+
+| scenario | observed | recovered in | lost | duplicated | half-written | result |
+|---|---|---|---|---|---|---|
+| kill the worker's two pool processes (SIGKILL), 2 documents in flight | both tasks went back to the queue (`WorkerLostError`, rejected rather than acknowledged) and ran again at once; all 60 indexed once | 37 s | 0 | 0 | 0 | pass |
+| kill the worker container (SIGKILL) and start it, 2 in flight | `recover` found the two documents `processing` on no live worker after 5 minutes and queued them again; all 60 indexed once. 45 minutes after the kill Valkey redelivered the two original tasks, which found their documents indexed from the same content and settings and returned in 23 ms; no second `document.indexed` event | 354 s | 0 | 0 | 0 | pass |
+| restart Valkey with 42 tasks queued | the append-only file kept them; all 60 indexed once | 32 s | 0 | 0 | 0 | pass |
+| stop Solr for 30 s during indexing | 1 document failed (tag, embed and index stages) after the retries; after `oss reindex` all 60 match the clean run | 118 s after Solr was back | 0 | | 0 | pass |
+| stop Neo4j for 30 s during indexing | every document indexed, none failed; once Neo4j was back no graph projection was left pending or failed (the benchmark now waits for pending ones); after `oss reindex` all match | 107 s after Neo4j was back | 0 | | 0 | pass |
+| embed stage pointed at a service answering 503 | embed failed on all 60 after its three retries, with no chunks and no fallback to the bundled model; documents indexed without vectors; after `reindex --stage embed` with the service back, 690 chunks, all of one model | 66 s | 0 | | 0 | pass |
+| `./oss backup --with-graph`, a fresh compose project, `./oss restore` | backup 21 s (52 MB), restore 40 s; 55 checks all equal | 61 s | | | | pass |
+| switch the embedding model (bge-small-en-v1.5 to all-MiniLM-L6-v2) | semantic search returned nothing until re-embedding; `reindex --stage embed` of 60 documents took 16 s; then 10 hits per query again, with 30 to 50 per cent of the old top 10 | 16 s | | | | pass |
+
+Two benchmark fixes came with the run: a collection counts as drained only
+when no retry is due and no graph projection is pending (on the first try
+the remote scenario counted documents waiting for their embed retry as done
+and restarted the worker under them), and `./oss backup --with-graph` now
+waits until Neo4j answers again (the first try's restore check queried it
+while it was starting). The first try also found two processes creating the
+graph indexes at once on a new database, which failed one document's graph
+stage; that is fixed.
+
+Checked by hand on the same stack:
+
+- **A document that keeps killing its worker.** An OCR scan whose pool
+  process was killed on each of three runs was marked failed ("interrupted
+  3 times"), counted by `/api/stats` as held, and indexed by
+  `oss reindex --collection` once the kills stopped.
+- **Neo4j down for a whole batch.** With Neo4j stopped, 20 HTML documents
+  were indexed in 110 s, all with the graph projection `pending` (before the
+  pause after a graph failure, each document spent about 98 s in the graph
+  stage); `oss doctor` and `oss stats` listed the pending ones; the first
+  `recover` after Neo4j started projected 15 of them within a minute, and
+  the rest are left to the next runs (an earlier try of the same check
+  ended with all 20 `ok`).
+- **Stopping the worker.** `docker compose up` recreated the worker in the
+  middle of a document: the soft shutdown handed it back to Valkey and the
+  new worker started it at once ("run 2"), without waiting for `recover`.
+- **Memory.** All 988 `mixed-1k` documents indexed (22.5 minutes on the
+  loaded host; stage times 1.5 times rc.2's); the pool processes peaked at
+  1.85 GB resident and the container at 3.27 GiB of 6, so none needed
+  replacing. With the cap lowered to 600 MiB the pool processes were
+  replaced after their tasks as intended (five processes for ten documents).

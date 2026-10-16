@@ -58,7 +58,6 @@ def document_graph(doc: WorkingDocument) -> str:
 class ValidateStage:
     name = "validate"
     version = "1"
-    queue = "cpu"
     requires = ("tags",)
     provides = ("shacl_violations",)
 

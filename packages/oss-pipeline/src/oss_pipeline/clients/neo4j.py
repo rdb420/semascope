@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from neo4j import Driver, GraphDatabase
+from neo4j.exceptions import ClientError
 
 CONSTRAINTS = {
     "Document": "id",
@@ -46,17 +47,25 @@ class GraphClient:
 
         if uri_key(self._driver) in _CONSTRAINED:
             return
-        _CONSTRAINED.add(uri_key(self._driver))
+        statements = [
+            f"CREATE CONSTRAINT {label.lower()}_{key}_unique IF NOT EXISTS "
+            f"FOR (n:{label}) REQUIRE n.{key} IS UNIQUE"
+            for label, key in CONSTRAINTS.items()
+        ]
+        statements += [
+            "CREATE INDEX entity_label IF NOT EXISTS FOR (n:Entity) ON (n.label)",
+            "CREATE INDEX document_collection IF NOT EXISTS FOR (n:Document) ON (n.collection)",
+        ]
         with self._driver.session() as session:
-            for label, key in CONSTRAINTS.items():
-                session.run(
-                    f"CREATE CONSTRAINT {label.lower()}_{key}_unique IF NOT EXISTS "
-                    f"FOR (n:{label}) REQUIRE n.{key} IS UNIQUE"
-                )
-            session.run("CREATE INDEX entity_label IF NOT EXISTS FOR (n:Entity) ON (n.label)")
-            session.run(
-                "CREATE INDEX document_collection IF NOT EXISTS FOR (n:Document) ON (n.collection)"
-            )
+            for statement in statements:
+                try:
+                    session.run(statement).consume()
+                except ClientError as exc:
+                    # two worker processes creating the same index at once on a new database:
+                    # `IF NOT EXISTS` does not cover the race, and the other one won
+                    if "AlreadyExists" not in str(exc.code):
+                        raise
+        _CONSTRAINED.add(uri_key(self._driver))  # only once they are all in place
 
     def write(self, cypher: str, rows: Iterable[dict[str, Any]], *, batch: int = 500) -> int:
         """Run `cypher` with `$rows` in batches; the statement starts with UNWIND $rows AS row."""

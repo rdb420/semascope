@@ -19,7 +19,6 @@ from oss_pipeline.stages.base import SkipStageError
 class EmbedStage:
     name = "embed"
     version = "1"
-    queue = "cpu"
     requires = ("chunks",)
     provides = ("embedded",)
 

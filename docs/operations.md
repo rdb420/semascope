@@ -6,8 +6,11 @@
 and Tika (1, 2 or 4 GB each) and the data folders. Small runs the whole
 stack in about 6 GB of RAM on two cores; it is the right choice for a
 laptop or a first look. Medium suits a team server with tens of thousands
-of documents; large is for hundreds of thousands. Worker concurrency is
-`--concurrency` on `oss-worker` in `compose.yaml` (default 2).
+of documents; large is for hundreds of thousands. The size also sets the
+worker's processes and memory cap (`SEMASCOPE_WORKER_CONCURRENCY` and
+`SEMASCOPE_WORKER_MEMORY`: small 1 process and 4 GB, medium 2 and 6 GB,
+large 4 and 12 GB); a worker process that grows past its share of the cap is
+replaced, see [crashes and recovery](#crashes-and-recovery).
 
 ## Runtimes
 
@@ -88,6 +91,47 @@ under `settings.pipeline`: `stage_retries`, `stage_retry_backoff_s`,
 nothing falls back to the CPU model, because a mixed index is worse than
 a late one.
 
+## Crashes and recovery
+
+Tasks are delivered at least once: a worker acknowledges a task when it
+ends, and every task gives the same result when it runs again. There are two
+queues, `cpu` for the document tasks and `io` for everything light
+(discovery, deletes, graph writes, the scheduler, recovery, webhooks), and a
+document's whole profile runs in one task
+([ADR-0010](adr/0010-one-task-per-document.md)).
+
+| What happens | What Semascope does |
+|---|---|
+| A worker process dies mid-document (out of memory, a crash in a parser or model) | the task goes straight back to the queue and runs again on the next free process |
+| The worker container is killed, or the host restarts | `recover` (every two minutes) finds documents `processing` for more than `SEMASCOPE_STALE_AFTER_S` (300 s) that no live worker is running, and queues them again; Valkey also hands the unacknowledged tasks out again after its visibility timeout, and a task for a document already indexed from the same content and settings does nothing |
+| The worker is stopped (`./oss down`, an upgrade) | running tasks get 45 s to finish, then go back to the queue at once; Docker waits 90 s before killing the container |
+| A document keeps killing its worker | every start is counted on the document and a finished run resets the count; after `SEMASCOPE_MAX_ATTEMPTS` (3) runs that never finished it is marked failed ("interrupted 3 times") and held: a source run does not queue it again until the file changes, and `./oss reindex` tries once more |
+| A document task runs past its time limit (`SEMASCOPE_TASK_TIME_LIMIT_S`, 1800 s; 5400 s with MinerU) | its process is killed and the document is handled as above |
+| Neo4j is unavailable during the graph stage | the document is indexed and searchable, with its graph projection `pending`; the graph stage alone is retried after about 60, 120, 240 and 480 seconds, then `recover` projects pending documents whenever Neo4j answers. For a minute after a failure, a worker process does not wait for Neo4j again: the next documents skip the graph stage and are `pending` too. A permanent graph error leaves it `failed` until `./oss reindex` |
+| A source run is interrupted | `recover` marks the source failed, so the scheduler starts it again |
+
+A worker process grows as it indexes (from about 1 GB to 2.2 GB over 1,000
+documents on 1.0.0-rc.2), so `oss-worker` replaces a process once it is
+above its share of the container's memory cap after a task: the cap less
+512 MiB for the main process, divided by the processes, less 768 MiB for one
+large document. That is 2,816 MiB for `small`, 2,048 MiB for `medium` and
+2,176 MiB for `large`; never less than 1,536 MiB, because a fresh process
+holds about 1 GB of models. `SEMASCOPE_WORKER_MAX_MEMORY_MB` sets it
+directly.
+
+Valkey's visibility timeout (`SEMASCOPE_VISIBILITY_TIMEOUT_S`) is how long
+an unacknowledged task stays with a worker that may be dead. It must be
+longer than any task can legitimately take, or a running task is handed to a
+second worker: the time limit, plus the longest retry wait (600 s), plus 300
+s. That is 2,700 s on the CPU runtime and 6,300 s with MinerU; it is the
+backstop, and `recover` is what brings a killed worker's documents back
+within minutes.
+
+`./oss stats` and `./oss doctor` show the documents whose graph projection
+is pending or failed and the documents held after repeated interruptions;
+the document API has `graph_status`. All five settings go in `.env`; 0 or
+unset keeps the default.
+
 ## Upgrade
 
 ```bash
@@ -144,7 +188,7 @@ traces.
 | `postgres` | collections, sources, documents with extracted text, packs and concepts, reviews, proposals, events |
 | `solr` | the `documents`, `entities` and `chunks` collections |
 | `neo4j` | the graph projection |
-| `valkey` | the task queue (safe to lose: in-flight tasks are redelivered) |
+| `valkey` | the task queue; its append-only file keeps queued tasks over a restart. If it is lost, re-run the sources: queued documents are queued again |
 
 ## Integration tests
 

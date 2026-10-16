@@ -39,7 +39,6 @@ def _explain(tag: Tag, entry: dict[str, Any], label: str) -> None:
 class TagStage:
     name = "tag"
     version = "2"
-    queue = "cpu"
     requires = ("text",)
     provides = ("tags",)
 

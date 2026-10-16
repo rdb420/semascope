@@ -72,7 +72,6 @@ def _dictionary(
 class LinkStage:
     name = "link"
     version = "2"
-    queue = "cpu"
     requires = ("tags",)
     provides = ("tags",)
 

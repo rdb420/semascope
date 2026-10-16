@@ -97,7 +97,7 @@ def _process(
     row: Document, exc: BaseException, monkeypatch: pytest.MonkeyPatch, retries: int
 ) -> Any:
     monkeypatch.setattr(tasks, "connectors", lambda: {"filesystem": FailingConnector(exc)})
-    tasks.process_document.push_request(retries=retries)  # type: ignore[call-arg]
+    tasks.process_document.push_request(retries=retries)
     try:
         return tasks.process_document(row.id, {"uri": row.uri})
     finally:

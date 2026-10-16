@@ -177,6 +177,10 @@ def doctor() -> None:
         vectors, vectors_ok, notes = vector_report(settings, client)
         failures += not vectors_ok
         table.add_row("vectors", settings.semascope_embed_model, vectors)
+        documents, doc_notes = document_report(settings, client)
+        if documents:
+            table.add_row("documents", "/api/stats", documents)
+            notes += doc_notes
     console.print(table)
     for note in notes:
         console.print(f"[yellow]{note}[/yellow]")
@@ -186,6 +190,34 @@ def doctor() -> None:
     )
     if failures:
         raise typer.Exit(code=1)
+
+
+def document_report(settings: Any, client: httpx.Client) -> tuple[str, list[str]]:
+    """Graph projections behind and held documents, from the API; empty without a token.
+
+    Not a failure of `doctor`: a pending projection catches up by itself, and a held or
+    failed document is the data's problem, not the stack's.
+    """
+
+    token = settings.semascope_api_token.get_secret_value() if settings.semascope_api_token else ""
+    if not token:
+        return "", []
+    try:
+        resp = client.get(
+            f"{settings.semascope_api_url.rstrip('/')}/api/stats",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp.raise_for_status()
+        stats = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        return f"stats unavailable ({type(exc).__name__})", []
+    notes = document_notes(stats)
+    graph = stats.get("graph") or {}
+    summary = (
+        f"graph pending {graph.get('pending', 0)}, graph failed {graph.get('failed', 0)}, "
+        f"held {stats.get('interrupted', 0)}"
+    )
+    return summary, notes
 
 
 def _solr_auth(settings: Any) -> dict[str, str]:
@@ -435,7 +467,33 @@ def stats() -> None:
     """Counts of collections, sources and documents by status."""
 
     with _api() as api:
-        console.print(_check(api.get("/stats")))
+        out = _check(api.get("/stats"))
+    console.print(out)
+    for note in document_notes(out):
+        console.print(f"[yellow]{note}[/yellow]")
+
+
+def document_notes(stats: dict[str, Any]) -> list[str]:
+    """What in `/stats` needs the operator: graph projections behind, documents held."""
+
+    notes = []
+    graph = stats.get("graph") or {}
+    if graph.get("pending"):
+        notes.append(
+            f"{graph['pending']} indexed documents are not in the graph yet (Neo4j was "
+            "unavailable); they are searchable and are projected again automatically"
+        )
+    if graph.get("failed"):
+        notes.append(
+            f"{graph['failed']} indexed documents failed their graph projection; "
+            "`oss reindex --collection <slug>` projects them again"
+        )
+    if stats.get("interrupted"):
+        notes.append(
+            f"{stats['interrupted']} documents are held after their runs kept stopping the "
+            "worker (memory, a crash or the time limit); see their errors, then `oss reindex`"
+        )
+    return notes
 
 
 def _print_plan(out: dict[str, Any]) -> None:

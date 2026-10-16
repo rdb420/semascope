@@ -69,6 +69,14 @@ class Document(models.Model):
         FAILED = "failed"
         DELETED = "deleted"
 
+    class GraphStatus(models.TextChoices):
+        """The Neo4j projection of an indexed document; search does not wait for it."""
+
+        NONE = "", "not projected"  # no graph stage in the profile, or never run
+        OK = "ok"
+        PENDING = "pending"  # Neo4j was unavailable; retried, then re-projected by `recover`
+        FAILED = "failed"  # a permanent graph error; `oss reindex` projects it again
+
     id = models.CharField(primary_key=True, max_length=32)
     collection = models.ForeignKey(Collection, on_delete=models.CASCADE, related_name="documents")
     source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name="documents")
@@ -93,6 +101,24 @@ class Document(models.Model):
     seen_at = models.DateTimeField(
         null=True, blank=True, help_text="last discovery pass that saw it"
     )
+    graph_status = models.CharField(
+        max_length=16, choices=GraphStatus.choices, default=GraphStatus.NONE, blank=True
+    )
+    # Worker reliability (docs/operations.md#crashes-and-recovery)
+    item = models.JSONField(
+        default=dict, blank=True, help_text="the connector item the last processing run was given"
+    )
+    processing_since = models.DateTimeField(
+        null=True, blank=True, help_text="when the current processing run started"
+    )
+    attempts = models.PositiveSmallIntegerField(
+        default=0, help_text="runs started and not finished: a worker died or was killed"
+    )
+    fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="content, profile, stages, packs and settings it was indexed with",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -101,6 +127,8 @@ class Document(models.Model):
             models.Index(fields=["collection", "status"]),
             models.Index(fields=["source", "seen_at"]),
             models.Index(fields=["content_hash"]),
+            models.Index(fields=["status", "processing_since"]),
+            models.Index(fields=["graph_status"]),
         ]
 
     def __str__(self) -> str:

@@ -2,34 +2,45 @@
 
 discover_source walks a source with its connector, upserts Document rows and
 fans out process_document for new or changed items. process_document runs the
-collection's profile and stores the result. Both are idempotent.
+collection's profile and stores the result. Both are idempotent: delivery is at
+least once, so a task may run again after its worker died, and running it again
+gives the same result (and costs nothing when the document is already indexed
+with the same inputs). `recover` requeues documents whose worker died and
+re-projects documents whose graph write waited for Neo4j; see
+docs/operations.md#crashes-and-recovery.
 """
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 import logging
 import re
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
 from celery import shared_task
 from django.db import transaction
+from django.db.models import F, Q
 from django.utils import timezone
 
-from oss_core.config import get_settings
+from oss_core.config import MAX_RETRY_COUNTDOWN_S, get_settings
 from oss_core.contracts import (
     Cursor,
     SourceConfig,
     SourceItem,
+    Stage,
     StageContext,
+    StageRun,
     Tag,
     WorkingDocument,
 )
 from oss_pipeline.registry import connectors, profile
 from oss_pipeline.retry import backoff, is_transient
-from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile
+from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile, run_stage
 from oss_server.catalogue.models import Collection, Document, Source, document_id
 from oss_server.services import solr_client, solr_documents_collection
 
@@ -186,6 +197,7 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
     )
     since = None if full or not source.cursor else Cursor.model_validate(source.cursor)
     started = timezone.now()
+    held_after = max(1, get_settings().semascope_max_attempts)
     counts = {"seen": 0, "queued": 0, "unchanged": 0, "deleted": 0}
     try:
         for item in connector.discover(config, since):
@@ -204,12 +216,21 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
                         "status": Document.Status.QUEUED,
                     },
                 )
+                new_content = doc.content_hash != (item.content_hash or "")
+                # a document whose runs kept killing the worker is held until it changes or
+                # is reindexed; one left `processing` by a dead worker is retried
                 changed = (
                     created
-                    or doc.content_hash != (item.content_hash or "")
-                    or doc.status in (Document.Status.FAILED, Document.Status.QUEUED)
+                    or new_content
+                    or (
+                        doc.status in (Document.Status.FAILED, Document.Status.QUEUED)
+                        and doc.attempts < held_after
+                    )
+                    or is_stale(doc, started)
                 )
                 doc.seen_at = started
+                if new_content:
+                    doc.attempts = 0
                 if changed:
                     doc.content_hash = item.content_hash or ""
                     doc.size = item.size
@@ -249,11 +270,106 @@ TASK_RETRIES = 3  # re-runs of a document task after transient failures (setting
 TASK_BACKOFF_S = 60.0  # first wait, doubling: 60 s, 120 s, 240 s (settings: task_retry_backoff_s)
 
 
+# Document tasks: killed after the time limit, and handed back to the queue when their pool
+# process dies (out of memory, a crash) rather than acknowledged; `begin` stops a document
+# that keeps killing its worker. Valkey's visibility timeout is longer than the time limit
+# plus the longest retry wait (oss_pipeline.celery_app).
+DOCUMENT_TASK: dict[str, Any] = {
+    "queue": "cpu",
+    "acks_late": True,
+    "reject_on_worker_lost": True,
+    "time_limit": get_settings().task_time_limit,
+}
+DOCUMENT_TASKS = ("semascope.process_document", "semascope.reindex_document")
+
+
 def _retry_policy(collection: Collection) -> tuple[int, float]:
     pipeline = collection.settings.get("pipeline", {}) or {}
     return (
         max(0, int(pipeline.get("task_retries", TASK_RETRIES))),
         float(pipeline.get("task_retry_backoff_s", TASK_BACKOFF_S)),
+    )
+
+
+def _countdown(attempt: int, base: float) -> float:
+    """The wait before retry `attempt`, never past what the visibility timeout allows for."""
+
+    return min(backoff(attempt, base), float(MAX_RETRY_COUNTDOWN_S))
+
+
+def is_stale(doc: Document, now: datetime) -> bool:
+    """`processing` for longer than any run may last: its worker died (no live check needed)."""
+
+    if doc.status != Document.Status.PROCESSING:
+        return False
+    s = get_settings()
+    limit = timedelta(seconds=s.task_time_limit + s.semascope_stale_after_s)
+    return doc.processing_since is None or doc.processing_since < now - limit
+
+
+def begin(row: Document, item: dict[str, Any] | None = None) -> bool:
+    """Mark a document `processing` for a run, or fail it when its runs keep dying.
+
+    Every start is counted in `attempts`, which a finished run resets, so the count is the
+    number of runs in a row that never finished: their worker was killed (out of memory, a
+    crash in a native library, the time limit). After `SEMASCOPE_MAX_ATTEMPTS` (3) the
+    document is marked failed instead of being run again, so one bad file cannot take the
+    workers down for ever; a new version of it, or `oss reindex`, tries again.
+    """
+
+    limit = max(1, get_settings().semascope_max_attempts)
+    if row.attempts >= limit:
+        error = (
+            f"interrupted {row.attempts} times: the worker running it was killed (out of "
+            f"memory, a crash or the {get_settings().task_time_limit} s time limit); held "
+            "until the file changes or `oss reindex`"
+        )
+        Document.objects.filter(pk=row.pk).update(
+            status=Document.Status.FAILED, processing_since=None, error=error
+        )
+        log.error("document %s: %s", row.pk, error)
+        return False
+    if row.attempts:
+        log.warning("document %s: run %d, the last one did not finish", row.pk, row.attempts + 1)
+    updates: dict[str, Any] = {
+        "status": Document.Status.PROCESSING,
+        "processing_since": timezone.now(),
+        "attempts": F("attempts") + 1,
+    }
+    if item is not None:
+        updates["item"] = item
+    Document.objects.filter(pk=row.pk).update(**updates)
+    row.attempts += 1
+    return True
+
+
+def fingerprint(content_hash: str, ctx: StageContext, stages: list[Stage]) -> str:
+    """What a document's index entry depends on: its content and everything that processes it."""
+
+    payload = {
+        "content": content_hash,
+        "profile": ctx.profile,
+        "stages": [[s.name, s.version] for s in stages],
+        "packs": ctx.pack_versions,
+        "settings": ctx.settings,
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def already_done(row: Document, item: dict[str, Any], fp: str) -> bool:
+    """Indexed from this content with these inputs and nothing outstanding: a run would repeat it.
+
+    This is what makes a redelivered task cheap: Valkey hands out again a task whose worker
+    died after storing the result but before acknowledging it.
+    """
+
+    return (
+        row.status == Document.Status.INDEXED
+        and bool(row.fingerprint)
+        and row.fingerprint == fp
+        and not row.error
+        and item.get("content_hash") in (None, "", row.content_hash)
     )
 
 
@@ -270,10 +386,15 @@ def _retry_if_transient(task: Any, row: Document, work: WorkingDocument) -> None
     if not transient or not failed or not failed <= transient:
         return
     retries, base = _retry_policy(row.collection)
+    if failed == {"graph"} and row.status == Document.Status.INDEXED:
+        # searchable already; only the graph projection waits for Neo4j
+        if retries:
+            project_graph.apply_async((row.pk,), countdown=_countdown(1, base))
+        return
     attempt = int(getattr(task.request, "retries", 0) or 0) + 1
     if attempt > retries:
         return
-    countdown = backoff(attempt, base)
+    countdown = _countdown(attempt, base)
     note = f"; retry {attempt}/{retries} in {countdown:.0f}s ({', '.join(sorted(failed))})"
     Document.objects.filter(pk=row.pk).update(
         status=Document.Status.QUEUED if row.status == Document.Status.FAILED else row.status,
@@ -282,10 +403,17 @@ def _retry_if_transient(task: Any, row: Document, work: WorkingDocument) -> None
     raise task.retry(countdown=countdown, max_retries=retries)
 
 
-@shared_task(bind=True, name="semascope.process_document", queue="cpu", acks_late=True)
-def process_document(self: Any, doc_id: str, item: dict[str, Any]) -> str:
+@shared_task(bind=True, name="semascope.process_document", **DOCUMENT_TASK)
+def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: bool = False) -> str:
     doc_row = Document.objects.select_related("collection", "source").get(pk=doc_id)
-    Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
+    ctx = build_context(doc_row.collection)
+    stages = profile(ctx.profile)
+    fp = fingerprint(doc_row.content_hash, ctx, stages)
+    if not force and already_done(doc_row, item, fp):
+        log.info("document %s is indexed with the same content and settings; skipped", doc_id)
+        return "unchanged"
+    if not begin(doc_row, item):
+        return str(Document.Status.FAILED)
     connector = connectors()[doc_row.source.connector]
     try:
         fetched = _fetch(
@@ -296,14 +424,18 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any]) -> str:
         attempt = int(getattr(self.request, "retries", 0) or 0) + 1
         transient = is_transient(exc)
         error = f"fetch: {type(exc).__name__}: {exc}"[:1900]
+        done = {"processing_since": None, "attempts": 0}  # the run finished
         if transient and attempt <= retries:
-            countdown = backoff(attempt, base)
+            countdown = _countdown(attempt, base)
             Document.objects.filter(pk=doc_id).update(
                 status=Document.Status.QUEUED,
                 error=f"{error}; retry {attempt}/{retries} in {countdown:.0f}s",
+                **done,
             )
             raise self.retry(exc=exc, countdown=countdown, max_retries=retries) from exc
-        Document.objects.filter(pk=doc_id).update(status=Document.Status.FAILED, error=error)
+        Document.objects.filter(pk=doc_id).update(
+            status=Document.Status.FAILED, error=error, **done
+        )
         return str(Document.Status.FAILED)
     meta = fetched.item.metadata
     fields: dict[str, Any] = {"local_path": fetched.path} if fetched.path else {}
@@ -327,9 +459,8 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any]) -> str:
         },
         fields=fields,
     )
-    ctx = build_context(doc_row.collection)
-    work = run_profile(profile(ctx.profile), work, ctx)
-    _store(doc_row, work)
+    work = _run(stages, work, ctx)
+    _store(doc_row, work, fingerprint=fp)
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
@@ -367,7 +498,7 @@ def replay_set(stages: list[str] | None) -> set[str]:
     return wanted
 
 
-@shared_task(bind=True, name="semascope.reindex_document", queue="cpu")
+@shared_task(bind=True, name="semascope.reindex_document", **DOCUMENT_TASK)
 def reindex_document(self: Any, doc_id: str, stages: list[str] | None = None) -> str:
     """Replay enrichment and indexing from the stored extraction; no Tika.
 
@@ -377,55 +508,293 @@ def reindex_document(self: Any, doc_id: str, stages: list[str] | None = None) ->
     """
 
     doc_row = Document.objects.select_related("collection", "source").get(pk=doc_id)
-    Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
-    work = WorkingDocument(
-        id=doc_row.id,
-        collection=doc_row.collection.slug,
-        source_id=str(doc_row.source_id),
-        uri=doc_row.uri,
-        content_hash=doc_row.content_hash,
-        media_type=doc_row.media_type or None,
-        language=doc_row.language or None,
-        title=doc_row.title or None,
-        text=doc_row.text,
-        pages=doc_row.pages,
-        metadata=dict(doc_row.metadata),
-        fields={k: v for k, v in doc_row.fields.items() if k != "indexed"},
-    )
+    if not begin(doc_row):
+        return str(Document.Status.FAILED)
+    work = _working_from_row(doc_row)
     ctx = build_context(doc_row.collection)
     wanted = replay_set(stages)
     if wanted:
         # a partial replay keeps the tags of the stages it does not run and recomputes the rest
         work.tags = [Tag(**t) for t in doc_row.tags if t.get("stage") not in wanted]
+    every = profile(ctx.profile)
     todo = [
-        s
-        for s in profile(ctx.profile)
-        if s.name not in ("fetch", "extract") and (not wanted or s.name in wanted)
+        s for s in every if s.name not in ("fetch", "extract") and (not wanted or s.name in wanted)
     ]
     # a partial replay publishes nothing when a replayed stage fails: the published result
     # stays as it was and the document reports the failure
-    work = run_profile(todo, work, ctx, stop_on_failure=tuple(wanted - set(PUBLISH)))
-    _store(doc_row, work)
+    work = _run(todo, work, ctx, stop_on_failure=tuple(wanted - set(PUBLISH)))
+    # a full replay is what processing the same content again would give
+    fp = "" if wanted else fingerprint(doc_row.content_hash, ctx, every)
+    _store(doc_row, work, fingerprint=fp)
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
 
+GRAPH_PAUSE_S = 60.0  # after Neo4j failed transiently, documents skip the graph stage this long
+_graph_paused_until = 0.0  # per worker process
+
+
+def _run(
+    stages: list[Stage], work: WorkingDocument, ctx: StageContext, **kwargs: Any
+) -> WorkingDocument:
+    """Run a profile; while Neo4j is known to be away, leave the graph stage for later.
+
+    A Neo4j outage costs each document the driver's own retries times the stage's (about
+    a minute and a half), although the graph is only a projection. So after one transient
+    graph failure this process skips the graph stage for `GRAPH_PAUSE_S`: the document is
+    indexed with its projection `pending`, and `project_graph` and `recover` write it later.
+    """
+
+    global _graph_paused_until
+    paused = time.monotonic() < _graph_paused_until
+    work = run_profile(
+        [s for s in stages if not (paused and s.name == "graph")], work, ctx, **kwargs
+    )
+    if paused and any(s.name == "graph" for s in stages):
+        now = datetime.now(UTC)
+        work.stage_runs.append(
+            StageRun(
+                stage="graph",
+                version=next(s.version for s in stages if s.name == "graph"),
+                started_at=now,
+                duration_ms=0,
+                outcome="failed",
+                message="Neo4j unavailable a moment ago; the projection is written later",
+            )
+        )
+        work.fields[TRANSIENT_FAILURES] = [*(work.fields.get(TRANSIENT_FAILURES) or []), "graph"]
+    elif "graph" in (work.fields.get(TRANSIENT_FAILURES) or []):
+        _graph_paused_until = time.monotonic() + GRAPH_PAUSE_S
+    return work
+
+
+def _working_from_row(row: Document) -> WorkingDocument:
+    """The stored extraction as a WorkingDocument, for a replay without Tika."""
+
+    return WorkingDocument(
+        id=row.id,
+        collection=row.collection.slug,
+        source_id=str(row.source_id),
+        uri=row.uri,
+        content_hash=row.content_hash,
+        media_type=row.media_type or None,
+        language=row.language or None,
+        title=row.title or None,
+        text=row.text,
+        pages=row.pages,
+        metadata=dict(row.metadata),
+        fields={k: v for k, v in row.fields.items() if k != "indexed"},
+    )
+
+
 @shared_task(name="semascope.reindex_collection", queue="io")
 def reindex_collection(slug: str, stages: list[str] | None = None) -> int:
-    """Queue a reindex of every indexed document in a collection (after a pack change)."""
+    """Queue a reindex of every indexed document in a collection (after a pack change).
 
-    # indexed documents, and failed ones whose extraction succeeded (a replay may fix them)
+    Also failed documents whose extraction succeeded (a replay may fix them), documents left
+    `processing` by a worker that died, and documents held after their runs kept killing the
+    worker: an explicit reindex clears their count and tries once more (those without stored
+    text are fetched again).
+    """
+
+    s = get_settings()
+    docs = Document.objects.filter(collection__slug=slug)
+    cutoff = timezone.now() - timedelta(seconds=s.task_time_limit + s.semascope_stale_after_s)
+    stale = Q(status=Document.Status.PROCESSING) & (
+        Q(processing_since__lt=cutoff) | Q(processing_since__isnull=True)
+    )
     ids = list(
-        Document.objects.filter(
-            collection__slug=slug,
-            status__in=(Document.Status.INDEXED, Document.Status.FAILED),
-        )
+        docs.filter(Q(status__in=(Document.Status.INDEXED, Document.Status.FAILED)) | stale)
         .exclude(text="")
         .values_list("id", flat=True)
     )
+    held = list(
+        docs.filter(status=Document.Status.FAILED, text="", attempts__gt=0)
+        .exclude(item={})
+        .values_list("id", "item")
+    )
+    Document.objects.filter(pk__in=[*ids, *(h[0] for h in held)]).update(attempts=0)
     for doc_id in ids:
         reindex_document.delay(doc_id, stages or None)
-    return len(ids)
+    for doc_id, item in held:
+        process_document.delay(doc_id, item, force=True)
+    return len(ids) + len(held)
+
+
+@shared_task(bind=True, name="semascope.project_graph", queue="io")
+def project_graph(self: Any, doc_id: str) -> str:
+    """Write an indexed document's graph projection again after Neo4j was unavailable.
+
+    Retried with the document tasks' backoff while Neo4j stays away; after that the
+    document stays `graph_status=pending` and `recover` projects it once Neo4j answers.
+    """
+
+    row = Document.objects.select_related("collection").filter(pk=doc_id).first()
+    if row is None or row.status != Document.Status.INDEXED:
+        return "skipped"
+    if row.graph_status != Document.GraphStatus.PENDING:
+        return row.graph_status
+    status = _project_graph(row)
+    retries, base = _retry_policy(row.collection)
+    attempt = int(self.request.retries or 0) + 1
+    if status == Document.GraphStatus.PENDING and attempt <= retries:
+        raise self.retry(countdown=_countdown(attempt + 1, base), max_retries=retries)
+    return status
+
+
+def _graph_stage(collection: Collection) -> tuple[StageContext, Stage | None]:
+    ctx = build_context(collection)
+    return ctx, next((s for s in profile(ctx.profile) if s.name == "graph"), None)
+
+
+def _project_graph(row: Document, prepared: tuple[StageContext, Stage | None] | None = None) -> str:
+    """Run the graph stage alone on the stored document; returns the new graph status."""
+
+    ctx, stage = prepared or _graph_stage(row.collection)
+    if stage is None:  # the profile has no graph stage (any more)
+        Document.objects.filter(pk=row.pk).update(graph_status=Document.GraphStatus.NONE)
+        return str(Document.GraphStatus.NONE)
+    work = _working_from_row(row)
+    work.tags = [Tag(**t) for t in row.tags]
+    work = run_stage(stage, work, ctx)
+    run = work.stage_runs[-1].model_dump(mode="json")
+    status = _graph_status(work, row.graph_status)
+    runs = [run if r.get("stage") == "graph" else r for r in row.stage_runs]
+    if run not in runs:
+        runs.append(run)
+    fields = dict(row.fields)
+    if "graph_written" in work.fields:
+        fields["graph_written"] = work.fields["graph_written"]
+    error = "; ".join(
+        f"{r.get('stage')}: {r.get('message')}" for r in runs if r.get("outcome") == "failed"
+    )[:2000]
+    Document.objects.filter(pk=row.pk, status=Document.Status.INDEXED).update(
+        graph_status=status, stage_runs=runs, fields=fields, error=error
+    )
+    return status
+
+
+RECOVER_BATCH = 1000  # graph re-projections per run at most
+RECOVER_BUDGET_S = 60.0  # and for about this long
+
+
+@shared_task(name="semascope.recover", queue="io")
+def recover() -> dict[str, int]:
+    """Every two minutes: requeue documents whose worker died; re-project pending graphs.
+
+    A document is `processing` while a worker runs it. When it has been so for longer than
+    `SEMASCOPE_STALE_AFTER_S` (300 s) and no live worker reports it among its active tasks,
+    or for longer than the time limit allows at all, its worker died: it is queued again
+    with the connector item it was given (`begin` then counts the attempt). Sources left
+    `running` by a dead worker are marked failed, so the scheduler starts them again.
+    Indexed documents whose graph projection is pending are projected again, oldest first,
+    as long as Neo4j answers.
+    """
+
+    running = _running_tasks()
+    return {
+        "requeued": _requeue_stale(running),
+        "sources": _release_sources(running),
+        "projected": _project_pending(),
+    }
+
+
+def _running_tasks() -> dict[str, set[str]] | None:
+    """Document and source ids in the active tasks of every worker that answered, or None.
+
+    None when no worker answered in time: then only the time limit says a run is dead.
+    """
+
+    from oss_server.celery import app
+
+    try:
+        replies = app.control.inspect(timeout=2.0).active()
+    except Exception:  # noqa: BLE001 - no broker or no answer: decide by age alone
+        log.warning("recover: no answer from the workers", exc_info=True)
+        return None
+    if not replies:
+        return None
+    out: dict[str, set[str]] = {"documents": set(), "sources": set()}
+    for tasks in replies.values():
+        for task in tasks or []:
+            args = task.get("args") or []
+            first = args[0] if isinstance(args, list | tuple) and args else None
+            if task.get("name") in DOCUMENT_TASKS and first is not None:
+                out["documents"].add(str(first))
+            elif task.get("name") == "semascope.discover_source" and first is not None:
+                out["sources"].add(str(first))
+    return out
+
+
+def _requeue_stale(running: dict[str, set[str]] | None) -> int:
+    s = get_settings()
+    now = timezone.now()
+    grace = now - timedelta(seconds=s.semascope_stale_after_s)
+    rows = list(
+        Document.objects.filter(status=Document.Status.PROCESSING)
+        .filter(Q(processing_since__lt=grace) | Q(processing_since__isnull=True))
+        .only("id", "processing_since", "item", "status")
+    )
+    requeued = 0
+    for row in rows:
+        if running is not None and row.id in running["documents"]:
+            continue  # alive, just slow
+        if running is None and not is_stale(row, now):
+            continue  # no worker answered; it may still be running within its time limit
+        claim = Document.objects.filter(
+            pk=row.pk, status=Document.Status.PROCESSING, processing_since=row.processing_since
+        )
+        if not row.item:  # started before 1.0 kept the item: let a source run or reindex do it
+            claim.update(
+                status=Document.Status.FAILED,
+                processing_since=None,
+                error="the worker running it stopped; run the source again or `oss reindex`",
+            )
+            continue
+        if claim.update(
+            status=Document.Status.QUEUED,
+            processing_since=None,
+            error="requeued: the worker running it stopped",
+        ):
+            log.warning("recover: document %s was left processing; queued again", row.pk)
+            process_document.delay(row.pk, row.item)
+            requeued += 1
+    return requeued
+
+
+def _release_sources(running: dict[str, set[str]] | None) -> int:
+    if running is None:
+        return 0
+    released = 0
+    for source in Source.objects.filter(status=Source.Status.RUNNING).only("id"):
+        if str(source.pk) in running["sources"]:
+            continue
+        released += Source.objects.filter(pk=source.pk, status=Source.Status.RUNNING).update(
+            status=Source.Status.FAILED, last_error="interrupted: the worker running it stopped"
+        )
+    return released
+
+
+def _project_pending() -> int:
+    pending = (
+        Document.objects.filter(
+            status=Document.Status.INDEXED, graph_status=Document.GraphStatus.PENDING
+        )
+        .select_related("collection")
+        .order_by("indexed_at")[:RECOVER_BATCH]
+    )
+    deadline = time.monotonic() + RECOVER_BUDGET_S
+    prepared: dict[int, tuple[StageContext, Stage | None]] = {}
+    projected = 0
+    for row in pending:
+        if row.collection_id not in prepared:
+            prepared[row.collection_id] = _graph_stage(row.collection)
+        if _project_graph(row, prepared[row.collection_id]) == Document.GraphStatus.PENDING:
+            break  # Neo4j still unavailable: the next run tries again
+        projected += 1
+        if time.monotonic() > deadline:
+            break
+    return projected
 
 
 @shared_task(name="semascope.tick", queue="io")
@@ -459,7 +828,7 @@ def delete_document(self: Any, doc_id: str) -> None:
     except Exception as exc:
         if is_transient(exc) and self.request.retries < TASK_RETRIES:
             raise self.retry(
-                exc=exc, countdown=backoff(self.request.retries + 1, TASK_BACKOFF_S)
+                exc=exc, countdown=_countdown(self.request.retries + 1, TASK_BACKOFF_S)
             ) from exc
         raise
     try:
@@ -477,7 +846,22 @@ def delete_document(self: Any, doc_id: str) -> None:
     )
 
 
-def _store(row: Document, work: WorkingDocument) -> None:
+def _graph_status(work: WorkingDocument, previous: str) -> str:
+    """The projection's state after a run: the last graph stage run's outcome."""
+
+    run = next((r for r in reversed(work.stage_runs) if r.stage == "graph"), None)
+    if run is None:
+        return previous
+    if run.outcome == "ok":
+        return str(Document.GraphStatus.OK)
+    if run.outcome == "skipped":
+        return str(Document.GraphStatus.NONE)
+    if "graph" in (work.fields.get(TRANSIENT_FAILURES) or []):
+        return str(Document.GraphStatus.PENDING)
+    return str(Document.GraphStatus.FAILED)
+
+
+def _store(row: Document, work: WorkingDocument, *, fingerprint: str = "") -> None:
     failed = [r for r in work.stage_runs if r.outcome == "failed"]
     indexed = bool(work.fields.get("indexed"))
     _record_metrics(row, work, indexed)
@@ -496,6 +880,10 @@ def _store(row: Document, work: WorkingDocument) -> None:
     row.status = Document.Status.INDEXED if indexed else Document.Status.FAILED
     row.error = "; ".join(f"{r.stage}: {r.message}" for r in failed)[:2000]
     row.indexed_at = datetime.now(UTC) if indexed else None
+    row.graph_status = _graph_status(work, row.graph_status)
+    row.fingerprint = fingerprint if indexed else ""
+    row.processing_since = None
+    row.attempts = 0  # the run finished, whatever its outcome
     row.save()
     if indexed:
         try:

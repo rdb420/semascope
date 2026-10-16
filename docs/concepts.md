@@ -68,8 +68,10 @@ product.
 
 ## Stage
 
-One step of the pipeline, declared with the queue it runs on and the fields
-it reads and writes. Stages are plugins registered through entry points.
+One step of the pipeline, declared with the fields it reads and writes.
+A document's whole profile runs in one task in one worker process
+([ADR-0010](adr/0010-one-task-per-document.md)). Stages are plugins
+registered through entry points.
 Stages: `fetch` (store the original under its content hash), `extract`
 (Tika text and metadata, OCR for images and scanned PDFs, language
 detection; with a MinerU server, PDF, OOXML Office and raster image files

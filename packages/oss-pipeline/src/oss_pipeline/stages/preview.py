@@ -16,7 +16,6 @@ from oss_core.contracts import StageContext, WorkingDocument
 class PreviewStage:
     name = "preview"
     version = "1"
-    queue = "cpu"
     requires = ("blob_path", "media_type")
     provides = ("preview_pages",)
 

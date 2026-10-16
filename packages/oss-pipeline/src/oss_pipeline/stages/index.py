@@ -107,7 +107,6 @@ def _iso(value: Any) -> str | None:
 class IndexStage:
     name = "index"
     version = "2"
-    queue = "io"
     requires = ("text",)
     provides = ("indexed",)
 

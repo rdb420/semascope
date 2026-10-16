@@ -28,7 +28,6 @@ PATTERNS: dict[str, tuple[str, re.Pattern[str]]] = {
 class PatternsStage:
     name = "patterns"
     version = "2"
-    queue = "cpu"
     requires = ("text",)
     provides = ("tags",)
 

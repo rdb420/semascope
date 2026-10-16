@@ -50,7 +50,6 @@ def entity_class(tag: Tag) -> str:
 class GraphStage:
     name = "graph"
     version = "2"
-    queue = "graph"
     requires = ("tags",)
     provides = ("graph_written",)
 

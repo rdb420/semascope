@@ -268,7 +268,6 @@ def facet_for(label: str, cls: str) -> str:
 class NerStage:
     name = "ner"
     version = "3"
-    queue = "nlp"
     requires = ("text",)
     provides = ("tags",)
 
