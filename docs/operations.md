@@ -30,7 +30,8 @@ The remote contracts are small and any service can implement them:
 
 - embeddings, `sidecar`: `POST {url}/embed/dense {"texts": [...]}` answering
   `{"vectors": [[...]], "model": "..."}`; `openai`: `POST {url}/embeddings`
-  with the OpenAI body. Health: `GET {url}/health` and `GET {url}/models`.
+  with the OpenAI body, 64 inputs per request (`SEMASCOPE_EMBED_BATCH`
+  changes it). Health: `GET {url}/health` and `GET {url}/models`.
 - entities, `remote`: `POST {url}/entities {"texts": [...], "labels": {label:
   description}, "threshold": 0.5}` answering `{"results": [[{"label", "text",
   "start", "end", "confidence"}, ...], ...]}` (GLiNER2's shape, flat or
@@ -90,7 +91,11 @@ seconds; after that the document stays failed and `./oss reindex` retries
 it. A fetch that fails the same way is retried on the same schedule.
 Permanent failures (a format Tika cannot parse, a file above the size cap,
 a missing setting, a MinerU job that failed or timed out, a vector length
-without a field) are never retried. A collection can change the counts
+without a field) are never retried. A configuration error fails the stage
+rather than skipping it, so it shows on the document: an embedding or NER
+provider set to `openai`, `sidecar` or `remote` without its base URL, or an
+unknown provider name. A collection whose profile does not exist fails each
+of its documents with the profile's name instead of running another profile. A collection can change the counts
 under `settings.pipeline`: `stage_retries`, `stage_retry_backoff_s`,
 `task_retries`, `task_retry_backoff_s`. Retries go to the same provider;
 nothing falls back to the CPU model, because a mixed index is worse than
@@ -107,8 +112,10 @@ else is refused. The Tika image in `compose.yaml` has `deu`, `eng`, `fra`,
 `ita`, `jpn` and `spa`; a language it does not have gives no OCR text at
 all, so a collection that needs another one needs a Tika image with that
 Tesseract language installed. The default is the Tika configuration's
-`eng`. `embedded_max_items` (100) and `embedded_max_chars` (1,000,000) bound
-the text of embedded items (attachments, the files of a zip, the images of
+`eng`. `embed: false` skips embedding and deletes the document's
+chunks, so passages of an earlier version never stay searchable; a failed
+`embed` stage keeps them until it succeeds. `embedded_max_items` (100) and
+`embedded_max_chars` (1,000,000) bound the text of embedded items (attachments, the files of a zip, the images of
 a Word file) that is added to a document's own text. Service addresses, credentials, Solr collection names, paths and
 secrets come from `.env` only: the API refuses a collection that sets any
 other key (422), and the workers ignore other keys in collections saved
