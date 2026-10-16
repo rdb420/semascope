@@ -61,6 +61,7 @@ class DocumentOut(Schema):
     language: str
     size: int | None
     status: str
+    graph_status: str = ""  # the Neo4j projection: "", ok, pending (Neo4j was away) or failed
     error: str
     modified_at: datetime | None
     indexed_at: datetime | None
@@ -135,3 +136,7 @@ class StatsOut(Schema):
     solr_documents: int | None
     chunk_models: dict[str, int] = {}
     embed_model: str = ""
+    # indexed documents whose Neo4j projection is `pending` (recovered automatically) or
+    # `failed` (needs `oss reindex`); and documents held after their runs kept killing a worker
+    graph: dict[str, int] = {}
+    interrupted: int = 0

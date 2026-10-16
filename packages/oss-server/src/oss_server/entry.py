@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
 log = logging.getLogger("semascope")
 
@@ -151,21 +152,73 @@ def server() -> None:
     run()
 
 
+MIB = 1024 * 1024
+MAIN_PROCESS_MIB = 512  # the worker's main process: no models, the broker connection
+TASK_GROWTH_MIB = 768  # what one large document adds while a pool process works on it
+MIN_CHILD_MIB = 1536  # a fresh pool process holds about 1 GB of models before its first task
+
+
+def memory_limit_bytes() -> int | None:
+    """The container's memory cap: the cgroup limit, else SEMASCOPE_WORKER_MEMORY (e.g. `6g`)."""
+
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text(encoding="ascii").strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < 1 << 60:  # cgroup v1 reports "no limit" as a huge number
+            return int(raw)
+    value = os.environ.get("SEMASCOPE_WORKER_MEMORY", "").strip().lower()
+    units = {"k": 1024, "m": MIB, "g": 1024 * MIB}
+    if value[:-1].isdigit() and value[-1:] in units:
+        return int(value[:-1]) * units[value[-1]]
+    return int(value) if value.isdigit() else None
+
+
+def max_memory_per_child_mib(limit_bytes: int | None, concurrency: int) -> int | None:
+    """Resident size above which a pool process is replaced after its current task.
+
+    Celery checks after each task, so a process may still grow by one document's worth
+    (`TASK_GROWTH_MIB`) before it is replaced: the share of the cap left after the main
+    process, less that growth. With `oss init --size`: small (1 process, 4 GB) 2,816 MiB,
+    medium (2, 6 GB) 2,048 MiB, large (4, 12 GB) 2,176 MiB. Pool processes grew by about
+    1.2 GB over 1,000 documents on rc.2 (docs/quality.md), so each is replaced after some
+    hundreds of documents, well before the cap.
+    """
+
+    if not limit_bytes:
+        return None
+    share = (limit_bytes // MIB - MAIN_PROCESS_MIB) // max(1, concurrency) - TASK_GROWTH_MIB
+    if share < MIN_CHILD_MIB:
+        log.warning(
+            "worker memory cap %d MiB is small for %d processes; replacing them at %d MiB",
+            limit_bytes // MIB,
+            concurrency,
+            MIN_CHILD_MIB,
+        )
+    return max(share, MIN_CHILD_MIB)
+
+
 def worker() -> None:
     parser = argparse.ArgumentParser(prog="oss-worker")
-    parser.add_argument("--queues", default="io,cpu,ocr,nlp,graph")
+    parser.add_argument("--queues", default="io,cpu")
     parser.add_argument("--concurrency", type=int, default=2)
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     from celery.signals import worker_process_init
 
+    from oss_core.config import get_settings
     from oss_server.celery import app
 
     worker_process_init.connect(_worker_process_telemetry, weak=False)
-    sys.exit(
-        app.worker_main(
-            ["worker", "-Q", args.queues, "-c", str(args.concurrency), "--loglevel=INFO"]
-        )
+    argv = ["worker", "-Q", args.queues, "-c", str(args.concurrency), "--loglevel=INFO"]
+    cap = get_settings().semascope_worker_max_memory_mb or max_memory_per_child_mib(
+        memory_limit_bytes(), args.concurrency
     )
+    if cap:
+        argv.append(f"--max-memory-per-child={cap * 1024}")  # Celery counts KiB
+        log.info("pool processes are replaced above %d MiB resident", cap)
+    sys.exit(app.worker_main(argv))
 
 
 def beat() -> None:

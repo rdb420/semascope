@@ -296,6 +296,7 @@ def _document_out(d: Document) -> DocumentOut:
         language=d.language,
         size=d.size,
         status=d.status,
+        graph_status=d.graph_status,
         error=d.error,
         modified_at=d.modified_at,
         indexed_at=d.indexed_at,
@@ -441,6 +442,16 @@ def stats(request: HttpRequest) -> StatsOut:
     by_status = {
         row["status"]: row["n"] for row in documents.values("status").annotate(n=Count("id"))
     }
+    graph_counts = {
+        row["graph_status"]: row["n"]
+        for row in documents.filter(
+            status=Document.Status.INDEXED,
+            graph_status__in=(Document.GraphStatus.PENDING, Document.GraphStatus.FAILED),
+        )
+        .values("graph_status")
+        .annotate(n=Count("id"))
+    }
+    interrupted = documents.filter(status=Document.Status.FAILED, attempts__gt=0).count()
     try:
         body = solr_client().select(
             solr_documents_collection(),
@@ -459,6 +470,8 @@ def stats(request: HttpRequest) -> StatsOut:
         solr_documents=solr_count,
         chunk_models=chunk_models(allowed),
         embed_model=search_mod.current_embed_model(),
+        graph=graph_counts,
+        interrupted=interrupted,
     )
 
 

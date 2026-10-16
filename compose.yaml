@@ -14,7 +14,7 @@ x-app: &app
   env_file:
     - path: ${SEMASCOPE_ENV_FILE:-.env}
       required: false
-  environment:
+  environment: &app-env
     DATABASE_URL: postgresql://semascope:${POSTGRES_PASSWORD}@postgres:5432/semascope
     VALKEY_URL: redis://valkey:6379/0
     SOLR_URL: http://solr:8983/solr
@@ -59,9 +59,16 @@ services:
 
   # Worker processes and their memory cap follow `oss init --size` (small 1, medium 2, large 4
   # processes); a .env written before those settings existed keeps the earlier two processes.
+  # A pool process is replaced once it grows past its share of the cap (oss-worker works it out
+  # from the cgroup limit). On stop, running tasks get 45 s, then go back to the queue at once
+  # (REMAP_SIGTERM: Celery's soft shutdown), inside the 90 s before Docker kills the container.
   worker:
     <<: *app
-    command: oss-worker --queues io,cpu,ocr,nlp,graph --concurrency ${SEMASCOPE_WORKER_CONCURRENCY:-2}
+    command: oss-worker --queues io,cpu --concurrency ${SEMASCOPE_WORKER_CONCURRENCY:-2}
+    environment:
+      <<: *app-env
+      REMAP_SIGTERM: SIGQUIT
+    stop_grace_period: 90s
     volumes:
       - blobs:/data
       - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro

@@ -13,6 +13,8 @@ from typing import Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+MAX_RETRY_COUNTDOWN_S = 600  # a document task never waits longer than this for its retry
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
@@ -84,6 +86,13 @@ class Settings(BaseSettings):
     semascope_extract_base_url: str | None = None
     semascope_extract_api_key: SecretStr | None = None
 
+    # Worker reliability (docs/operations.md#crashes-and-recovery); 0 means the default
+    semascope_task_time_limit_s: int = 0  # hard limit of one document task: 1800, MinerU 5400
+    semascope_visibility_timeout_s: int = 0  # Valkey redelivery of an unacked task: limit + 900
+    semascope_max_attempts: int = 3  # interrupted starts before a document is marked failed
+    semascope_stale_after_s: int = 300  # `processing` this long and on no worker: requeued
+    semascope_worker_max_memory_mb: int = 0  # a pool process above this is replaced; 0: from cap
+
     # Map background: an XYZ raster tile URL template, shown to the UI. Empty means no base map
     # (offline and air-gapped installs); the places are drawn either way.
     semascope_map_tile_url: str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -97,6 +106,31 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return bool(self.semascope_llm_base_url and self.semascope_llm_model)
+
+    @property
+    def task_time_limit(self) -> int:
+        """Seconds a document task may run before its process is killed.
+
+        The slowest document that can still succeed on the CPU runtime takes about
+        20 minutes: an extract that times out at Tika's 300 s twice and then succeeds,
+        then embedding a whole book. A MinerU job may take up to an hour on its own.
+        """
+
+        if self.semascope_task_time_limit_s > 0:
+            return self.semascope_task_time_limit_s
+        return 1800 + (3600 if self.semascope_extract_provider == "mineru" else 0)
+
+    @property
+    def visibility_timeout(self) -> int:
+        """Seconds Valkey waits before redelivering an unacknowledged task.
+
+        Longer than any task that is still running or waiting for its retry: the time
+        limit, plus the longest retry countdown (`MAX_RETRY_COUNTDOWN_S`), plus a margin.
+        """
+
+        if self.semascope_visibility_timeout_s > 0:
+            return self.semascope_visibility_timeout_s
+        return self.task_time_limit + MAX_RETRY_COUNTDOWN_S + 300
 
     def remote_key(self, stage: Literal["embed", "ner", "extract"]) -> str:
         """The bearer token for a remote stage: its own key, else the shared remote key."""
