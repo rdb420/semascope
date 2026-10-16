@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -53,9 +54,11 @@ def test_init_runtime_and_provider_flags(tmp_path: Path) -> None:
     assert "SEMASCOPE_RUNTIME=remote" in text
     assert "SEMASCOPE_EMBEDDER=sidecar" in text and "SEMASCOPE_NER_PROVIDER=remote" in text
     assert "SEMASCOPE_EXTRACT_PROVIDER=tika" in text and "SEMASCOPE_REMOTE_API_KEY=t0k" in text
-    # a remote provider without its URL is refused
-    bad = runner.invoke(app, ["init", "--env-file", str(tmp_path / "b.env"), "--runtime", "remote"])
-    assert bad.exit_code != 0 and "--embed-url" in bad.output
+    # a remote provider without its URL is refused (wide, plain output: the error box wraps
+    # and colours its text on a narrow terminal)
+    wide = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
+    bad = wide.invoke(app, ["init", "--env-file", str(tmp_path / "b.env"), "--runtime", "remote"])
+    assert bad.exit_code != 0 and "embed-url" in re.sub(r"\x1b\[[0-9;]*m", "", bad.output)
     gpu = runner.invoke(app, ["init", "--env-file", str(tmp_path / "g.env"), "--runtime", "gpu"])
     assert (
         gpu.exit_code == 0 and "SEMASCOPE_NER_PROVIDER=gliner" in (tmp_path / "g.env").read_text()
