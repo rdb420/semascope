@@ -11,7 +11,6 @@ from oss_core.contracts import StageContext, WorkingDocument
 class FetchStage:
     name = "fetch"
     version = "1"
-    queue = "io"
     requires = ("uri", "content_hash")
     provides = ("blob_path",)
 

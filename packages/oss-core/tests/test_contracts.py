@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 
 from oss_core.contracts import (
     Profile,
-    Queue,
     Stage,
     StageContext,
     StageRun,
@@ -13,7 +12,6 @@ from oss_core.contracts import (
 class _Stage:
     name: str
     version: str = "1"
-    queue: Queue = "cpu"
     requires: tuple[str, ...]
     provides: tuple[str, ...]
 

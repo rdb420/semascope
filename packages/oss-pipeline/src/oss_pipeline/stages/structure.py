@@ -38,7 +38,6 @@ def chunk_words(text: str, size: int, overlap: int) -> list[str]:
 class StructureStage:
     name = "structure"
     version = "1"
-    queue = "cpu"
     requires = ("text",)
     provides = ("pages", "chunks")
 

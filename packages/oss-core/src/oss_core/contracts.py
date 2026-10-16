@@ -20,8 +20,6 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-Queue = Literal["io", "cpu", "ocr", "nlp", "graph"]
-
 
 class Cursor(BaseModel):
     """Opaque resume point a connector hands back after a discovery pass."""
@@ -134,9 +132,11 @@ class Connector(Protocol):
 
 @runtime_checkable
 class Stage(Protocol):
+    """One step of a profile. A document's whole profile runs in one task on the `cpu`
+    queue, so a stage has no queue of its own (docs/adr/0009-one-task-per-document.md)."""
+
     name: str
     version: str
-    queue: Queue
     requires: tuple[str, ...]
     provides: tuple[str, ...]
 
