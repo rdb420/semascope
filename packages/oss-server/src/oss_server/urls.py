@@ -13,7 +13,7 @@ WEB_DIR = Path(__file__).resolve().parent / "static" / "web"
 
 
 def healthz(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"status": "ok", "version": __version__, "phase": 1})
+    return JsonResponse({"status": "ok", "version": __version__})
 
 
 @never_cache

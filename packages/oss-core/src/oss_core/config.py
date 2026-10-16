@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # Identity and sizing
     semascope_host: str = "localhost"
+    semascope_https_port: int = 8443  # host port Caddy listens on (oss init --https-port)
     semascope_size: Literal["small", "medium", "large"] = "small"
     semascope_data_dir: Path = Path("./data")
     semascope_secret_key: SecretStr = Field(default=SecretStr("change-me"))

@@ -340,20 +340,45 @@ def tag_query(request: HttpRequest, payload: TagQueryIn) -> list[dict[str, Any]]
     return found
 
 
+_SOLR_SPECIAL = set('+-&|!(){}[]^"~*?:\\/')
+
+
+def suggest_query(q: str) -> str:
+    """Solr syntax escaped, every word required, the last one as a prefix: `odys` finds
+    "The Odyssey" while it is being typed."""
+
+    words = ["".join("\\" + ch if ch in _SOLR_SPECIAL else ch for ch in w) for w in q.split()]
+    words = [w for w in words if w]
+    if not words:
+        return ""
+    words[-1] += "*"
+    return " AND ".join(words)
+
+
+@api.get("/suggest", response=SuggestOut, tags=["search"])
 def suggest(request: HttpRequest, q: str, collection: str | None = None) -> SuggestOut:
-    client = solr_client()
+    """Up to eight document titles matching what is being typed."""
+
+    query = suggest_query(q)
+    if not query:
+        return SuggestOut(suggestions=[])
+    if collection:
+        check(request, "reader", collection)
     params: dict[str, object] = {
-        "q": q,
+        "q": query,
+        "defType": "edismax",
+        "qf": "title_txt",
         "rows": 8,
         "fl": "title_txt",
         "hl": False,
-        "qf": "title_txt^4 text_txt",
     }
     if collection:
-        params["fq"] = [f'collection_s:"{collection}"']
-    body = client.select(solr_documents_collection(), **params)
+        params["fq"] = [f"collection_s:{search_mod._escape(collection)}"]
+    body = solr_client().select(solr_documents_collection(), **params)
     titles = [
-        d.get("title_txt") for d in body.get("response", {}).get("docs", []) if d.get("title_txt")
+        str(d["title_txt"][0] if isinstance(d.get("title_txt"), list) else d.get("title_txt"))
+        for d in body.get("response", {}).get("docs", [])
+        if d.get("title_txt")
     ]
     return SuggestOut(suggestions=list(dict.fromkeys(titles)))
 
