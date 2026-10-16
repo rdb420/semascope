@@ -11,6 +11,7 @@ from typing import Any
 from oss_core.contracts import StageContext, Tag, WorkingDocument
 from oss_pipeline.clients.solr import SolrClient
 from oss_pipeline.provenance import curated_tags
+from oss_pipeline.stages.base import solr_key
 
 ENTITY_FIELDS = (
     "emails",
@@ -21,6 +22,7 @@ ENTITY_FIELDS = (
     "persons",
     "organisations",
     "places",
+    "events",
 )
 
 # Custom fields: `x_<name>` from connectors (table columns, an RDF subject), the tag stage
@@ -214,21 +216,30 @@ def _iso(value: Any) -> str | None:
 
 class IndexStage:
     name = "index"
-    version = "2"
+    version = "3"
     requires = ("text",)
     provides = ("indexed",)
 
     def __init__(self, solr: SolrClient | None = None) -> None:
         self._solr = solr
+        self._solr_key: tuple[str, ...] | None = None  # None: a client handed in
 
     def _client(self, ctx: StageContext) -> SolrClient:
-        if self._solr is None:
+        key = solr_key(ctx)
+        if self._solr is None or (self._solr_key is not None and self._solr_key != key):
+            self.close()
             self._solr = SolrClient(
                 str(ctx.settings["solr_url"]),
                 user=ctx.settings.get("solr_user"),
                 password=ctx.settings.get("solr_password"),
             )
+            self._solr_key = key
         return self._solr
+
+    def close(self) -> None:
+        if self._solr is not None and self._solr_key is not None:
+            self._solr.close()  # only a client this stage built
+            self._solr = None
 
     def run(self, doc: WorkingDocument, ctx: StageContext) -> WorkingDocument:
         collection = str(ctx.settings.get("solr_documents", "documents"))
