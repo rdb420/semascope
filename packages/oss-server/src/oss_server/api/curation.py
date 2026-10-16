@@ -185,10 +185,15 @@ def review_summary(request: HttpRequest, collection: str | None = None) -> dict[
 
 @router.post("/reviews/{review_id}/decision", response=ReviewOut)
 def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewOut:
-    """Accept, reject or defer a review item. Accept and reject become proposals."""
+    """Accept, reject or defer a review item. Accept and reject become proposals.
+
+    An open or deferred item can be decided; an accepted or rejected one answers 409.
+    """
 
     r = get_object_or_404(Review.objects.select_related("collection", "document"), pk=review_id)
     check(request, "curator", r.collection.slug)
+    if r.status not in (Review.Status.OPEN, Review.Status.DEFERRED):
+        raise HttpError(409, f"review {r.pk} is already {r.status}")
     if payload.decision not in ("accept", "reject", "defer"):
         raise HttpError(422, "decision must be accept, reject or defer")
     if payload.decision == "defer":

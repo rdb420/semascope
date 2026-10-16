@@ -340,3 +340,24 @@ def test_a_source_moved_outside_the_roots_fails_at_run_time(
     assert discover_source(s.id) == {"error": 1}
     s.refresh_from_db()
     assert s.status == Source.Status.FAILED and s.last_error.startswith("refused:")
+
+
+def test_a_decided_review_cannot_be_decided_again(
+    world: dict[str, Any], client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.curation import services
+
+    monkeypatch.setattr(services, "apply_proposal", lambda *a, **k: None)
+    auth = _auth(world["bob"])  # curator on b
+    review = Review.objects.get(collection__slug="b")
+    url = f"/api/curation/reviews/{review.id}/decision"
+
+    def decide(decision: str) -> int:
+        return client.post(
+            url, data={"decision": decision}, content_type="application/json", headers=auth
+        ).status_code
+
+    assert decide("defer") == 200
+    assert decide("reject") == 200  # a deferred item can still be decided
+    assert decide("accept") == 409
+    assert decide("defer") == 409
