@@ -28,13 +28,13 @@ only, `--size medium`, worker concurrency 2) against the development stack's
 demo collection, with `scripts/bench.py --runs 10`. Latencies are what the
 API measured (Solr time) and end to end from inside the compose network.
 
-The record gave that collection as 22 texts and 27 MB. Only sixteen can be
-accounted for: `packs/demo/sources.yaml` lists sixteen texts, 16.7 MB as
-built, and the corpus the image bakes in is the same sixteen files, hash for
-hash (`packs/demo/corpus.sha256`). What the other six documents were was not
-recorded and cannot be recovered from the repository, so the figures in this
-section are not tied to a pinned corpus. The
-[2026-10-16 run](#benchmark-run-2026-10-16-rc2-cpu-medium) is.
+The record gave that collection as 22 texts and 27 MB. The development
+stack's demo collection held the sixteen demo texts (16.7 MB, the
+`demo-corpus` source, hash for hash `packs/demo/corpus.sha256`) plus six
+files from a second, `import` source (10.3 MB) added during development,
+which together make 22 documents and 27 MB. Those six files are not part of
+the repository, so the figures in this section are not tied to a pinned
+corpus. The [2026-10-16 run](#benchmark-run-2026-10-16-rc2-cpu-medium) is.
 
 | mode | p50 ms (api) | p95 ms (api) | p95 ms (end to end) |
 |---|---|---|---|
