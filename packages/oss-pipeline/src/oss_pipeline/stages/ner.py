@@ -6,7 +6,11 @@ language. `gliner` runs GLiNER2 in-process on a GPU (the gpu image).
 into paragraph-bounded windows first, so every provider sees bounded inputs
 and spans are mapped back to document offsets. Entities become Tags of kind
 `entity` under the base classes (Person, Organisation, Place, Event) or the
-active packs' classes, and fill the persons/organisations/places facets.
+active packs' classes, and fill the persons/organisations/places/events facets.
+
+A provider that cannot work as configured (an unknown provider name, `remote`
+without a base URL) fails the stage: it is a configuration error, shown on the
+document, not a reason to skip NER quietly. A language with no model skips it.
 """
 
 from __future__ import annotations
@@ -219,7 +223,8 @@ class RemoteProvider:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         if not base_url:
-            raise SkipStageError("SEMASCOPE_NER_BASE_URL is not set")
+            # a configuration error, not a skip: the operator chose a remote provider
+            raise ValueError("ner_provider is remote but SEMASCOPE_NER_BASE_URL is not set")
         self.model = base_url
         self._threshold = threshold
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -240,6 +245,9 @@ class RemoteProvider:
             resp.raise_for_status()
             out.extend(parse_gliner_results(list(resp.json()["results"]), batch))
         return out
+
+    def close(self) -> None:
+        self._client.close()
 
 
 def looks_like_name(value: str, min_len: int = 3) -> bool:
@@ -278,9 +286,17 @@ class NerStage:
     def _get_provider(self, ctx: StageContext, limit: int) -> NerProvider:
         s = ctx.settings
         kind = str(s.get("ner_provider", "spacy"))
-        key = (kind, s.get("ner_model"), s.get("ner_base_url"), s.get("ner_threshold"))
+        key = (
+            kind,
+            s.get("ner_model"),
+            s.get("ner_base_url"),
+            s.get("ner_threshold"),
+            s.get("ner_api_key"),
+            str(s.get("ner_models") or ""),
+        )
         if self._provider is not None and self._provider_key in (None, key):
             return self._provider
+        self.close()
         threshold = float(s.get("ner_threshold", 0.5))
         if kind == "spacy":
             models = {**DEFAULT_MODELS, **(s.get("ner_models") or {})}
@@ -292,9 +308,18 @@ class NerStage:
             token = str(s.get("ner_api_key") or "")
             self._provider = RemoteProvider(s.get("ner_base_url"), token, threshold)
         else:
-            raise SkipStageError(f"unknown NER provider {kind!r}")
+            raise ValueError(f"unknown NER provider {kind!r} (spacy, gliner or remote)")
         self._provider_key = key
         return self._provider
+
+    def close(self) -> None:
+        """Close the provider's client, if it has one and this stage built it."""
+
+        if self._provider is not None and self._provider_key is not None:
+            close = getattr(self._provider, "close", None)
+            if callable(close):
+                close()
+            self._provider = None
 
     def run(self, doc: WorkingDocument, ctx: StageContext) -> WorkingDocument:
         limit = int(ctx.settings.get("ner_max_chars", MAX_CHARS))
