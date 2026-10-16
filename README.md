@@ -21,20 +21,27 @@ the machine proposed; every decision is logged and exported through the
 outbox. `./oss demo` loads sixteen public-domain texts and a demo model. The development plan is in [`docs/plan.md`](docs/plan.md)
 and the architecture decisions in [`docs/adr/`](docs/adr/).
 
-## Quick start (target for 1.0)
+## Quick start
 
 ```bash
 git clone https://github.com/rdb420/semascope && cd semascope
-./oss init      # writes .env with generated secrets and asks for an admin password
-./oss up        # starts Solr 10, Tika 3, Neo4j, PostgreSQL, Valkey, Caddy and the app
-./oss demo      # loads the public-domain demo corpus and its pack (Phase 2)
+./oss init      # writes .env with generated secrets, the admin password among them
+./oss up        # starts Solr 10, Tika 3, Neo4j, PostgreSQL, Valkey, Caddy and the app, then checks them
+./oss demo      # loads the public-domain demo corpus and its pack
 ./oss index ./data/import/my-files --collection mine   # anything under SEMASCOPE_IMPORT_DIR
-./oss upload report.pdf notes.docx --collection mine    # or through the API
+./oss upload report.pdf notes.docx --collection mine    # files from anywhere on this machine
 ./oss search "what I am looking for" --collection mine
 ./oss backup                                            # Postgres, Solr and the data volume
 ```
 
-Then open `https://localhost:8443/` and sign in as `admin`.
+Then open `https://localhost:8443/` and sign in as `admin` with the
+`SEMASCOPE_ADMIN_PASSWORD` from `.env`. You need Docker with the Compose
+plugin and bash; `./oss init` uses `uv` when the host has it and otherwise
+runs in the app image. The `fresh-clone` CI job runs these steps (`init`,
+`up`, a one-text `demo`, `search`, `upload`) in a clean clone for pushes to
+`main` and pull requests. `./oss rotate` replaces the secrets later, in the
+stores and in `.env` together; see [operations](docs/operations.md#secrets),
+which also covers Docker secrets.
 
 The admin site is at `https://localhost:8443/admin/` (user `admin`, password in
 `.env`) and the OpenAPI document at `https://localhost:8443/api/docs`.

@@ -3,7 +3,8 @@
 ## Sizes
 
 `oss init --size small|medium|large` writes the JVM heaps for Solr, Neo4j
-and Tika (1, 2 or 4 GB each) and the data folders. Small runs the whole
+and Tika (1, 2 or 4 GB each); `SEMASCOPE_SIZE` records the choice, and
+nothing else reads it. Small runs the whole
 stack in about 6 GB of RAM on two cores; it is the right choice for a
 laptop or a first look. Medium suits a team server with tens of thousands
 of documents; large is for hundreds of thousands. The size also sets the
@@ -100,6 +101,31 @@ secrets come from `.env` only: the API refuses a collection that sets any
 other key (422), and the workers ignore other keys in collections saved
 before 1.0.0-rc.4 or edited in the admin, with a warning in the worker log.
 
+## Files on this machine
+
+The `oss` commands run inside the stack, in a one-off `cli` container that
+sees the data volume and, read-only at `/import`, the folder
+`SEMASCOPE_IMPORT_DIR` (`./data/import` by default). The shim bridges the
+commands that name files on the host:
+
+| Command | What happens to the host path |
+|---|---|
+| `./oss upload <file>... [--collection slug]` | each file is sent into the container (a tar on its standard input) and uploaded through the API |
+| `./oss pack import <bundle>`, `./oss pack diff <bundle>` | the bundle folder is copied into the data volume under `/data/packs/uploaded/<time>/`, where the server may read it, and imported from there (a diff's copy is removed afterwards) |
+| `./oss pack validate <bundle>`, `./oss eval <judgements>` | the folder or file is sent into the container for the command |
+| `./oss export ... --out <file>` | the export is written to that file on the host |
+| `./oss index <path>` | the path must be under `SEMASCOPE_IMPORT_DIR`; it is indexed as `/import/...` by the filesystem connector |
+
+A relative path is relative to the folder you run the command from. A path
+that does not exist on the host is passed through unchanged, as a path
+inside the stack (`/import/...`, `/app/packs/demo/pack`). Nothing is
+bind-mounted, so any file name works, and so does a Docker daemon on another
+host. `pack validate --manifest` writes into the bundle, so run it on the
+host (`uv run oss pack validate --manifest <bundle>`).
+
+Every command that starts a container first creates `SEMASCOPE_IMPORT_DIR`
+when it is missing, so the folder belongs to you rather than to root.
+
 ## Crashes and recovery
 
 Tasks are delivered at least once: a worker acknowledges a task when it
@@ -166,7 +192,11 @@ Upgrading to 1.0.0-rc.4: `SEMASCOPE_DEFAULT_ROLE` now defaults to `none`,
 so a user reads only the collections they hold a role on; put
 `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to keep open reading. `./oss up`
 adds a `VALKEY_PASSWORD`, and the application refuses to start while any
-required secret is empty or a placeholder ([Secrets](#secrets)).
+required secret is empty or a placeholder ([Secrets](#secrets)). The
+containers are recreated on the new networks (`edge` for Caddy and the
+server, an internal `extract` for Tika with the worker) with their new health
+checks; no data changes. The server now stops, and compose restarts it,
+until the Solr collections can be set up, instead of running without them.
 
 ## Backup and restore
 
@@ -206,29 +236,87 @@ starts, so no data changes. Starting with plain `docker compose up`
 instead, Valkey and the application stop with a message naming the
 missing value.
 
-To rotate: `oss init --force` writes new secrets and keeps every other
-setting in `.env` (host, size, runtime, roles, single sign-on, allowed hosts
-and any line `init` does not write); an option given with it, such as
-`--size`, changes only its own lines; PostgreSQL, Neo4j and Solr then need their passwords
-changed to match (or recreate their volumes on a fresh install); Valkey and
-the secret key take the new value at the next start. Solr's
-basic authentication is set up from `SOLR_PASSWORD` on first start; the
-[Solr notes](https://github.com/rdb420/semascope/blob/main/deploy/solr/README.md)
-show how to change it. The API
-token (`SEMASCOPE_API_TOKEN`) can also be replaced by creating a token in the
-admin and putting its value in `.env`.
+To rotate, run `./oss rotate` with the stack up: it generates a new value
+for each secret, changes it where it lives first (`ALTER USER` in
+PostgreSQL, `ALTER CURRENT USER` in Neo4j, Solr's `set-user`, the `admin`
+account, the API token, and Grafana's admin while the observability profile
+runs) and writes it to `.env` right after, one secret at a time, so a
+refusal leaves `.env` matching the stores; then compose recreates the
+services that read a changed value and `oss doctor` runs. `./oss rotate
+POSTGRES_PASSWORD SOLR_PASSWORD` rotates only those. The previous file is
+kept as `.env.before-rotate-<time>` (mode 600; delete it once the stack
+runs). Rotating `SEMASCOPE_SECRET_KEY` signs everyone out;
+`SEMASCOPE_PSEUDONYM_KEY`, which keys the pseudonyms of pseudonymised graph
+entities, is never rotated (an `.env` from before rc.4 gets the old secret
+key as its pseudonym key, so the pseudonyms stay the same).
+
+`oss init --force` writes new secrets into `.env` and keeps every other
+setting (host, size, runtime, roles, single sign-on, allowed hosts, the
+pseudonym key and any line `init` does not write); an option given with it,
+such as `--size`, changes only its own lines. It does not touch the stores,
+so use it only before the first `./oss up` or when the volumes will be
+recreated. The API token (`SEMASCOPE_API_TOKEN`) can also be replaced by
+creating a token in the admin and putting its value in `.env`.
+
+### Docker secrets
+
+Every setting can be read from a file named by `<NAME>_FILE` instead
+(`POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password`), the convention of
+Docker and Kubernetes secrets; the file's content, without its trailing line
+break, wins over the variable. To keep the secrets out of `.env` altogether:
+
+```bash
+./oss init --secrets-dir ./secrets   # one file per secret; .env holds the rest
+./oss up                             # adds compose.secrets.yaml (SEMASCOPE_SECRETS_DIR is set)
+```
+
+`compose.secrets.yaml` mounts each file as a Docker secret into the
+services that need it: the application (server, worker, beat, cli) through
+`<NAME>_FILE`, PostgreSQL through `POSTGRES_PASSWORD_FILE`, Valkey and Solr
+through `VALKEY_PASSWORD_FILE` and `SEMASCOPE_SOLR_PASSWORD_FILE`, and Neo4j,
+whose entrypoint builds `NEO4J_AUTH` from the same file. The folder is
+`0700`; the files in it are `0644`, because compose bind-mounts them into
+containers that run as other users. `GRAFANA_PASSWORD` stays in `.env`, and
+the observability profile (Flower and Prometheus's Solr scrape) needs the
+Valkey and Solr passwords there too, so it is for the `.env` mode. `./oss
+rotate` refuses this mode: change a secret in its store as above, then
+replace its file and run `./oss up`.
 
 ## Logs and health
 
-`./oss logs <service>` follows a service. `/healthz` answers on the server;
-every container has a compose health check. `./oss doctor` checks the
-server, Solr, Tika and Neo4j, the configured remote services and the fit
-of the embedding model to the `chunks` schema. With `compose.observe.yaml`,
-the server, workers and beat send traces and metrics over OTLP to the
-bundled collector: it logs the traces (no trace store is bundled) and
-passes the metrics to Prometheus, which Grafana on `127.0.0.1:3000`
-reads. Point `OTEL_EXPORTER_OTLP_ENDPOINT` at your own collector to keep
-traces.
+`./oss logs <service>` follows a service. Every service in `compose.yaml`
+has a health check, and `./oss up` waits for all of them: the server
+answers `/healthz` (with up to ten minutes to start, for migrations on a
+first start or an upgrade); the worker's Celery node answers a ping through
+Valkey; beat has written its schedule in the last five minutes; Caddy's admin
+endpoint answers; PostgreSQL, Valkey, Solr, Neo4j and Tika answer, and
+Valkey and Solr refuse anonymous clients. The server does not start until the
+Solr collections are set up.
+
+`./oss doctor` checks the server (and its version), PostgreSQL with the
+application's credentials (the server version and the latest migration of
+each app), Valkey with its password (version, tasks queued on `cpu` and
+`io`), Solr (version, SolrCloud mode, the `documents`, `entities` and
+`chunks` collections), Tika, Neo4j, the configured remote services, the fit
+of the embedding model to the `chunks` schema and, with the API token, that
+the base pack is active; it names each failure and exits 1. `./oss up` runs
+it last.
+
+`compose.observe.yaml` is the observability profile
+(`COMPOSE_FILE=compose.yaml:compose.observe.yaml ./oss up`). The server,
+workers and beat send traces and metrics over OTLP to the bundled
+collector, which sends the traces to Jaeger (kept in memory until it
+restarts) and serves the metrics to Prometheus; Prometheus also scrapes
+Solr with its password. Grafana on `127.0.0.1:3000` (user `admin`,
+`GRAFANA_PASSWORD`) has both as data sources and a provisioned *Semascope*
+dashboard: documents processed by status, stage run times and outcomes,
+HTTP requests by status, the Solr index size per collection and the time
+of outgoing HTTP calls. Flower on `127.0.0.1:5555` (user `admin`, the same password)
+shows the workers, the queues and the tasks; it can also stop workers and
+revoke tasks, which is why it listens on loopback only. Point
+`OTEL_EXPORTER_OTLP_ENDPOINT` at your own collector to keep traces
+elsewhere. The collector and Jaeger images have no shell, so those two have
+no health check.
 
 ## Where the data lives
 
