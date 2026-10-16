@@ -12,6 +12,7 @@ dependencies = [
     "pyoxigraph>=0.5,<0.6",
     "pyshacl>=0.30",
     "watchdog>=6",
+    "warcio>=1.7",
     "defusedxml>=0.7",
     "pypdfium2>=4.30",
     "pillow>=11",
