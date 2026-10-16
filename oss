@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 cmd="${1:-help}"
 # The runtime chosen at `oss init` picks the compose overlay for every command below.
-runtime="$(grep -E '^SEMASCOPE_RUNTIME=' .env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')"
+runtime="$(grep -E '^SEMASCOPE_RUNTIME=' .env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
 case "${runtime:-cpu}" in
   gpu) export COMPOSE_FILE="${COMPOSE_FILE:-compose.yaml:compose.gpu.yaml}" ;;
 esac
@@ -21,7 +21,7 @@ case "$cmd" in
     shift; exec docker compose logs -f "$@" ;;
   index)
     shift
-    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' .env 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//')"
+    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' .env 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//' || true)"
     import_dir="$(cd "${import_dir:-./data/import}" 2>/dev/null && pwd -P || echo "")"
     target="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/$(basename "$1")"
     case "$target" in
