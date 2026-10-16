@@ -21,6 +21,7 @@ packages/oss-server/src/oss_server/static/web/
 data/
 packs/demo/corpus/
 packs/demo/cache/
+packs/demo/derived/
 packs/*/validation/*.json
 reports/
 
