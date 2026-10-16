@@ -373,6 +373,7 @@ restore() {
   undo() {
     echo "error: restore FAILED: $1" >&2
     for c in $staged; do solr_api "action=DELETE&name=${c}_restoring" 2>/dev/null || true; done
+    for c in $SOLR_COLLECTIONS; do docker compose exec -T solr rm -rf "/var/solr/data/restore-$c" 2>/dev/null || true; done
     docker compose exec -T postgres psql -q -U semascope -d postgres \
       -c "DROP DATABASE IF EXISTS semascope_restore" >/dev/null 2>&1 || true
     docker compose up -d --wait server worker beat >/dev/null 2>&1 || true
@@ -452,7 +453,7 @@ manage_py() {
   shift
   for pair in "$@"; do envs+=(-e "$pair"); done
   ensure_import_dir
-  docker compose run --rm --no-deps -T "${envs[@]}" cli oss-manage shell -c "$code"
+  docker compose run --rm --no-deps -T "${envs[@]}" cli oss-manage shell --verbosity 0 -c "$code"
 }
 
 rotate_one() {
