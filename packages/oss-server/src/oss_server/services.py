@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from oss_core.config import get_settings
-from oss_pipeline.clients.solr import SolrClient
+from oss_pipeline.clients.solr import SolrClient, quote_term
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +58,10 @@ def bootstrap_solr() -> list[str]:
     return created
 
 
+def _pack_query(pack_id: str, version: str) -> str:
+    return f"pack_id:{quote_term(pack_id)} AND pack_version:{quote_term(version)}"
+
+
 def sync_dictionary(pack_id: str, version: str) -> int:
     """Replace the Solr dictionary entries of one pack version. Returns the entry count.
 
@@ -72,7 +76,7 @@ def sync_dictionary(pack_id: str, version: str) -> int:
     client = solr_client()
     collection = solr_entities_collection()
     entries = dictionary_entries(pack) + draft_entries(pack)
-    client.delete_by_query(collection, f'pack_id:"{pack_id}" AND pack_version:"{version}"')
+    client.delete_by_query(collection, _pack_query(pack_id, version))
     for i in range(0, len(entries), 500):
         client.add(collection, entries[i : i + 500], commit_within_ms=1000)
     client.commit(collection)
@@ -102,12 +106,7 @@ def import_bundled_packs() -> list[str]:
 
 def _dictionary_present(pack_id: str, version: str) -> bool:
     try:
-        return (
-            solr_client().count(
-                solr_entities_collection(), f'pack_id:"{pack_id}" AND pack_version:"{version}"'
-            )
-            > 0
-        )
+        return solr_client().count(solr_entities_collection(), _pack_query(pack_id, version)) > 0
     except Exception:  # noqa: BLE001
         return False
 

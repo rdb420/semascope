@@ -27,6 +27,7 @@ from oss_core.contracts import (
     Tag,
     WorkingDocument,
 )
+from oss_pipeline.clients.solr import quote_term
 from oss_pipeline.registry import connectors, profile
 from oss_pipeline.retry import backoff, is_transient
 from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile
@@ -455,7 +456,7 @@ def delete_document(self: Any, doc_id: str) -> None:
 
     try:
         solr_client().delete_by_id(solr_documents_collection(), [doc_id])
-        solr_client().delete_by_query(solr_chunks_collection(), f'document_id:"{doc_id}"')
+        solr_client().delete_by_query(solr_chunks_collection(), f"document_id:{quote_term(doc_id)}")
     except Exception as exc:
         if is_transient(exc) and self.request.retries < TASK_RETRIES:
             raise self.retry(

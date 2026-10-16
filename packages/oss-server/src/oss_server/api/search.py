@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from oss_core.vectors import UnsupportedDimensionError, vector_field
-from oss_pipeline.clients.solr import SolrClient
+from oss_pipeline.clients.solr import SolrClient, quote_term
 from oss_server.api.schemas import FacetValue, SearchHit, SearchIn, SearchOut
 
 log = logging.getLogger(__name__)
@@ -45,8 +45,24 @@ ALLOWED_SORTS = {
 }
 
 
+# A field name the request may name (a filter, a facet, the histogram): letters, digits,
+# underscores and hyphens (scheme slugs), so it can never close local params or a clause
+FIELD_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,127}")
+FILTER_SUFFIXES = ("_s", "_ss", "_b", "_paths")
+FACET_SUFFIXES = ("_ss", "_paths")
+DATE_SUFFIXES = ("_dt", "_dts")
+
+
 def _escape(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return quote_term(value)
+
+
+def field_allowed(name: str, suffixes: tuple[str, ...]) -> bool:
+    """A known facet field, or a well-formed dynamic field with one of `suffixes`."""
+
+    if not isinstance(name, str) or not FIELD_NAME.fullmatch(name):
+        return False
+    return name in ALLOWED_FACETS or name.endswith(suffixes)
 
 
 def collection_filter(allowed: list[str] | None) -> list[str]:
@@ -64,9 +80,7 @@ def facet_filters(req: SearchIn) -> list[tuple[str, str]]:
 
     out: list[tuple[str, str]] = []
     for field, values in req.filters.items():
-        if not values or not (
-            field in ALLOWED_FACETS or field.endswith(("_s", "_ss", "_b", "_paths"))
-        ):
+        if not values or not field_allowed(field, FILTER_SUFFIXES):
             continue
         out.append((field, field + ":(" + " OR ".join(_escape(v) for v in values) + ")"))
     return out
@@ -78,7 +92,7 @@ def build_params(req: SearchIn, allowed: list[str] | None = None) -> dict[str, A
         fq.append(f"collection_s:{_escape(req.collection)}")
     for field, clause in facet_filters(req):
         fq.append("{!tag=" + field + "}" + clause)
-    facets = [f for f in req.facets if f in ALLOWED_FACETS or f.endswith(("_ss", "_paths"))]
+    facets = [f for f in req.facets if field_allowed(f, FACET_SUFFIXES)]
     params: dict[str, Any] = {
         "q": req.q.strip() or "*:*",
         "fl": HIT_FIELDS,
@@ -94,7 +108,11 @@ def build_params(req: SearchIn, allowed: list[str] | None = None) -> dict[str, A
         params["facet.mincount"] = 1
         params["facet.limit"] = min(req.facet_limit, 100)
         params["facet.field"] = ["{!ex=" + f + "}" + f for f in facets]
-    if req.histogram and (req.histogram.endswith("_dt") or req.histogram.endswith("_dts")):
+    if (
+        req.histogram
+        and FIELD_NAME.fullmatch(req.histogram)
+        and req.histogram.endswith(DATE_SUFFIXES)
+    ):
         valid = re.fullmatch(r"\+\d{1,3}(DAY|MONTH|YEAR)S?", req.histogram_gap)
         gap = req.histogram_gap if valid else "+1YEAR"
         params["facet"] = True
@@ -252,7 +270,7 @@ def _knn_chunks(
         fq.append(f"collection_s:{_escape(req.collection)}")
     model = str(getattr(embedder, "model_name", "") or "")
     if model:
-        fq.append(f'model_s:"{model}"')
+        fq.append(f"model_s:{quote_term(model)}")
     try:
         field = vector_field(len(vector))  # the field of this model's dimension
     except UnsupportedDimensionError as exc:

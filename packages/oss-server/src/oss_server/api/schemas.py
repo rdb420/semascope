@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
 from ninja import Schema
 from pydantic import field_validator
+
+# Django's slug (letters, digits, hyphens, underscores), as long as Collection.slug allows
+COLLECTION_SLUG = re.compile(r"[-a-zA-Z0-9_]{1,64}")
 
 
 class CollectionIn(Schema):
@@ -13,6 +17,13 @@ class CollectionIn(Schema):
     description: str = ""
     profile: str = "default"
     settings: dict[str, Any] = {}
+
+    @field_validator("slug")
+    @classmethod
+    def _slug(cls, value: str) -> str:
+        if not COLLECTION_SLUG.fullmatch(value):
+            raise ValueError("a collection slug is 1 to 64 letters, digits, hyphens or underscores")
+        return value
 
     @field_validator("settings")
     @classmethod

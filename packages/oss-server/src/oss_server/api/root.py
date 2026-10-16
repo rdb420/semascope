@@ -124,8 +124,9 @@ def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
     from oss_server.services import solr_chunks_collection
 
     c = get_object_or_404(Collection, slug=slug)
-    solr_client().delete_by_query(solr_documents_collection(), f'collection_s:"{slug}"')
-    solr_client().delete_by_query(solr_chunks_collection(), f'collection_s:"{slug}"')
+    term = search_mod._escape(slug)
+    solr_client().delete_by_query(solr_documents_collection(), f"collection_s:{term}")
+    solr_client().delete_by_query(solr_chunks_collection(), f"collection_s:{term}")
     c.delete()
     return 204, None
 
@@ -223,7 +224,9 @@ def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
     check(request, "editor", s.collection.slug)
     from oss_server.services import solr_chunks_collection
 
-    solr_client().delete_by_query(solr_documents_collection(), f"source_id_s:{s.id}")
+    solr_client().delete_by_query(
+        solr_documents_collection(), f"source_id_s:{search_mod._escape(str(s.id))}"
+    )
     ids = list(s.documents.values_list("id", flat=True))
     for i in range(0, len(ids), 500):
         terms = "{!terms f=document_id}" + ",".join(ids[i : i + 500])
