@@ -88,6 +88,15 @@ under `settings.pipeline`: `stage_retries`, `stage_retry_backoff_s`,
 nothing falls back to the CPU model, because a mixed index is worse than
 a late one.
 
+`settings.pipeline` holds tuning only. A collection may set `chunk_words`,
+`chunk_overlap`, `ocr`, `detect_language`, `patterns`, `preview_pages`,
+`preview_width`, `ner_max_chars`, `ner_min_length`, `ner_window_chars`,
+`embed`, `embed_max_chunks`, `pseudonymise` and the four retry settings
+above. Service addresses, credentials, Solr collection names, paths and
+secrets come from `.env` only: the API refuses a collection that sets any
+other key (422), and the workers ignore other keys in collections saved
+before 1.0.0-rc.4 or edited in the admin, with a warning in the worker log.
+
 ## Upgrade
 
 ```bash

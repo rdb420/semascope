@@ -31,6 +31,7 @@ from oss_pipeline.registry import connectors, profile
 from oss_pipeline.retry import backoff, is_transient
 from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile
 from oss_server.catalogue.models import Collection, Document, Source, document_id
+from oss_server.pipeline.overrides import pipeline_overrides
 from oss_server.services import solr_client, solr_documents_collection
 
 log = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "ocr": True,
     }
     base["shapes_ttl"] = active_shapes()
-    base.update(collection.settings.get("pipeline", {}))
+    base.update(pipeline_overrides(collection.settings))  # tuning only, never addresses
     return base
 
 
@@ -103,11 +104,10 @@ def pseudonymise_secret(collection: Collection) -> str | None:
     override included), so other writers, such as curation, key entities the same way.
     """
 
-    pipeline = collection.settings.get("pipeline", {}) or {}
+    pipeline = pipeline_overrides(collection.settings)
     if not pipeline.get("pseudonymise", collection.settings.get("pseudonymise", False)):
         return None
-    secret = pipeline.get("pseudonymise_secret") or get_settings().semascope_secret_key
-    return str(secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret)
+    return get_settings().semascope_secret_key.get_secret_value()
 
 
 BASE_PACK_ID = "semascope-base"  # its classes are the product's own model, not things to find
@@ -250,7 +250,7 @@ TASK_BACKOFF_S = 60.0  # first wait, doubling: 60 s, 120 s, 240 s (settings: tas
 
 
 def _retry_policy(collection: Collection) -> tuple[int, float]:
-    pipeline = collection.settings.get("pipeline", {}) or {}
+    pipeline = pipeline_overrides(collection.settings)
     return (
         max(0, int(pipeline.get("task_retries", TASK_RETRIES))),
         float(pipeline.get("task_retry_backoff_s", TASK_BACKOFF_S)),
