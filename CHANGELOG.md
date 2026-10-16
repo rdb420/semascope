@@ -15,10 +15,33 @@ and the project follows semantic versioning.
   each route as six kinds of user; annotations need the curator role (or
   authorship), document reindex the editor role, and marking pack deltas
   exported is a POST for editors.
-- Reading can be limited per collection: with `SEMASCOPE_DEFAULT_ROLE=none`
-  a user reads only the collections they hold a role on, across search
-  (all modes and exports), documents, previews, the graph, curation and
-  stats. The default stays `reader`, so existing installs read as before.
+- Reading is denied by default: a user reads only the collections they
+  hold a role on, across search (all modes and exports), documents,
+  previews, the graph, curation and stats. `SEMASCOPE_DEFAULT_ROLE` defaults
+  to `none` and `oss init` writes it; set `reader` to open reading to every
+  signed-in user.
+- Local sign-up is closed; single sign-on creates accounts only while
+  `SEMASCOPE_OIDC_AUTO_SIGNUP` is true and gives them
+  `SEMASCOPE_OIDC_DEFAULT_ROLE` (default `none`).
+- The server, workers and beat refuse to start with an empty or placeholder
+  secret outside debug mode; no secret has a default value; Valkey requires
+  `VALKEY_PASSWORD` (`./oss up` adds one to older `.env` files) and Grafana
+  `GRAFANA_PASSWORD`.
+- A collection's `settings.pipeline` accepts tuning keys only; service
+  addresses and credentials come from the deployment.
+- Search field names are validated, every value in a Solr query is quoted,
+  and collection slugs must be slugs, including where they name folders.
+- Webhooks use the outbound address guard and never follow redirects; the
+  guard accepts only globally routable addresses, and `max_bytes` has a
+  1 GiB ceiling. Custom `x_` fields from sources cannot replace the index's
+  own fields; RDF sources refuse JSON-LD with remote contexts; source
+  listings mask account identifiers for users below editor.
+- Releases are published only from `v*` tags, after `ci` and `integration`
+  pass on the tagged commit; every GitHub action is pinned by commit SHA
+  with least-privilege permissions; `pip-audit` and `pnpm audit` fail the
+  build; a licence gate refuses GPL and AGPL dependencies, and LGPL ones
+  unless an ADR accepts them (psycopg, ADR-0011). The `-gpu` image has an
+  SBOM.
 - Solr requires basic authentication, configured from `SOLR_PASSWORD` at
   start, including on existing installs; backup, restore and `oss doctor`
   send the credentials.
@@ -31,6 +54,14 @@ and the project follows semantic versioning.
 
 ### Added
 
+- More like this (`GET /api/documents/{id}/similar`), RDF exports of
+  documents and searches in Turtle and JSON-LD (`oss export`), W3C Web
+  Annotation export and import (including Hypothesis exports), an OpenSearch
+  description for browsers, an Overview page, and `oss eval` relevance
+  scores with demo judgements (ADR-0012).
+- CI jobs for the web UI (lint, type-check, tests, bundle budget), the supply
+  chain, workflow linting and the README quick start on a fresh clone; a
+  pull request template with the clean-room confirmation.
 - Original files: `GET /api/documents/{id}/original` serves the stored
   original to readers of its collection, with its file name, byte ranges
   and an ETag; PDFs, images, plain text, audio and video open in the
@@ -88,6 +119,10 @@ and the project follows semantic versioning.
 
 ### Changed
 
+- `compose.yaml` defaults the image tag to the checkout's version instead of
+  `main`; `:main` is no longer published.
+- The web UI loads pages and the map, graph and chart libraries on demand:
+  about 114 kB of gzipped JavaScript on a first visit instead of 697 kB.
 - Worker loss no longer loses or strands documents: a dead pool process
   hands its task back, `recover` (every 2 minutes) requeues documents left
   `processing`, and a redelivered task for a document already indexed from
@@ -112,6 +147,13 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- Backup and restore fail loudly at any failed step; restore checks the
+  backup and loads it beside the live data before switching, so a corrupt
+  backup changes nothing. `oss init --force` keeps every non-secret setting.
+- The docs deploy no longer tries to enable Pages itself;
+  `cleanroom_check.py` fails when no legacy tree is given.
+- `scripts/integration.sh` creates the import folder before its first
+  container run, so a fresh checkout no longer gets a root-owned `data/`.
 - Single sign-on through OpenID Connect failed at the callback: the image
   lacked PyJWT and cryptography (`django-allauth` now with its
   `socialaccount` extra).
@@ -170,6 +212,13 @@ and the project follows semantic versioning.
 
 ### Upgrade notes
 
+- Reading is now per collection by default: set `SEMASCOPE_DEFAULT_ROLE=reader`
+  in `.env` to keep open reading, or give users roles.
+- Run `./oss up` (not plain `docker compose up`) once: it adds
+  `VALKEY_PASSWORD` to `.env`. The app refuses to start with an empty or
+  placeholder secret; the observability profile needs `GRAFANA_PASSWORD`.
+- Restore needs free disk for a second copy of the Solr collections and the
+  database while it runs. Sources with `max_bytes` above 1 GiB are clamped.
 - `./oss up` runs the migration and uploads the new `entities` and
   `chunks` configsets. To move existing draft labels to their collection,
   re-activate each pack that has `add_label` deltas

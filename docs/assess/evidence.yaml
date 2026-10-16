@@ -381,6 +381,8 @@
   - packages/oss-server/tests/test_api.py::test_token_required
 
 "Operation | Single sign-on (OpenID Connect)":
+  - packages/oss-server/tests/test_oidc_config.py::test_local_sign_up_is_closed_and_sign_on_users_get_no_role_by_default
+  - tests/integration/test_oidc.py::test_local_sign_up_is_closed
   - packages/oss-server/tests/test_oidc_config.py::test_sign_on_is_off_without_an_issuer
   - packages/oss-server/tests/test_oidc_config.py::test_an_issuer_and_client_turn_on_the_openid_connect_provider
   - tests/integration/test_oidc.py::test_the_sign_in_page_offers_the_provider
@@ -388,12 +390,14 @@
   - tests/integration/test_oidc.py::test_sign_in_through_the_provider
 
 "Operation | Roles per collection":
+  - packages/oss-server/tests/test_access.py::test_the_default_role_is_none
   - packages/oss-server/tests/test_authz_matrix.py::test_every_route_has_a_rule
   - packages/oss-server/tests/test_authz_matrix.py::test_route_answers_each_user_as_its_rule_says
   - packages/oss-server/tests/test_access.py::test_roles_resolve_per_collection_with_default
   - packages/oss-server/tests/test_read_access.py::test_default_none_limits_reading_to_granted_collections
 
 "Operation | Backup and restore":
+  - tests/integration/test_roundtrip.py::test_a_corrupt_backup_leaves_the_data_as_it_was
   - tests/integration/test_roundtrip.py::test_backup_wipe_restore
   - "check: fresh-clone check (docs/assess/deployment.md)"
 
@@ -502,3 +506,69 @@
 "Operation | Worker memory: pool processes are replaced past their share of the memory cap":
   - packages/oss-server/tests/test_worker_memory.py::test_each_size_recycles_processes_inside_its_cap
   - scripts/bench_recovery.py
+
+"Operation | Dependency audit and licence policy":
+  - scripts/tests/test_release_tools.py::test_shipped_dependencies_meet_the_policy
+  - scripts/tests/test_release_tools.py::test_copyleft_and_unknown_licences_fail
+  - scripts/tests/test_release_tools.py::test_lgpl_passes_only_for_the_package_an_adr_names
+  - .github/scripts/licence_gate.py
+
+"Operation | Web UI lint, type-check, tests and bundle budget":
+  - .github/workflows/ci.yml
+  - packages/oss-web/scripts/bundle-size.mjs
+
+"Operation | Service secrets: none has a default, placeholders refused at start, Valkey requires a password":
+  - packages/oss-server/tests/test_secrets.py::test_a_placeholder_secret_refuses_to_start
+  - packages/oss-server/tests/test_secrets.py::test_the_defaults_name_every_missing_secret
+  - tests/integration/test_stores.py::test_valkey_refuses_anonymous_clients
+
+"Operation | Collection settings accept tuning keys only (no service addresses or credentials)":
+  - packages/oss-server/tests/test_collection_settings.py::test_the_api_refuses_service_settings
+  - packages/oss-server/tests/test_collection_settings.py::test_the_workers_ignore_service_settings_already_stored
+
+"Operation | Outbound requests: one guard for web, feeds, SPARQL, S3 and webhooks (globally routable addresses only, no redirects to private ones, size ceiling)":
+  - packages/oss-pipeline/tests/test_guard.py::test_private_and_odd_addresses_are_refused
+  - packages/oss-pipeline/tests/test_guard.py::test_redirects_to_private_addresses_are_refused
+  - packages/oss-pipeline/tests/test_guard.py::test_bodies_over_the_cap_are_refused
+  - packages/oss-pipeline/tests/test_guard.py::test_sparql_endpoint_on_a_private_address_is_refused
+  - packages/oss-server/tests/test_outbound_tasks.py::test_a_webhook_on_a_private_address_is_refused
+  - packages/oss-server/tests/test_outbound_tasks.py::test_a_webhook_redirect_is_not_followed
+
+"Export targets | Documents with their tags in force, notes and decisions as RDF (Turtle, JSON-LD) in the base vocabulary: one document or a search's hits (first 10,000), `oss export`":
+  - packages/oss-server/tests/test_exports_rdf.py::test_document_exports_with_base_vocabulary_tags_in_force_and_decisions
+  - packages/oss-server/tests/test_exports_rdf.py::test_turtle_and_json_ld_carry_the_same_graph
+  - packages/oss-server/tests/test_exports_rdf.py::test_search_export_is_read_scoped_and_capped
+  - tests/integration/test_extras.py::test_document_export_is_rdf_in_the_base_vocabulary
+
+"Export targets | Notes and decisions as W3C Web Annotations (`GET /api/annotations/w3c`, `oss export annotations`)":
+  - packages/oss-server/tests/test_annotations_w3c.py::test_export_notes_and_decisions_in_force
+  - packages/oss-server/tests/test_annotations_w3c.py::test_export_pages_and_is_read_scoped
+  - tests/integration/test_extras.py::test_web_annotations_import_export_round_trip
+
+"Search | More like this: documents similar to a document (text and passage vectors fused)":
+  - packages/oss-server/tests/test_similar.py::test_similar_fuses_text_and_vectors_inside_the_readable_collections
+  - packages/oss-server/tests/test_similar.py::test_similar_reports_a_missing_signal_and_checks_access
+  - tests/integration/test_extras.py::test_similar_documents_by_words_meaning_and_both
+  - tests/e2e/ui_smoke.py
+
+"Search | Browser search: OpenSearch description and suggestions":
+  - packages/oss-server/tests/test_opensearch_analytics.py::test_opensearch_description_uses_the_host_the_browser_used
+  - tests/integration/test_extras.py::test_opensearch_description_and_suggestions
+
+"Search | Relevance evaluation: `oss eval` (P@k, R@k, nDCG@k, MRR@k per mode) with demo judgements":
+  - packages/oss-cli/tests/test_eval_and_export.py::test_scores_follow_their_definitions
+  - packages/oss-cli/tests/test_eval_and_export.py::test_evaluate_scores_each_mode_and_leaves_out_documents_not_held
+  - tests/integration/test_extras.py::test_eval_scores_the_demo_judgements
+
+"Review actions | Import W3C Web Annotations or Hypothesis exports as notes, matched by URI, anchored by quote":
+  - packages/oss-server/tests/test_annotations_w3c.py::test_import_creates_notes_records_them_and_is_idempotent
+  - packages/oss-server/tests/test_annotations_w3c.py::test_import_needs_curator_matches_only_its_collection_and_dry_runs
+  - tests/integration/test_extras.py::test_web_annotations_import_export_round_trip
+
+"UI surfaces | Document: similar documents panel and export links":
+  - tests/e2e/ui_smoke.py
+
+"UI surfaces | Overview: counts, top entities and concepts, documents over time":
+  - packages/oss-server/tests/test_opensearch_analytics.py::test_overview_query_is_read_scoped_and_parsed
+  - tests/integration/test_extras.py::test_analytics_overview
+  - tests/e2e/ui_smoke.py

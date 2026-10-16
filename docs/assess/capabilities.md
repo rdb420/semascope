@@ -74,6 +74,9 @@ implemented has none, or names a test that does not exist.
 | List search (a batch of names) | implemented | ci, smoke | |
 | Significant terms | implemented | ci, smoke | |
 | Suggest / autocomplete | implemented (API) | ci | `GET /api/suggest?q=` (titles, last word as a prefix), routed after rc.2; the search box does not call it yet |
+| More like this: documents similar to a document (text and passage vectors fused) | implemented | ci, smoke | read-scoped; at most 50 |
+| Browser search: OpenSearch description and suggestions | implemented | ci | |
+| Relevance evaluation: `oss eval` (P@k, R@k, nDCG@k, MRR@k per mode) with demo judgements | implemented | ci, quality | |
 | Original files: authorised download, safe types inline, byte ranges | implemented | ci, smoke | HTML, SVG and unknown types are only sent as attachments |
 | Query highlighting on the document page, jump to the first matching page | implemented | ci, smoke | literal matching; a hit found through semantic search may show no highlight |
 | Table view: sortable columns and column statistics | implemented | ci, smoke | |
@@ -91,6 +94,8 @@ implemented has none, or names a test that does not exist.
 | Concept and individual page with its documents; propose a change | implemented | smoke |
 | Graph: hubs, neighbourhood expansion, shortest path, edge documents, graph of a search's results | implemented | smoke |
 | Alerts and feeds page (saved searches, alerts on and off, feed token, Atom and RSS links) | implemented | smoke |
+| Document: similar documents panel and export links | implemented | smoke |
+| Overview: counts, top entities and concepts, documents over time | implemented | ci, smoke |
 | Review queue | implemented | smoke |
 | Map of pack places | implemented | smoke |
 | List search | implemented | smoke |
@@ -120,6 +125,7 @@ implemented has none, or names a test that does not exist.
 | Accept, reject, add, remove a tag on a document | implemented | ci | |
 | Link an entity to a pack individual | implemented | ci | the link survives reindexing and records the individual's pack version |
 | Annotations on documents | implemented | ci | |
+| Import W3C Web Annotations or Hypothesis exports as notes, matched by URI, anchored by quote | implemented | ci | |
 | Proposals with stable references, applied at once, kept across reindexing | implemented | ci | append-only log, the newest decision wins, one `external_ref` per decision (fixed after rc.2, where accept, reject, accept was not applied); a decision keeps the tag it was taken on and its pack version; a rejected tag stays on the document, flagged, and is left out of Solr and the graph |
 | Curator changes to a pack as deltas | implemented | ci | |
 | Explanation of a tag: occurrences with pages, method and stage version, matched label, model, `linked_from`, decision history (API and document page) | implemented | ci, smoke | |
@@ -137,7 +143,9 @@ implemented has none, or names a test that does not exist.
 | Search results as CSV (first 10,000) | implemented | ci |
 | W3C Reconciliation API 0.2 | implemented | ci |
 | SPARQL over pack graphs (staff) | implemented | ci |
-| RDF or JSON-LD export of documents, tags or the graph | planned | — |
+| Documents with their tags in force, notes and decisions as RDF (Turtle, JSON-LD) in the base vocabulary: one document or a search's hits (first 10,000), `oss export` | implemented | ci |
+| Notes and decisions as W3C Web Annotations (`GET /api/annotations/w3c`, `oss export annotations`) | implemented | ci |
+| RDF of the graph; N-Quads; SPARQL Update push | planned | — |
 
 ## Knowledge packs
 
@@ -156,14 +164,21 @@ implemented has none, or names a test that does not exist.
 | `oss init`, `oss up`, sizes small, medium and large | implemented | ci (init), fresh-clone check | |
 | Runtimes `cpu`, `gpu`, `remote`, a provider per heavy stage | implemented (cpu), experimental (gpu, remote) | ci, bench | |
 | Local accounts and API tokens | implemented | ci | |
-| Single sign-on (OpenID Connect) | implemented | ci | the authorisation-code flow against a test identity provider; rc.2 images lacked the JWT library the callback needs |
-| Roles per collection | implemented | ci | roles govern reading and writing; `SEMASCOPE_DEFAULT_ROLE=none` makes reading per collection (the default `reader` keeps it open to every signed-in user); a route-by-route authorisation test covers every endpoint |
-| Backup and restore | implemented | ci | a round trip onto an emptied stack compares counts, searches, decisions and the outbox cursor |
+| Single sign-on (OpenID Connect) | implemented | ci | the authorisation-code flow against a test identity provider; rc.2 images lacked the JWT library the callback needs; local sign-up is closed; account creation on first sign-in (`SEMASCOPE_OIDC_AUTO_SIGNUP`) and the new account's role (`SEMASCOPE_OIDC_DEFAULT_ROLE`, default `none`) are configurable |
+| Roles per collection | implemented | ci | roles govern reading and writing; reading is per collection by default (`SEMASCOPE_DEFAULT_ROLE=none`; `reader` opens it to every signed-in user); a route-by-route authorisation test covers every endpoint, run with the default |
+| Backup and restore | implemented | ci | a round trip onto an emptied stack compares counts, searches, decisions and the outbox cursor; every step fails loudly; restore stages Postgres and Solr beside the live data and switches only when all of it loaded, so a corrupt backup changes nothing |
 | Worker loss: no document lost, stuck or processed twice when a worker process or container dies | implemented | ci, bench | a dead process hands its task back; `recover` requeues stale documents every 2 minutes; redelivered work for an unchanged document is skipped |
 | Crash-loop guard: a document that kills its worker three times is held as failed | implemented | ci | shown by `oss stats` and `oss doctor`; `oss reindex` retries it |
 | Graph projection survives a Neo4j outage | implemented | ci, bench | documents stay searchable with the graph pending, and are projected when Neo4j answers |
 | Worker memory: pool processes are replaced past their share of the memory cap | implemented | ci, bench | |
 | OpenTelemetry traces and metrics | experimental | ci (set-up) | server, workers and beat export both over OTLP since the fix after rc.2; the bundled collector logs traces and passes metrics to Prometheus; not exercised against a live collector in CI |
-| Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image is amd64 only |
-| Signed releases | experimental | — | keyless cosign signatures configured in the release workflow, not yet exercised by a release |
+| Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image (amd64 only) has an SBOM too; not yet exercised by a tag |
+| Signed releases | experimental | — | keyless cosign signatures in the release workflow, not yet exercised by a tag |
+| Release gated on CI and integration (tags only) | experimental | release workflow | the tag must match the version; `ci` and `integration` run on the tagged commit before any image is pushed; not yet exercised |
+| Dependency audit and licence policy | implemented | ci | pip-audit and pnpm audit fail the build; GPL and AGPL refused, LGPL only with an ADR (psycopg, ADR-0011); the `-gpu` image's extra wheels are not covered yet |
+| README quick start on a fresh clone | experimental | integration (fresh-clone job) | init, up, demo and search pass; `./oss upload` fails until SEMA-019 is fixed |
+| Web UI lint, type-check, tests and bundle budget | implemented | ci | first load about 114 kB of gzipped JavaScript |
+| Service secrets: none has a default, placeholders refused at start, Valkey requires a password | implemented | ci | |
+| Collection settings accept tuning keys only (no service addresses or credentials) | implemented | ci | |
+| Outbound requests: one guard for web, feeds, SPARQL, S3 and webhooks (globally routable addresses only, no redirects to private ones, size ceiling) | implemented | ci | a name that changes between the check and the connection is not covered |
 | Helm chart, OpenSearch, multi-instance scaling | planned | — | after 1.0 |
