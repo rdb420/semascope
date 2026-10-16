@@ -108,6 +108,9 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("POST", "/api/knowledge/packs/{pack_id}/activate"): Rule(
         ("editor", None), 200, query="version=1"
     ),
+    ("POST", "/api/knowledge/packs/diff"): Rule(("editor", None), 422, json={"path": "/nowhere"}),
+    ("GET", "/api/knowledge/packs/{pack_id}/diff"): Rule(("editor", None), 200, query="version=0"),
+    ("DELETE", "/api/knowledge/packs/{pack_id}/versions/{version}"): Rule(("admin", None), 200),
     ("GET", "/api/knowledge/packs/{pack_id}/tree"): Rule("auth", 200),
     ("GET", "/api/knowledge/packs/{pack_id}/concepts"): Rule("auth", 200),
     ("GET", "/api/knowledge/concepts"): Rule("auth", 200, query=f"iri={IRI_Q}"),
@@ -233,6 +236,7 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(graph, "_raw", lambda *a, **k: [])
     monkeypatch.setattr(services, "sync_dictionary", lambda *a, **k: 0)
     monkeypatch.setattr(store, "query", lambda *a, **k: [])
+    monkeypatch.setattr(store, "drop_graph", lambda *a, **k: None)
     monkeypatch.setattr(curation_services, "apply_proposal", lambda *a, **k: None)
     for name in ("reindex_collection", "discover_source", "process_document", "reindex_document"):
         monkeypatch.setattr(getattr(tasks, name), "delay", lambda *a, **k: FakeResult())
@@ -287,6 +291,16 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         graph_iri="urn:p",
     )
     Concept.objects.create(pack=pack, iri=CONCEPT_IRI, kind="concept", pref_label="C")
+    old = Pack.objects.create(
+        pack_id="p",
+        version="0",
+        title="P",
+        base_iri="https://example.org/p#",
+        status=Pack.Status.RETIRED,
+        manifest_hash="m0",
+        graph_iri="urn:p0",
+    )
+    Concept.objects.create(pack=old, iri=CONCEPT_IRI, kind="concept", pref_label="Old C")
     PackDelta.objects.create(
         pack_id="p", pack_version="1", collection=a, kind="note", params={"iri": CONCEPT_IRI}
     )
@@ -309,6 +323,7 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             "doc_id": doc.id,
             "page": 1,
             "pack_id": "p",
+            "version": "0",
             "review_id": review.id,
             "annotation_id": annotation.id,
             "webhook_id": webhook.id,

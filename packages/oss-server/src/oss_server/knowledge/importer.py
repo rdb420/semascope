@@ -354,6 +354,18 @@ def activate_pack(pack: Pack) -> None:
     pack.save(update_fields=["status", "activated_at"])
 
 
+def remove_pack_version(pack: Pack) -> int:
+    """Delete a pack version that is not active: its named graph and its Concept rows.
+    Returns the number of concepts removed. The caller clears the Solr dictionary."""
+
+    if pack.status == Pack.Status.ACTIVE:
+        raise ValueError(f"{pack} is active; activate another version first")
+    store.drop_graph(pack.pack_id, pack.version)
+    count = pack.concepts.count()
+    pack.delete()
+    return count
+
+
 def active_packs() -> list[Pack]:
     return list(Pack.objects.filter(status=Pack.Status.ACTIVE))
 
