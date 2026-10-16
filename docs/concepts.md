@@ -95,11 +95,16 @@ stable `external_ref`. The proposal log is append-only and the newest
 decision on a target is the one in force, so accept, reject and accept again
 leaves three proposals, each with its own `external_ref` (chained to the one
 it supersedes, which the outbox event names in `supersedes`), and the tag
-accepted. Repeating the decision already in force records nothing. Proposals are applied at once to Semascope's stores
+accepted. Repeating the decision already in force records nothing. A
+proposal keeps the tag as it was decided (its evidence) and the pack version
+it came from, and every decision on a review item, a deferral included, is
+kept in the item's history. Proposals are applied at once to Semascope's stores
 (Postgres, the Solr facets, a `CURATED` edge in the graph) and written to
 the **outbox** (`/api/curation/events`, read by cursor) so an external
 system of record can mirror, reject or audit them. Webhooks deliver outbox
-events with an HMAC signature. A reindex never undoes a decision.
+events with an HMAC signature. A reindex never undoes a decision. A rejected
+tag stays on the document, flagged, as the machine's evidence; search and
+the graph leave it out. See the [explainability model](assess/explainability.md).
 
 ## Graph
 
