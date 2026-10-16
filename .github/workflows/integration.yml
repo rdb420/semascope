@@ -1,0 +1,97 @@
+name: integration
+
+# The real stack, built from the checkout: Solr, Tika, Neo4j, Postgres, Valkey,
+# Caddy, server, worker and beat, with a subset of the demo corpus. Runs the
+# HTTP API tests (tests/integration), the browser smoke test and a backup ->
+# wipe -> restore round trip. scripts/integration.sh holds every step, so
+# `just integration` runs the same thing on a workstation.
+#
+# Pushes and pull requests run on amd64. The weekly schedule and a manual run
+# also run the job on an arm64 runner, which builds and exercises the arm64 image.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: Also run on the arm64 runner
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stack:
+    name: stack (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: >-
+          ${{ fromJSON(
+            (github.event_name == 'schedule'
+              || (github.event_name == 'workflow_dispatch' && inputs.arm64))
+            && '["ubuntu-24.04", "ubuntu-24.04-arm"]'
+            || '["ubuntu-24.04"]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      COMPOSE_PROJECT_NAME: sem-ci
+      SEMASCOPE_ENV_FILE: .env.ci
+      SEMASCOPE_HTTPS_PORT: "8473"
+      SEMASCOPE_IMAGE_TAG: ci
+      SEMASCOPE_DEMO_ONLY: odyssey iliad dhammapada song-celestial
+      SEMASCOPE_IT_ARTIFACTS: reports/integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image from the checkout
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          load: true
+          tags: ghcr.io/rdb420/semascope:ci
+          cache-from: type=gha,scope=integration-${{ runner.arch }}
+          cache-to: type=gha,mode=max,scope=integration-${{ runner.arch }}
+      - name: Chromium for the smoke test
+        run: uv run --with playwright python -m playwright install --with-deps chromium
+      - name: Start the stack (oss init, compose up --wait, oss doctor)
+        run: SEMASCOPE_IT_BUILD=0 scripts/integration.sh up
+      - name: Load the demo subset (oss demo --only ...)
+        id: demo
+        run: scripts/integration.sh demo
+      - name: Integration tests (HTTP API)
+        if: ${{ !cancelled() && steps.demo.outcome == 'success' }}
+        run: scripts/integration.sh test
+      - name: Browser smoke test
+        if: ${{ !cancelled() && steps.demo.outcome == 'success' }}
+        run: scripts/integration.sh smoke
+      - name: Backup, wipe and restore
+        if: ${{ !cancelled() && steps.demo.outcome == 'success' }}
+        run: scripts/integration.sh roundtrip
+      - name: Collect service logs
+        if: ${{ always() }}
+        run: scripts/integration.sh logs
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: integration-${{ matrix.runner }}
+          path: reports/integration
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Tear down
+        if: ${{ always() }}
+        run: scripts/integration.sh down
