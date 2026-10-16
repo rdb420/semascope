@@ -201,6 +201,7 @@
   - tests/integration/test_outbound.py::test_saved_search_with_an_invalid_query_is_refused
 
 "Search | Alerts on saved searches":
+  - packages/oss-server/tests/test_views.py::test_alert_list_shows_each_saved_search_with_its_newest_matches
   - packages/oss-server/tests/test_outbound_tasks.py::test_alerts_fire_only_when_the_total_grows
   - packages/oss-server/tests/test_outbound_tasks.py::test_alerts_see_only_what_their_owner_may_read
   - packages/oss-server/tests/test_outbound_tasks.py::test_a_failing_alert_does_not_stop_the_others
@@ -229,11 +230,11 @@
   - packages/oss-server/tests/test_api.py::test_session_login_and_me
   - tests/integration/test_oidc.py::test_the_sign_in_page_offers_the_provider
 
-"UI surfaces | Search: list, media grid, terms, timeline, facets, mode switch, CSV export":
+"UI surfaces | Search: list, media grid, terms, timeline, facets, mode switch, CSV export, table, entities and graph views, open original":
   - tests/e2e/ui_smoke.py
   - tests/integration/test_graph_search.py::test_csv_export_matches_the_search
 
-"UI surfaces | Document: text per page, page previews, tags with decisions, highlighted occurrences and a \"why this tag\" panel (provenance and decision history), annotations, stage runs":
+"UI surfaces | Document: text per page, page previews, tags with decisions, highlighted occurrences and a \"why this tag\" panel (provenance and decision history), query highlighting with jump to page, open original and download, annotations, stage runs":
   - tests/e2e/ui_smoke.py
   - packages/oss-server/tests/test_explain.py::test_tags_api_returns_spans_provenance_and_flags_rejections
 
@@ -243,7 +244,7 @@
 "UI surfaces | Concept and individual page with its documents; propose a change":
   - tests/e2e/ui_smoke.py
 
-"UI surfaces | Graph: hubs, neighbourhood expansion, shortest path":
+"UI surfaces | Graph: hubs, neighbourhood expansion, shortest path, edge documents, graph of a search's results":
   - tests/e2e/ui_smoke.py
   - tests/integration/test_api.py::test_graph_shortest_path
 
@@ -440,3 +441,64 @@
   - packages/oss-server/tests/test_pack_precedence.py::test_draft_labels_are_scoped_and_survive_a_dictionary_sync
   - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_tag_attributes_a_shared_iri_to_the_higher_precedence_pack
   - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_link_picks_the_higher_precedence_pack_for_a_shared_label
+
+"Search | Original files: authorised download, safe types inline, byte ranges":
+  - packages/oss-server/tests/test_views.py::test_original_is_served_with_its_type_and_name
+  - packages/oss-server/tests/test_views.py::test_active_content_is_only_ever_an_attachment
+  - packages/oss-server/tests/test_views.py::test_original_needs_reader_on_its_collection
+  - packages/oss-server/tests/test_views.py::test_original_is_never_read_outside_the_blob_store
+  - packages/oss-server/tests/test_views.py::test_original_honours_a_byte_range
+  - tests/integration/test_views.py::test_original_is_the_stored_file
+  - tests/e2e/ui_smoke.py
+
+"Search | Query highlighting on the document page, jump to the first matching page":
+  - packages/oss-server/tests/test_views.py::test_query_terms
+  - packages/oss-server/tests/test_views.py::test_matches_give_offsets_pages_and_the_first_matching_page
+  - tests/integration/test_views.py::test_query_matches_point_into_the_text
+  - tests/e2e/ui_smoke.py
+
+"Search | Table view: sortable columns and column statistics":
+  - packages/oss-server/tests/test_views.py::test_table_stats_read_solr_stats_within_the_read_scope
+  - tests/integration/test_views.py::test_table_stats_cover_every_match
+  - tests/e2e/ui_smoke.py
+
+"Search | Entities view (grid of entity facets)":
+  - packages/oss-server/tests/test_views.py::test_entities_view_lists_the_entity_facets_in_order
+  - tests/integration/test_views.py::test_entities_view_has_entity_facets
+  - tests/e2e/ui_smoke.py
+
+"Search | Atom and RSS feeds of saved searches, any search and all alerts (feed token)":
+  - packages/oss-server/tests/test_views.py::test_feed_token_lifecycle
+  - packages/oss-server/tests/test_views.py::test_feed_tokens_are_refused_when_wrong_and_open_nothing_else
+  - packages/oss-server/tests/test_views.py::test_a_feed_follows_the_owners_read_access
+  - tests/integration/test_views.py::test_feeds_by_feed_token
+  - tests/integration/test_views.py::test_a_feed_token_reads_as_its_owner
+
+"UI surfaces | Alerts and feeds page (saved searches, alerts on and off, feed token, Atom and RSS links)":
+  - tests/e2e/ui_smoke.py
+
+"Graph operations | Co-occurrence of concepts and entities within a search's results; documents behind an edge":
+  - packages/oss-server/tests/test_views.py::test_cooccurrence_of_a_search_is_scoped_and_weighted
+  - packages/oss-server/tests/test_views.py::test_edge_documents
+  - tests/integration/test_views.py::test_cooccurrence_of_a_search_and_its_edge_documents
+  - tests/e2e/ui_smoke.py
+
+"Operation | Worker loss: no document lost, stuck or processed twice when a worker process or container dies":
+  - packages/oss-server/tests/test_worker_recovery.py::test_document_tasks_go_back_to_the_queue_when_their_process_dies
+  - packages/oss-server/tests/test_worker_recovery.py::test_a_document_no_worker_is_running_is_requeued
+  - packages/oss-server/tests/test_worker_recovery.py::test_reprocessing_an_indexed_document_with_the_same_inputs_is_skipped
+  - scripts/bench_recovery.py
+
+"Operation | Crash-loop guard: a document that kills its worker three times is held as failed":
+  - packages/oss-server/tests/test_worker_recovery.py::test_a_document_that_keeps_killing_its_worker_ends_failed
+  - packages/oss-server/tests/test_worker_recovery.py::test_reindex_clears_the_count_and_fetches_held_documents_again
+  - packages/oss-server/tests/test_worker_recovery.py::test_stats_show_pending_and_failed_graphs_and_held_documents
+
+"Operation | Graph projection survives a Neo4j outage":
+  - packages/oss-server/tests/test_worker_recovery.py::test_neo4j_down_leaves_the_document_searchable_with_its_graph_pending
+  - packages/oss-server/tests/test_worker_recovery.py::test_recovery_projects_the_graph_once_neo4j_is_back
+  - scripts/bench_recovery.py
+
+"Operation | Worker memory: pool processes are replaced past their share of the memory cap":
+  - packages/oss-server/tests/test_worker_memory.py::test_each_size_recycles_processes_inside_its_cap
+  - scripts/bench_recovery.py

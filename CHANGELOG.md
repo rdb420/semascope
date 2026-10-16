@@ -7,6 +7,10 @@ and the project follows semantic versioning.
 
 ### Security
 
+- Feed tokens open feeds only and read as their owner; originals are read
+  only from the blob store, and active content is sent as an attachment
+  with a sandbox content-security policy; curator controls show only to
+  curators.
 - Every API route has an explicit role rule, checked by a test that walks
   each route as six kinds of user; annotations need the curator role (or
   authorship), document reindex the editor role, and marking pack deltas
@@ -27,6 +31,18 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Original files: `GET /api/documents/{id}/original` serves the stored
+  original to readers of its collection, with its file name, byte ranges
+  and an ETag; PDFs, images, plain text, audio and video open in the
+  browser, HTML, SVG and other types download.
+- The document page highlights the words of the search that led to it and
+  jumps to the first matching page (`GET /api/documents/{id}/matches`).
+- Table, entities and graph-of-results views of a search; clicking a graph
+  edge lists the documents behind it.
+- Alerts page, and Atom and RSS feeds of a saved search, any search and all
+  alerting searches, read with a revocable feed token.
+- `oss stats` and `oss doctor` report documents whose graph projection is
+  pending or failed, and documents held after repeated worker crashes.
 - Integration tests against real web, feed, S3 (MinIO), SPARQL (Oxigraph),
   webhook and OpenID Connect services; `docs/assess/evidence.yaml` maps every
   capability-matrix row to the tests that prove it, and a test keeps the two
@@ -72,6 +88,23 @@ and the project follows semantic versioning.
 
 ### Changed
 
+- Worker loss no longer loses or strands documents: a dead pool process
+  hands its task back, `recover` (every 2 minutes) requeues documents left
+  `processing`, and a redelivered task for a document already indexed from
+  the same content and settings does nothing. A document whose runs kill
+  the worker three times (`SEMASCOPE_MAX_ATTEMPTS`) is held as failed until
+  it changes or `oss reindex`. Document tasks have a hard time limit
+  (`SEMASCOPE_TASK_TIME_LIMIT_S`, 1800 s, 5400 s with MinerU) and Valkey's
+  visibility timeout follows it.
+- A Neo4j outage leaves documents searchable with `graph_status: pending`;
+  the projection is written once Neo4j answers (migration `catalogue.0004`).
+- Worker pool processes are replaced once they grow past their share of the
+  memory cap (`SEMASCOPE_WORKER_MAX_MEMORY_MB` overrides it).
+- `oss-worker --queues` defaults to `io,cpu`; stages no longer declare a
+  queue (ADR-0010). Stopping the worker hands unfinished tasks back after
+  45 s.
+- The server runs its start-up preparation in a child process, so the web
+  server never holds the pack store open across a fork.
 - A rejected tag stays on the document, flagged, instead of being removed;
   search and the graph leave it out through the same curated view.
 - CI validates `packs/base` and `packs/demo/pack` without rewriting their

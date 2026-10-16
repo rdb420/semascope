@@ -70,21 +70,27 @@ implemented has none, or names a test that does not exist.
 | Date histogram and timeline | implemented | ci, smoke | |
 | Query tagging (concepts recognised in the query) | implemented | ci, smoke | |
 | Saved searches | implemented | ci | |
-| Alerts on saved searches | implemented | ci | through the API; the UI saves with alerts off |
+| Alerts on saved searches | implemented | ci, smoke | switched on and off on the Alerts page, with an in-app list of newest matches |
 | List search (a batch of names) | implemented | ci, smoke | |
 | Significant terms | implemented | ci, smoke | |
 | Suggest / autocomplete | implemented (API) | ci | `GET /api/suggest?q=` (titles, last word as a prefix), routed after rc.2; the search box does not call it yet |
+| Original files: authorised download, safe types inline, byte ranges | implemented | ci, smoke | HTML, SVG and unknown types are only sent as attachments |
+| Query highlighting on the document page, jump to the first matching page | implemented | ci, smoke | literal matching; a hit found through semantic search may show no highlight |
+| Table view: sortable columns and column statistics | implemented | ci, smoke | |
+| Entities view (grid of entity facets) | implemented | ci, smoke | |
+| Atom and RSS feeds of saved searches, any search and all alerts (feed token) | implemented | ci, smoke | a feed token opens feeds only and reads as its owner |
 
 ## UI surfaces
 
 | Page | State | Tests |
 |---|---|---|
 | Sign-in (local accounts; single sign-on button when configured) | implemented | smoke |
-| Search: list, media grid, terms, timeline, facets, mode switch, CSV export | implemented | smoke |
-| Document: text per page, page previews, tags with decisions, highlighted occurrences and a "why this tag" panel (provenance and decision history), annotations, stage runs | implemented | smoke |
+| Search: list, media grid, terms, timeline, facets, mode switch, CSV export, table, entities and graph views, open original | implemented | smoke |
+| Document: text per page, page previews, tags with decisions, highlighted occurrences and a "why this tag" panel (provenance and decision history), query highlighting with jump to page, open original and download, annotations, stage runs | implemented | smoke |
 | Packs and pack page: scheme tree, competency questions, deltas | implemented | smoke |
 | Concept and individual page with its documents; propose a change | implemented | smoke |
-| Graph: hubs, neighbourhood expansion, shortest path | implemented | smoke (hubs, expansion) |
+| Graph: hubs, neighbourhood expansion, shortest path, edge documents, graph of a search's results | implemented | smoke |
+| Alerts and feeds page (saved searches, alerts on and off, feed token, Atom and RSS links) | implemented | smoke |
 | Review queue | implemented | smoke |
 | Map of pack places | implemented | smoke |
 | List search | implemented | smoke |
@@ -101,6 +107,7 @@ implemented has none, or names a test that does not exist.
 | Neighbours (depth 1 to 3) | implemented | ci, smoke | |
 | Shortest path between two nodes | implemented | ci, smoke | |
 | Hubs of a collection | implemented | smoke | |
+| Co-occurrence of concepts and entities within a search's results; documents behind an edge | implemented | ci, smoke | |
 | Read-only Cypher console (staff) | implemented | ci | write clauses refused; reads run in a read transaction |
 | Entity-to-entity relations from pack triples | planned | — | pack relations are in the SPARQL store only |
 
@@ -152,6 +159,10 @@ implemented has none, or names a test that does not exist.
 | Single sign-on (OpenID Connect) | implemented | ci | the authorisation-code flow against a test identity provider; rc.2 images lacked the JWT library the callback needs |
 | Roles per collection | implemented | ci | roles govern reading and writing; `SEMASCOPE_DEFAULT_ROLE=none` makes reading per collection (the default `reader` keeps it open to every signed-in user); a route-by-route authorisation test covers every endpoint |
 | Backup and restore | implemented | ci | a round trip onto an emptied stack compares counts, searches, decisions and the outbox cursor |
+| Worker loss: no document lost, stuck or processed twice when a worker process or container dies | implemented | ci, bench | a dead process hands its task back; `recover` requeues stale documents every 2 minutes; redelivered work for an unchanged document is skipped |
+| Crash-loop guard: a document that kills its worker three times is held as failed | implemented | ci | shown by `oss stats` and `oss doctor`; `oss reindex` retries it |
+| Graph projection survives a Neo4j outage | implemented | ci, bench | documents stay searchable with the graph pending, and are projected when Neo4j answers |
+| Worker memory: pool processes are replaced past their share of the memory cap | implemented | ci, bench | |
 | OpenTelemetry traces and metrics | experimental | ci (set-up) | server, workers and beat export both over OTLP since the fix after rc.2; the bundled collector logs traces and passes metrics to Prometheus; not exercised against a live collector in CI |
 | Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image is amd64 only |
 | Signed releases | experimental | — | keyless cosign signatures configured in the release workflow, not yet exercised by a release |
