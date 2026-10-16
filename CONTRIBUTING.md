@@ -59,3 +59,8 @@ docker compose run --rm -v "$PWD/scripts:/scripts:ro" -v "$PWD/packs/demo/golden
 # browser smoke test (needs Chromium once: uv run --with playwright python -m playwright install chromium)
 SEMASCOPE_UI_PASSWORD='the admin password from .env' uv run tests/e2e/ui_smoke.py
 ```
+
+`just integration` does all of this on a throwaway stack (its own compose
+project, env file and port), adds the HTTP API tests in `tests/integration/`
+and a backup and restore round trip, and tears the stack down; CI runs the
+same script. See [Operations](docs/operations.md#integration-tests).
