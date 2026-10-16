@@ -1,8 +1,8 @@
 """What a source may reach: folders under the source roots, and public network addresses.
 
 Paths. Connectors that read local files (filesystem, mail, archive, table, rdf
-files) may only read under `SEMASCOPE_SOURCE_ROOTS` (default `/import`, the
-read-only import mount); upload sources only under their own collection's
+files) may only read under `SEMASCOPE_SOURCE_ROOTS` (default `/import`, the read-only import
+mount, and the demo corpus shipped in the image); upload sources only under their own collection's
 upload area. Paths are resolved, symlinks included, before the comparison, so
 a link that points out of a root is refused rather than followed.
 
