@@ -14,3 +14,4 @@ instead). Template: context, decision, consequences, alternatives.
 | 0007 | The pack contract is the ontology skill's bundle | proposed |
 | 0008 | Runtimes and per-stage model providers | accepted 2026-10-16 |
 | 0009 | Every tag carries its own explanation | proposed |
+| 0012 | Capabilities Open Semantic Search promised and never delivered | proposed |

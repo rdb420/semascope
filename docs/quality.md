@@ -273,3 +273,72 @@ graph stage leaves documents `indexed` with an error rather than `failed`,
 so a status filter does not find them (a reindex of the collection does);
 and the run needed a fix to the `./oss` shim, which exited on a host without
 `.env` (fixed on this branch).
+
+## Relevance evaluation
+
+Recorded on 2026-10-17 with `oss eval` (see
+[Similar documents, exports and annotations](interop.md#relevance-evaluation))
+inside a throwaway stack (compose project `sem-extras`, `--size small`,
+`--runtime cpu`, embeddings `BAAI/bge-small-en-v1.5`) built from branch
+`hardening/extras` at `c9ef5f1` (image `sha256:457ffff5…`), with all sixteen
+demo texts loaded (`corpus.sha256` `c3122298…`) and the judgements in
+`packs/demo/judgements.yaml` (sha256 `4bebca20…`, 22 queries):
+
+```bash
+./oss eval /app/packs/demo/judgements.yaml
+```
+
+| mode | P@10 | R@10 | nDCG@10 | MRR@10 |
+|---|---|---|---|---|
+| keyword | 0.241 | 0.942 | 0.948 | 1.000 |
+| semantic | 0.250 | 0.974 | 0.965 | 1.000 |
+| hybrid | 0.255 | 0.985 | 0.973 | 1.000 |
+
+How to read it:
+
+- The corpus is sixteen whole books and a query has one to eight relevant
+  ones, so P@10 cannot rise much above the share of relevant books; R@10,
+  nDCG@10 and MRR@10 carry the signal. Every mode puts a relevant book
+  first for every query.
+- The judgements come from term counts in the books (`packs/demo/judge.py`),
+  so they reward finding the books that talk most about a subject. They say
+  nothing about passages, and they are easy for a corpus this small; they
+  are a regression baseline, not a claim about search quality in general.
+- Hybrid is best overall. Keyword loses most where a query's words differ
+  from the translations' (q01 "Odysseus" against Butler's "Ulysses":
+  keyword 0.77, semantic 0.95) or are common words (q14 "fables of the
+  fox": 0.60, 0.96). Semantic loses on names it embeds poorly (q21 "Pwyll
+  and Rhiannon": 1.00 keyword, 0.83 semantic). "Väinämöinen" (q08) is
+  found by keyword search too: the analyser folds accents and the Kalevala
+  spells the name without them once.
+
+Per query (nDCG@10):
+
+| query | keyword | semantic | hybrid |
+|---|---|---|---|
+| q01 Odysseus | 0.77 | 0.95 | 0.95 |
+| q02 Odysseus returns home to Ithaca and Penelope | 1.00 | 1.00 | 1.00 |
+| q03 Achilles and Hector at Troy | 1.00 | 1.00 | 1.00 |
+| q04 the great flood | 0.77 | 0.86 | 0.91 |
+| q05 Krishna teaches Arjuna on the battlefield | 1.00 | 1.00 | 1.00 |
+| q06 the Buddha and Nirvana | 0.97 | 1.00 | 1.00 |
+| q07 the forging of the Sampo | 1.00 | 1.00 | 1.00 |
+| q08 Väinämöinen | 1.00 | 1.00 | 1.00 |
+| q09 King Arthur and his knights | 1.00 | 1.00 | 1.00 |
+| q10 Thor, Odin and Loki in Asgard | 1.00 | 0.96 | 1.00 |
+| q11 Isis and Osiris | 1.00 | 1.00 | 1.00 |
+| q12 the Tao that can be told | 1.00 | 1.00 | 1.00 |
+| q13 Confucius on filial piety | 1.00 | 1.00 | 1.00 |
+| q14 fables of the fox | 0.60 | 0.96 | 0.87 |
+| q15 Hansel and Gretel | 1.00 | 1.00 | 1.00 |
+| q16 the priest of Nemi and the golden bough | 0.98 | 0.98 | 1.00 |
+| q17 the Trojan war | 0.91 | 1.00 | 1.00 |
+| q18 the Prophet and Allah | 1.00 | 1.00 | 1.00 |
+| q19 Moses and Pharaoh | 1.00 | 0.99 | 1.00 |
+| q20 the gods on Mount Olympus | 1.00 | 0.89 | 1.00 |
+| q21 Pwyll and Rhiannon | 1.00 | 0.83 | 0.83 |
+| q22 Zeus, king of the gods | 0.85 | 0.81 | 0.84 |
+
+The integration stack loads four of the sixteen texts; there `oss eval`
+leaves out the judged books it does not hold and scores the queries that
+still have one (`tests/integration/test_extras.py`).
