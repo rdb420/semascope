@@ -142,3 +142,32 @@ traces.
 | `solr` | the `documents`, `entities` and `chunks` collections |
 | `neo4j` | the graph projection |
 | `valkey` | the task queue (safe to lose: in-flight tasks are redelivered) |
+
+## Integration tests
+
+`just integration` (or `scripts/integration.sh`) proves the stack end to end
+on a throwaway copy, the same way the `integration` workflow does in CI:
+
+1. `up`: `oss init` into `.env.ci` (small, cpu runtime) when it is missing,
+   builds the image from the checkout as `ghcr.io/rdb420/semascope:ci`, checks
+   the demo texts are in it, then `compose up --wait` and `oss doctor`.
+2. `demo`: `oss demo --only …` loads four demo texts (`SEMASCOPE_DEMO_ONLY`).
+3. `test`: `tests/integration/` against the HTTP API through Caddy: document
+   counts by state, pack tags against `packs/demo/golden.yaml`, flat and
+   hierarchical facets, keyword, semantic and hybrid search, list search, graph
+   neighbours and a shortest path, a review decision through the outbox to a
+   `CURATED` edge, and `oss reindex` keeping it.
+4. `smoke`: `tests/e2e/ui_smoke.py` in Chromium; screenshots land in
+   `reports/integration/screenshots/` and any console error fails it.
+5. `roundtrip`: `oss backup --with-graph`, `compose down --volumes`, a fresh
+   `up`, `oss restore`, then counts, search results, review decisions, curated
+   tags and edges, packs and the outbox cursor must match what was there before.
+6. `down`: removes the project's containers and volumes (`logs` saves the
+   service logs first; `all` does both unless `SEMASCOPE_IT_KEEP=1`).
+
+The run uses its own compose project (`COMPOSE_PROJECT_NAME`, default `sem-ci`;
+`semascope` is refused), env file (`SEMASCOPE_ENV_FILE`, default `.env.ci`)
+and port (`SEMASCOPE_HTTPS_PORT`, default 8473), so a stack you already run
+is never touched. Steps can be run one at a time, e.g. `just integration up
+demo test` and later `just integration down`. It takes about five minutes on
+a workstation once the image layers are cached.

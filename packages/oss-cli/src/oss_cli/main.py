@@ -318,9 +318,17 @@ def demo(
     pack: Path = typer.Option(
         Path("/app/packs/demo/pack"), help="Demo pack folder as seen by the server"
     ),
+    only: list[str] = typer.Option(
+        [],
+        envvar="SEMASCOPE_DEMO_ONLY",
+        help="Load only these texts by slug, e.g. --only odyssey (env: space-separated slugs)",
+    ),
 ) -> None:
     """Load the public-domain demo corpus and its knowledge model."""
 
+    settings: dict[str, Any] = {"path": str(corpus)}
+    if only:
+        settings["include"] = [f"{slug}.txt" for slug in only]
     with _api() as api:
         out = _check(
             api.post(
@@ -345,12 +353,15 @@ def demo(
                     json={
                         "name": "demo-corpus",
                         "connector": "filesystem",
-                        "settings": {"path": str(corpus)},
+                        "settings": settings,
                     },
                 )
             )
+        elif only and src.get("settings") != settings:
+            console.print("[yellow]the demo source exists; --only applies to a new one[/yellow]")
         run = _check(api.post(f"/sources/{src['id']}/run"))
-        console.print(f"queued the demo corpus (source {src['id']}, task {run['task_id']})")
+        subset = f", {len(only)} texts" if only else ""
+        console.print(f"queued the demo corpus (source {src['id']}, task {run['task_id']}{subset})")
         console.print(
             "open the UI, pick the demo collection and try the traditions and themes facets"
         )

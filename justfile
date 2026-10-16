@@ -21,6 +21,10 @@ typecheck:
 test:
     uv run pytest
 
+# Real-stack tests on a throwaway stack (sem-ci, :8473); steps: all | up demo test smoke roundtrip logs down
+integration *steps="all":
+    scripts/integration.sh {{steps}}
+
 # Validate the base pack and the demo pack with the ontology-skill contract
 packs:
     uv run oss pack validate packs/base

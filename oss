@@ -4,14 +4,18 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 cmd="${1:-help}"
+# SEMASCOPE_ENV_FILE picks another env file (the integration stack uses .env.ci);
+# compose then reads it for variable substitution too.
+env_file="${SEMASCOPE_ENV_FILE:-.env}"
+if [ "$env_file" != .env ]; then export SEMASCOPE_ENV_FILE COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$env_file}"; fi
 # The runtime chosen at `oss init` picks the compose overlay for every command below.
-runtime="$(grep -E '^SEMASCOPE_RUNTIME=' .env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')"
+runtime="$(grep -E '^SEMASCOPE_RUNTIME=' "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')"
 case "${runtime:-cpu}" in
   gpu) export COMPOSE_FILE="${COMPOSE_FILE:-compose.yaml:compose.gpu.yaml}" ;;
 esac
 case "$cmd" in
   init)
-    shift; exec uv run --package oss-cli oss init "$@" ;;
+    shift; exec uv run --package oss-cli oss init --env-file "$env_file" "$@" ;;
   up)
     docker compose pull --ignore-buildable 2>/dev/null || true
     docker compose up -d --wait; exec docker compose run --rm cli oss doctor ;;
@@ -21,12 +25,12 @@ case "$cmd" in
     shift; exec docker compose logs -f "$@" ;;
   index)
     shift
-    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' .env 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//')"
+    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' "$env_file" 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//')"
     import_dir="$(cd "${import_dir:-./data/import}" 2>/dev/null && pwd -P || echo "")"
     target="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/$(basename "$1")"
     case "$target" in
       "$import_dir"|"$import_dir"/*) inside="/import${target#"$import_dir"}" ;;
-      *) echo "$1 is outside SEMASCOPE_IMPORT_DIR ($import_dir); move it there or change the setting in .env" >&2; exit 2 ;;
+      *) echo "$1 is outside SEMASCOPE_IMPORT_DIR ($import_dir); move it there or change the setting in $env_file" >&2; exit 2 ;;
     esac
     exec docker compose run --rm cli oss index "$inside" "${@:2}" ;;
   backup)
