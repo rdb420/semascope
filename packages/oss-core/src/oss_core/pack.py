@@ -184,7 +184,7 @@ def rdf_format(file: Path) -> str:
     return fmt
 
 
-def _remote_contexts(node: Any) -> list[str]:
+def remote_contexts(node: Any) -> list[str]:
     """String (remote) @context references anywhere in a JSON-LD document."""
 
     out: list[str] = []
@@ -193,12 +193,12 @@ def _remote_contexts(node: Any) -> list[str]:
             if key in ("@context", "@import"):
                 items = value if isinstance(value, list) else [value]
                 out += [v for v in items if isinstance(v, str)]
-                out += [r for v in items if isinstance(v, dict) for r in _remote_contexts(v)]
+                out += [r for v in items if isinstance(v, dict) for r in remote_contexts(v)]
             else:
-                out += _remote_contexts(value)
+                out += remote_contexts(value)
     elif isinstance(node, list):
         for value in node:
-            out += _remote_contexts(value)
+            out += remote_contexts(value)
     return out
 
 
@@ -212,7 +212,7 @@ def parse_rdf(graph: Graph, file: Path) -> None:
             doc = json.loads(file.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise RdfFileError(f"{file.name}: {exc}") from exc
-        remote = _remote_contexts(doc)
+        remote = remote_contexts(doc)
         if remote:
             raise RdfFileError(
                 f"{file.name}: remote JSON-LD contexts are not fetched ({remote[0]}); "
