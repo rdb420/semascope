@@ -18,9 +18,14 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy packages
       - run: uv run pytest
-      - name: Validate packs against the ontology-skill contract
+      - name: Validate the shipped packs against the pack contract (ADR-0007)
+        # Semascope's implementation of the ontology-skill contract: files, labels,
+        # model support and evidence, the query manifest, SHACL over the fixtures,
+        # the competency questions, and release-manifest.json (a stale one fails;
+        # no --manifest here). The skill's own scripts are not public.
         run: |
-          uv run oss pack validate packs/base --manifest
+          uv run oss pack validate packs/base
+          uv run oss pack validate packs/demo/pack
       - name: Dependency audit
         run: |
           uv export --all-packages --no-dev --format requirements-txt > /tmp/requirements.txt
