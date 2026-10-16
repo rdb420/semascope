@@ -219,7 +219,7 @@ export function DocumentPage() {
           <Row k="Language" v={d.language} />
           <Row k="Size" v={d.size ? `${(d.size / 1024).toFixed(0)} KB` : ""} />
           <Row k="Pages" v={String(d.metadata.page_count ?? "")} />
-          <Row k="OCR" v={d.metadata.ocr ? "yes" : "no"} />
+          <Row k="OCR" v={d.metadata.ocr_pending ? "pending (queued after other work)" : d.metadata.ocr ? "yes" : "no"} />
           <Row k="Modified" v={d.modified_at ?? ""} />
           <Row k="Indexed" v={d.indexed_at ?? ""} />
           <Row k="Your role" v={access.data?.role ?? ""} />

@@ -15,6 +15,9 @@ of a zip, the images of a Word file) is added after the document's own text,
 headed by the item's name, at most `embedded_max_items` (100) items and
 `embedded_max_chars` (1,000,000) characters; sources whose connector already
 makes those items documents of their own (mail) skip it.
+
+`ocr` is `now` (default), `later` or `off` (`oss_pipeline.ocr_later`): with `later` this
+stage reads the text layer only and marks a document that needs OCR `ocr_pending`.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from oss_core.contracts import StageContext, WorkingDocument
 from oss_pipeline.clients.mineru import MineruClient, MineruError
 from oss_pipeline.clients.tika import Extraction, TikaClient, primary_language, valid_ocr_languages
 from oss_pipeline.media import content_type_group
+from oss_pipeline.ocr_later import mark_pending, needs_ocr, ocr_mode
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +99,8 @@ class ExtractStage:
 
     def run(self, doc: WorkingDocument, ctx: StageContext) -> WorkingDocument:
         path = Path(str(doc.fields["blob_path"]))
-        ocr = bool(ctx.settings.get("ocr", True))
+        mode = ocr_mode(ctx.settings)  # now, later (a low-priority pass OCRs it) or off
+        ocr = mode == "now"
         mineru = self._mineru_client(ctx)
         # MinerU parses what it handles and Tika then only reads metadata (no OCR); every
         # other format is Tika's, with OCR. The media type is guessed first, and Tika is
@@ -140,6 +145,11 @@ class ExtractStage:
                 },
             }
         )
+        embedded_types = [m.get("Content-Type") for m in result.embedded]
+        later = mode == "later" and needs_ocr(
+            doc.media_type, result.text, result.page_count, embedded_types, ctx.settings
+        )
+        mark_pending(doc, later)
         return doc
 
 

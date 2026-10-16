@@ -395,7 +395,11 @@ DOCUMENT_TASK: dict[str, Any] = {
     "reject_on_worker_lost": True,
     "time_limit": get_settings().task_time_limit,
 }
-DOCUMENT_TASKS = ("semascope.process_document", "semascope.reindex_document")
+DOCUMENT_TASKS = (
+    "semascope.process_document",
+    "semascope.reindex_document",
+    "semascope.ocr_document",  # OCR later (pipeline/ocr.py)
+)
 
 
 def _retry_policy(collection: Collection) -> tuple[int, float]:
@@ -598,6 +602,7 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: boo
         return str(Document.Status.FAILED)
     if doc_row.status == Document.Status.INDEXED and doc_row.blob_path:
         _drop_work_file(item)  # the original is in the blob store now
+    ocr.queue_ocr(doc_row)  # indexed without OCR (`ocr: later`): the OCR pass, low priority
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
@@ -672,6 +677,8 @@ def reindex_document(self: Any, doc_id: str, stages: list[str] | None = None) ->
     # a full replay is what processing the same content again would give
     fp = "" if wanted else fingerprint(doc_row.content_hash, ctx, every)
     _store(doc_row, work, fingerprint=fp)
+    if not wanted:
+        ocr.queue_ocr(doc_row)  # a pending OCR pass whose task was lost is queued again
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
@@ -1317,3 +1324,7 @@ def check_alerts() -> int:
             saved.last_checked_at = timezone.now()
             saved.save(update_fields=["last_total", "last_checked_at"])
     return fired
+
+
+# registered with the worker through this module (autodiscovery imports `tasks` only)
+from oss_server.pipeline import ocr  # noqa: E402

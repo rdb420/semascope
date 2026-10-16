@@ -327,6 +327,8 @@ def document_report(settings: Any, client: httpx.Client) -> tuple[str, list[str]
         f"graph pending {graph.get('pending', 0)}, graph failed {graph.get('failed', 0)}, "
         f"held {stats.get('interrupted', 0)}"
     )
+    if stats.get("ocr_pending"):
+        summary += f", ocr pending {stats['ocr_pending']}"
     return summary, notes
 
 
@@ -604,6 +606,12 @@ def document_notes(stats: dict[str, Any]) -> list[str]:
         notes.append(
             f"{stats['interrupted']} documents are held after their runs kept stopping the "
             "worker (memory, a crash or the time limit); see their errors, then `oss reindex`"
+        )
+    if stats.get("ocr_pending"):
+        notes.append(
+            f"{stats['ocr_pending']} documents are searchable by their text layer and wait for "
+            "their OCR pass (`ocr: later`), which runs when no other document is queued; "
+            "`oss reindex --collection <slug>` queues lost ones again"
         )
     return notes
 

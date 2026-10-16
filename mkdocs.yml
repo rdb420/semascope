@@ -42,6 +42,7 @@ nav:
       - adr/0011-psycopg-lgpl.md
       - adr/0012-never-delivered-capabilities.md
       - adr/0013-deletion-and-retention.md
+      - adr/0014-ocr-later.md
 markdown_extensions:
   - tables
   - admonition

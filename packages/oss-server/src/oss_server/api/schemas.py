@@ -163,3 +163,4 @@ class StatsOut(Schema):
     # `failed` (needs `oss reindex`); and documents held after their runs kept killing a worker
     graph: dict[str, int] = {}
     interrupted: int = 0
+    ocr_pending: int = 0  # indexed without OCR (`ocr: later`); a low-priority pass OCRs them
