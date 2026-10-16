@@ -190,3 +190,46 @@ def test_uploads_to_a_dot_slug_cannot_leave_the_upload_area(
     assert r.status_code == 400, r.content
     written = [p for p in tmp_path.rglob("*") if p.is_file()]
     assert written == [], written
+
+
+def test_places_quote_the_collection(
+    client: Client, admin: dict[str, str], solr: RecordingSolr, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.api import knowledge
+    from oss_server.knowledge.models import Concept, Pack
+
+    pack = Pack.objects.create(
+        pack_id="p", version="1", title="P", base_iri="https://x/p#", manifest_hash="h",
+        graph_iri="g:p", status=Pack.Status.ACTIVE,
+    )  # fmt: skip
+    Concept.objects.create(
+        pack=pack, iri="https://x/p#troy", kind=Concept.Kind.INDIVIDUAL, pref_label="Troy",
+        extra={"lat": 39.9, "lon": 26.2},
+    )  # fmt: skip
+    monkeypatch.setattr(knowledge, "read_scope", lambda request, collection=None: None)
+    client.get("/api/knowledge/places", {"collection": WIDEN}, headers=admin)
+    assert solr.selects, "places did not query Solr"
+    assert f"collection_s:{quote_term(WIDEN)}" in solr.selects[0]["fq"]
+
+
+def test_list_search_keeps_each_name_one_phrase(
+    client: Client, admin: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.api import search as search_mod
+    from oss_server.api.schemas import SearchOut
+
+    seen: list[str] = []
+
+    def fake(client: Any, coll: str, req: SearchIn, allowed: Any) -> SearchOut:
+        seen.append(req.q)
+        return SearchOut(total=0, page=1, page_size=1, took_ms=0, hits=[], facets={})
+
+    monkeypatch.setattr(search_mod, "search", fake)
+    r = client.post(
+        "/api/search/list",
+        data={"names": [WIDEN]},
+        content_type="application/json",
+        headers=admin,
+    )
+    assert r.status_code == 200, r.content
+    assert seen == [quote_term(WIDEN)]

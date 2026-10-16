@@ -107,7 +107,7 @@ def list_search(request: HttpRequest, payload: ListSearchIn) -> dict[str, Any]:
         if not name:
             continue
         req = SearchIn(
-            q=f'"{name}"',
+            q=search_mod._escape(name),  # one phrase, whatever the name holds
             collection=payload.collection,
             facets=[],
             page_size=max(1, min(payload.rows_per_name, 20)),

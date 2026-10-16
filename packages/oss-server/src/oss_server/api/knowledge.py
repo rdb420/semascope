@@ -406,7 +406,7 @@ def places(request: HttpRequest, collection: str | None = None) -> list[dict[str
         return []
     fq = collection_filter(allowed)
     if collection:
-        fq.append(f'collection_s:"{collection}"')
+        fq.append(f"collection_s:{quote_term(collection)}")
     body = solr_client().select(
         solr_documents_collection(),
         q="*:*",
