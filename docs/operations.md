@@ -118,6 +118,7 @@ document's whole profile runs in one task
 | A document task runs past its time limit (`SEMASCOPE_TASK_TIME_LIMIT_S`, 1800 s; 5400 s with MinerU) | its process is killed and the document is handled as above |
 | Neo4j is unavailable during the graph stage | the document is indexed and searchable, with its graph projection `pending`; the graph stage alone is retried after about 60, 120, 240 and 480 seconds, then `recover` projects pending documents whenever Neo4j answers. For a minute after a failure, a worker process does not wait for Neo4j again: the next documents skip the graph stage and are `pending` too. A permanent graph error leaves it `failed` until `./oss reindex` |
 | A source run is interrupted | `recover` marks the source failed, so the scheduler starts it again |
+| Solr or Neo4j is unavailable when a curator decides | the decision is recorded in Postgres and the outbox, with `applied: false`; every five minutes `retry-proposals` applies the decisions in force that the stores missed |
 
 A worker process grows as it indexes (from about 1 GB to 2.2 GB over 1,000
 documents on 1.0.0-rc.2), so `oss-worker` replaces a process once it is

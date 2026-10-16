@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -74,16 +75,23 @@ def test_concept_lookup_with_the_iri_in_two_active_packs(
 
 
 class FakeSolr:
+    """The entities collection of one pack version: adds replace by id, and a delete keeps
+    only the entries of the sync it names (`… AND -sync:"<generation>"`)."""
+
     def __init__(self) -> None:
         self.docs: dict[str, dict[str, Any]] = {}
         self.deleted: list[str] = []
+        self.sizes: list[int] = []  # entries after each write
 
     def add(self, collection: str, docs: list[dict[str, Any]], **_: Any) -> None:
         self.docs.update({d["id"]: d for d in docs})
+        self.sizes.append(len(self.docs))
 
     def delete_by_query(self, collection: str, query: str) -> None:
         self.deleted.append(query)
-        self.docs.clear()  # the only pack version in these tests
+        keep = re.search(r'-sync:"([^"]+)"', query)
+        self.docs = {k: d for k, d in self.docs.items() if keep and d.get("sync") == keep.group(1)}
+        self.sizes.append(len(self.docs))
 
     def commit(self, collection: str) -> None:
         pass
@@ -93,8 +101,14 @@ class FakeSolr:
 def test_draft_labels_are_scoped_and_survive_a_dictionary_sync(
     client: Client, auth: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from oss_server.knowledge import tasks as knowledge_tasks
+
     solr = FakeSolr()
     monkeypatch.setattr(server_services, "solr_client", lambda: solr)
+    retags: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(
+        knowledge_tasks.retag_label, "apply_async", lambda args, **_: retags.append(args)
+    )
     _pack("alpha", "Ithaca")
     Collection.objects.create(slug="texts", name="texts")
     Collection.objects.create(slug="other", name="other")
@@ -112,9 +126,14 @@ def test_draft_labels_are_scoped_and_survive_a_dictionary_sync(
     drafts = [d for d in solr.docs.values() if d["label_type"] == "draft"]
     assert len(drafts) == 1 and drafts[0]["collection_scope"] == "texts"
     first_id = drafts[0]["id"]
+    # SEMA-024: the proposing collection's documents with the label are retagged
+    assert retags == [("texts", "Ithake")]
 
+    solr.sizes.clear()
     assert server_services.sync_dictionary("alpha", "1") == 2  # the pref label and the draft
     assert solr.deleted, "the sync replaced the pack version's entries"
+    # NEW-7: the old entries go only after the new ones are in; never an empty dictionary
+    assert min(solr.sizes) == 2, solr.sizes
     kept = solr.docs[first_id]
     assert kept["collection_scope"] == "texts" and kept["label"] == "Ithake"
     assert all(

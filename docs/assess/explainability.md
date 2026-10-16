@@ -96,12 +96,16 @@ drops a rejected tag). Only a tag that a curator had added, and that has no
 machine evidence, is removed when rejected; its proposal keeps it.
 
 All three stores apply the decisions through one function,
-`oss_pipeline.provenance.curated_tags`:
+`oss_pipeline.provenance.curated_tags`, and the hierarchical facets through
+`oss_pipeline.stages.index.curated_path_fields`, which builds
+`<scheme>_paths` from the paths of the tags left in the curated view (the
+tag stage records each tag's own paths in `fields.paths_by_tag`), both at
+index time and in the Solr update right after a decision:
 
 | | PostgreSQL (`/tags` API) | Solr | Neo4j |
 |---|---|---|---|
-| rejected tag | listed with `rejected: true` and its evidence | left out of the facets; `curated_ss` has `iri:reject` | no `TAGGED`/`MENTIONS` edge; `CURATED {decision: reject}` |
-| accepted addition | listed, `stage: curated` | in the facets | edge with `stage: curated` |
+| rejected tag | listed with `rejected: true` and its evidence | left out of the facets, the hierarchical `<scheme>_paths` facet included; `curated_ss` has `iri:reject` | no `TAGGED`/`MENTIONS` edge; `CURATED {decision: reject}` |
+| accepted addition | listed, `stage: curated` | in the facets, with every path of the concept in `<scheme>_paths` | edge with `stage: curated` |
 | curator's link | listed under the individual, `linked_from` the entity | individual in `entity_iris_ss` | `MENTIONS` to the individual after the next reindex; `CURATED` at once |
 
 ## Where each part of the explanation is kept
@@ -164,3 +168,15 @@ navigation need. Spans and provenance are kept out of Solr on purpose.
 4. A curator's link rewrote the stored NER tag, which the next reindex
    undid (the link then reached neither Solr nor the graph). The link is
    now part of the curated view, applied on every run.
+5. The hierarchical facets (`<scheme>_paths`) were copied from the tag
+   stage, so a rejected concept stayed in the tree, even after a reindex,
+   and a concept a curator added never appeared in it. They are now built
+   from the curated view at index time and in the update after a decision.
+   Documents tagged before this change get the exact computation at their
+   next reindex; until then their stored paths, less those of rejected
+   concepts and plus those of added ones, are used.
+6. Solr and Neo4j were written inside the database transaction that
+   recorded the decision, before its outbox event, and a decision a store
+   missed was applied again only if a curator repeated it. Now the decision
+   commits first, the stores are written after it, and a periodic task
+   applies what they missed.

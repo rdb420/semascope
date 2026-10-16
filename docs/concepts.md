@@ -39,18 +39,41 @@ edits one silently. SKOS concepts and, when the pack opts in, named individuals 
 graph labels; shapes validate extracted metadata; competency questions run
 at import against the pack's triples in the embedded store.
 
+A concept under several broader concepts (a polyhierarchy) has a facet
+path through each of them, and the pack page's tree lists it under each
+parent; `skos:related` links are kept and shown on the concept page.
+
+Importing or activating a pack is a **job**: the request validates the
+bundle and, when the change would replace an active version, answers 409
+with the diff and reindex plan until it is confirmed; then a worker loads
+the triple store, derives the vocabulary, runs the competency questions,
+syncs the tagging dictionary and queues the reindex, and the request
+answers 202 with the job. The pack pages, `oss pack import` and
+`oss pack activate` follow it to `done` or `failed`
+(`/api/knowledge/pack-jobs`). The dictionary sync adds the new entries
+before it removes the old ones, so tagging never runs against an empty
+dictionary. A **plain list** of names (`Name | other name`, one concept per
+line) can be imported as a pack too (`oss pack import-list`, or the
+Knowledge models page): Semascope writes it as a bundle with one SKOS scheme
+and imports it the same way.
+
 A pack can be **reconciled against**: `/api/reconcile` is a W3C
 Reconciliation Service (0.2) over the active packs' concepts and
 individuals, so OpenRefine and similar tools resolve names to pack IRIs.
 
 Curators **propose changes** (`PackDelta`): another name for a concept, a new
-concept in a scheme, a label to retire, or a note. A proposed name tags the
-proposing collection, and only that collection, at once as a draft
-dictionary entry, and stays one across dictionary syncs and new pack
+concept in a scheme, a label to retire, or a note. A proposed name becomes a
+draft dictionary entry for the proposing collection, and only that
+collection: documents processed from then on are tagged with it, and the
+collection's documents that already contain it are queued for the tag stage
+at once (tagged when that replay has run, usually within seconds to
+minutes). It stays a draft entry across dictionary syncs and new pack
 versions until a pack version accepts or rejects it; the pending deltas
 export as `taxonomy.delta.ttl` and `model.delta.yaml`, terms marked `draft`
 and `proposed`, for the ontology-skill workflow to accept into the next pack
-version. The imported pack itself is never edited.
+version. The export is written by an RDF serialiser, and IRIs and language
+tags in a proposal are checked, so a proposal's text cannot add triples to
+the fragment. The imported pack itself is never edited.
 
 When two active packs define the same IRI or give the same label to
 different individuals, **pack precedence** decides: a collection's
@@ -100,10 +123,22 @@ it supersedes, which the outbox event names in `supersedes`), and the tag
 accepted. Repeating the decision already in force records nothing. A
 proposal keeps the tag as it was decided (its evidence) and the pack version
 it came from, and every decision on a review item, a deferral included, is
-kept in the item's history. Proposals are applied at once to Semascope's stores
-(Postgres, the Solr facets, a `CURATED` edge in the graph) and written to
-the **outbox** (`/api/curation/events`, read by cursor) so an external
-system of record can mirror, reject or audit them. Webhooks deliver outbox
+kept in the item's history. A proposal, the document's record in Postgres
+and its outbox event are written in one transaction; then, before the API
+answers, the decision is applied to the Solr facets (the hierarchical
+`<scheme>_paths` facets included: a rejected concept leaves the tree, a
+concept a curator added joins it) and to a `CURATED` edge in the graph. If
+Solr or Neo4j is down, the proposal is kept with `applied: false` and a
+periodic task applies it when they are back. The **outbox**
+(`/api/curation/events`, read by cursor) lets an external system of record
+mirror, reject or audit every decision.
+
+**Bulk tagging** applies one decision to every document a search finds: on
+a concept's page a curator counts the documents of a keyword search in a
+collection, then accepts or rejects the concept on all of them (at most
+10,000; `POST /api/curation/bulk-tags`). It runs as a job, and each
+document gets its own proposal, with the job named in its reason, exactly as
+if it had been decided on its own page. Webhooks deliver outbox
 events with an HMAC signature to an http(s) URL; like URL sources, they
 reach a receiver on a private address only when it is listed in
 `SEMASCOPE_ALLOWED_PRIVATE_HOSTS`, and a redirect is reported, not followed. A reindex never undoes a decision. A rejected

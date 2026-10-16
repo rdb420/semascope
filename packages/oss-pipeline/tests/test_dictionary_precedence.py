@@ -146,3 +146,19 @@ def test_link_picks_the_higher_precedence_pack_for_a_shared_label(
     assert out.tags[0].label == f"Ithaca ({winner})", "the pref label is fetched and used"
     assert 'collection_scope:"texts"' in requests[0].url.params["fq"]
     link_mod._dictionary.cache_clear()
+
+
+def test_tag_records_every_path_of_a_tag_and_drops_stale_schemes() -> None:
+    body = {
+        "response": {"docs": [_entry("a1", "pack-a", paths=["places/ithaca", "islands/ithaca"])]},
+        "tags": [{"startOffset": 0, "endOffset": 6, "ids": ["a1"]}],
+    }
+    doc = _doc()
+    doc.fields["tagged_schemes"] = ["gone"]
+    doc.fields["x_gone_paths"] = ["old/path"]
+    out = TagStage(http=_tagger(body, [])).run(doc, _ctx({"pack-a": "1"}))
+    assert out.fields["x_pack-a-places_paths"] == ["islands/ithaca", "places/ithaca"]
+    assert out.fields["paths_by_tag"] == {
+        IRI: {"pack-a-places": ["islands/ithaca", "places/ithaca"]}
+    }
+    assert "x_gone_paths" not in out.fields

@@ -215,3 +215,45 @@ class Webhook(models.Model):
 
     def __str__(self) -> str:
         return self.url
+
+
+class BulkTagJob(models.Model):
+    """One tag decision applied to every document a search finds, run by a worker.
+
+    Each document gets its own proposal (accept or add, reject or remove), with the
+    job named in its reason, so the log, the outbox and the per-document history
+    read as if a curator had decided each document; review items on the tag are
+    settled as a direct decision settles them.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "queued"
+        RUNNING = "running"
+        DONE = "done"
+        FAILED = "failed"
+
+    collection = models.ForeignKey(
+        "catalogue.Collection", on_delete=models.CASCADE, related_name="bulk_tag_jobs"
+    )
+    query = models.JSONField(default=dict, help_text="the search: q and filters")
+    iri = models.CharField(max_length=500)
+    label = models.CharField(max_length=500, blank=True)
+    kind = models.CharField(max_length=16, default="concept")
+    decision = models.CharField(max_length=8)  # accept | reject
+    reason = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    matched = models.PositiveIntegerField(default=0)
+    decided = models.PositiveIntegerField(default=0, help_text="new proposals recorded")
+    unchanged = models.PositiveIntegerField(default=0, help_text="the decision was in force")
+    unapplied = models.PositiveIntegerField(default=0, help_text="recorded, a store missed it")
+    error = models.TextField(blank=True)
+    created_by = models.ForeignKey("auth.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"{self.decision} {self.iri} on {self.collection_id} ({self.status})"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -67,6 +68,13 @@ def sync_dictionary(pack_id: str, version: str) -> int:
 
     Curators' pending draft labels are rebuilt from their deltas, each scoped to
     the collection that proposed it, so a sync never drops them.
+
+    The entries are swapped, not deleted and re-added: each sync stamps its
+    entries (`sync`), adds them (an entry's id is stable, so an unchanged one is
+    replaced in place), commits, and only then deletes the version's entries of
+    other syncs. Tagging meanwhile sees the old dictionary or the new one, never
+    an empty or half-built one; a sync that fails part-way leaves the old entries
+    beside some new ones, and the next sync completes it.
     """
 
     from oss_server.knowledge.importer import dictionary_entries, draft_entries
@@ -75,10 +83,16 @@ def sync_dictionary(pack_id: str, version: str) -> int:
     pack = Pack.objects.get(pack_id=pack_id, version=version)
     client = solr_client()
     collection = solr_entities_collection()
-    entries = dictionary_entries(pack) + draft_entries(pack)
-    client.delete_by_query(collection, _pack_query(pack_id, version))
+    generation = uuid.uuid4().hex
+    entries = [
+        {**entry, "sync": generation} for entry in dictionary_entries(pack) + draft_entries(pack)
+    ]
     for i in range(0, len(entries), 500):
         client.add(collection, entries[i : i + 500], commit_within_ms=1000)
+    client.commit(collection)
+    client.delete_by_query(
+        collection, f"{_pack_query(pack_id, version)} AND -sync:{quote_term(generation)}"
+    )
     client.commit(collection)
     log.info("solr: dictionary for %s@%s has %d entries", pack_id, version, len(entries))
     return len(entries)
@@ -98,7 +112,10 @@ def import_bundled_packs() -> list[str]:
             if Pack.objects.filter(
                 status=Pack.Status.ACTIVE
             ).count() != before or not _dictionary_present(pack.pack_id, pack.version):
+                from oss_server.knowledge.jobs import on_pack_activated
+
                 sync_dictionary(pack.pack_id, pack.version)
+                on_pack_activated(pack)
             imported.append(str(pack))
             break
     return imported

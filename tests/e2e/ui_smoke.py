@@ -12,7 +12,8 @@ graph (a neighbourhood and a shortest path), accepts and rejects items on the
 review page, runs a list search, and fails on any browser console error.
 It also walks the views of a search: the query highlighted on the document
 page with its original file, the table, entities and co-occurrence graph
-views (with the documents behind an edge), and the alerts page with a feed.
+views (with the documents behind an edge), and the alerts page with a feed,
+then the pack import panel and the bulk tagging form (counted, not run).
 Screenshots land in SEMASCOPE_UI_SHOTS (default: the current directory); a
 failure also saves failure.png there.
 
@@ -185,6 +186,7 @@ def run(page: Page) -> None:
     search_views(page)
     alerts_and_feeds(page)
     extras_pages(page)
+    curation_jobs(page)
 
 
 def document_views(page: Page) -> None:
@@ -293,6 +295,27 @@ def extras_pages(page: Page) -> None:
     )
     expect(page.locator("link[rel=search]")).to_have_attribute("href", "/api/opensearch.xml")
     shot(page, "18-overview.png", full_page=True)
+
+
+def curation_jobs(page: Page) -> None:
+    """The pack import panel and its job list (editors), and the concept page's bulk tagging
+    form, counted but not run, so the demo stays as it is."""
+
+    page.goto(BASE + "/packs", wait_until="networkidle")
+    expect(page.locator("form[aria-label='Import a pack']")).to_be_visible(timeout=20000)
+    expect(page.locator("h2", has_text="Pack jobs")).to_be_visible()
+    page.click("form[aria-label='Import a pack'] button:has-text('Plain list')")
+    expect(page.locator("textarea[aria-label='Names']")).to_be_visible()
+    shot(page, "19-pack-import.png", full_page=True)
+    greek = "https://semascope.dev/ontology/demo/traditions#greek"
+    page.goto(f"{BASE}/concepts?{urlencode({'iri': greek})}", wait_until="networkidle")
+    form = page.locator("form[aria-label='Tag the documents of a search']")
+    expect(form).to_be_visible(timeout=20000)
+    form.locator("select[aria-label='Collection']").select_option(COLLECTION)
+    form.locator("button:has-text('Count documents')").click()
+    accept = form.locator("button", has_text=re.compile(r"^Accept on \d+ documents?$"))
+    expect(accept).to_be_visible(timeout=20000)
+    shot(page, "20-bulk-tag.png")
 
 
 def main() -> int:

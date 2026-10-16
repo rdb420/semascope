@@ -219,3 +219,131 @@ def test_direct_tag_decisions_flip_back_and_forth(
         "reject_tag",
         "accept_tag",
     ]
+
+
+def _active_concept(iri: str, label: str, scheme: str, paths: list[str]) -> None:
+    from oss_server.knowledge.models import Concept, Pack
+
+    pack, _ = Pack.objects.get_or_create(
+        pack_id="p",
+        version="1",
+        defaults={
+            "title": "P",
+            "base_iri": "https://p/",
+            "status": Pack.Status.ACTIVE,
+            "manifest_hash": "m",
+            "graph_iri": "urn:p",
+        },
+    )
+    Concept.objects.create(
+        pack=pack,
+        iri=iri,
+        kind="concept",
+        pref_label=label,
+        scheme_slug=scheme,
+        path=paths[0],
+        paths=paths,
+    )
+
+
+@pytest.mark.django_db
+def test_a_rejected_concept_leaves_the_tree_facet_at_once(
+    stores: tuple[FakeSolr, FakeGraph],
+) -> None:
+    """SEMA-030: the live update after a decision sets `<scheme>_paths` from the curated
+    view, as the index stage does."""
+
+    solr, _ = stores
+    _active_concept(FLOOD, "Flood", "themes", ["water/flood"])
+    doc = _doc()
+    doc.fields.update(
+        tagged_schemes=["themes"],
+        x_themes_paths=["water/flood"],
+        paths_by_tag={FLOOD: {"themes": ["water/flood"]}},
+    )
+    doc.save()
+    _decide(doc, Proposal.Kind.REJECT_TAG)
+    assert solr.updates[-1]["themes_paths"] == {"set": None}, "the scheme is left empty"
+    _decide(doc, Proposal.Kind.ACCEPT_TAG)
+    assert solr.updates[-1]["themes_paths"] == {"set": ["water", "water/flood"]}
+
+
+@pytest.mark.django_db
+def test_add_tag_of_a_new_iri_resolves_its_pack_and_paths(
+    stores: tuple[FakeSolr, FakeGraph],
+) -> None:
+    """SEMA-055 and SEMA-030: a concept a curator adds carries its pack version and every
+    path of its polyhierarchy into the tree facet."""
+
+    solr, _ = stores
+    descent = "https://p/themes#descent"
+    _active_concept(descent, "Descent", "themes", ["afterlife/descent", "journey/descent"])
+    doc = _doc()
+    p = services.propose(
+        doc.collection,
+        Proposal.Kind.ADD_TAG,
+        descent,
+        params={"label": "Descent", "kind": "concept"},
+        document=doc,
+    )
+    assert (p.pack_id, p.pack_version) == ("p", "1")
+    doc.refresh_from_db()
+    curated = doc.fields["curated"][descent]
+    assert curated["pack_id"] == "p"
+    assert curated["paths"] == {"themes": ["afterlife/descent", "journey/descent"]}
+    assert solr.updates[-1]["themes_paths"] == {
+        "set": ["afterlife", "afterlife/descent", "journey", "journey/descent"]
+    }
+    assert "p@1" in solr.updates[-1]["pack_versions_ss"]["set"]
+
+
+@pytest.mark.django_db
+def test_the_sweep_applies_what_a_store_missed(
+    stores: tuple[FakeSolr, FakeGraph], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SEMA-031: an unapplied decision is applied by the periodic sweep, not only by
+    repeating it; a decision it superseded is settled with it."""
+
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    solr, _ = stores
+    doc = _doc()
+    real = services.apply_proposal
+
+    def down(p: Proposal) -> None:
+        raise ConnectionError("solr down")
+
+    monkeypatch.setattr(services, "apply_proposal", down)
+    a = _decide(doc, Proposal.Kind.REJECT_TAG)
+    b = _decide(doc, Proposal.Kind.ACCEPT_TAG)
+    assert not a.applied and not b.applied
+    doc.refresh_from_db()
+    assert doc.fields["curated"][FLOOD]["decision"] == "accept", "Postgres has the decision"
+    monkeypatch.setattr(services, "apply_proposal", real)
+    assert services.retry_unapplied() == 0, "too fresh: the request may still be applying it"
+    Proposal.objects.update(decided_at=timezone.now() - timedelta(minutes=5))
+    assert services.retry_unapplied() == 1
+    assert Proposal.objects.filter(applied=False).count() == 0
+    assert solr.updates[-1]["curated_ss"] == {"set": [f"{FLOOD}:accept"]}
+
+
+@pytest.mark.django_db
+def test_solr_is_written_after_the_decision_commits(
+    stores: tuple[FakeSolr, FakeGraph], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SEMA-049: a store that fails cannot roll the decision back, and the outbox event
+    and the document's record are written in the same transaction as the proposal."""
+
+    doc = _doc()
+
+    def down(p: Proposal) -> None:
+        assert Event.objects.filter(subject=FLOOD).exists(), "the event is written first"
+        raise ConnectionError("solr down")
+
+    monkeypatch.setattr(services, "apply_proposal", down)
+    p = _decide(doc, Proposal.Kind.REJECT_TAG)
+    assert not p.applied
+    doc.refresh_from_db()
+    assert doc.fields["curated"][FLOOD]["decision"] == "reject"

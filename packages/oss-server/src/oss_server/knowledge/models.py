@@ -73,8 +73,12 @@ class Concept(models.Model):
     broader = models.JSONField(
         default=list, blank=True, help_text="skos:broader or rdfs:subClassOf IRIs"
     )
+    related = models.JSONField(default=list, blank=True, help_text="skos:related IRIs")
     path = models.CharField(
-        max_length=1000, blank=True, help_text="facet path of slugs from the top"
+        max_length=1000, blank=True, help_text="facet path of slugs from the top (the first)"
+    )
+    paths = models.JSONField(
+        default=list, blank=True, help_text="every facet path (one per broader chain)"
     )
     depth = models.PositiveSmallIntegerField(default=0)
     taggable = models.BooleanField(default=True)
@@ -152,3 +156,38 @@ class PackDelta(models.Model):
 
     def __str__(self) -> str:
         return f"{self.kind} on {self.pack_id} ({self.status})"
+
+
+class PackJob(models.Model):
+    """A pack import or activation run by a worker: the request validates and shows the plan,
+    the job loads the store, derives the vocabulary, syncs the dictionary and queues the
+    reindex. The UI and `oss pack` follow it by id."""
+
+    class Kind(models.TextChoices):
+        IMPORT = "import"  # params: path, activate, reindex, force
+        ACTIVATE = "activate"  # params: version, reindex
+
+    class Status(models.TextChoices):
+        QUEUED = "queued"
+        RUNNING = "running"
+        DONE = "done"
+        FAILED = "failed"
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    pack_id = models.CharField(max_length=64, blank=True, db_index=True)
+    version = models.CharField(max_length=32, blank=True)
+    params = models.JSONField(default=dict, blank=True)
+    plan = models.JSONField(null=True, blank=True, help_text="the diff and reindex plan confirmed")
+    result = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    created_by = models.ForeignKey("auth.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.pack_id}@{self.version} ({self.status})"

@@ -10,6 +10,7 @@ from django.test import Client
 
 from oss_core.pack import load_pack, write_manifest
 from oss_server.api.auth import issue_token
+from oss_server.curation.models import Event
 from oss_server.knowledge.importer import derive, dictionary_entries, import_pack
 from oss_server.knowledge.models import Concept, Pack
 from oss_server.knowledge.upgrade import diff_rows
@@ -112,6 +113,10 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     queued: list[str] = []
     monkeypatch.setattr(tasks.reindex_collection, "delay", lambda slug: queued.append(slug))
     monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path / "data"))
+    from oss_server.knowledge import tasks as knowledge_tasks
+
+    jobs: list[int] = []  # queued pack jobs; `run_jobs` plays the worker
+    monkeypatch.setattr(knowledge_tasks.run_pack_job, "delay", lambda job_id: jobs.append(job_id))
 
     candidate = tmp_path / "data" / "packs" / "demo-next"
     shutil.copytree(DEMO, candidate)
@@ -140,6 +145,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "candidate": candidate,
         "solr": solr,
         "queued": queued,
+        "jobs": jobs,
         "store": memory,
         "admin": {"Authorization": f"Bearer {issue_token(admin, 't')}"},
     }
@@ -220,8 +226,23 @@ def test_activation_needs_confirmation_then_rolls_back(
         content_type="application/json",
         headers=world["admin"],
     )
-    assert done.status_code == 201, done.content
-    assert done.json()["status"] == "active" and done.json()["plan"]["active_version"] == "0.1.0"
+    assert done.status_code == 202, done.content
+    job = done.json()
+    assert job["kind"] == "import" and job["status"] == "queued"
+    assert job["pack_id"] == "semascope-demo" and job["plan"]["active_version"] == "0.1.0"
+    assert not Pack.objects.filter(version="0.2.0").exists(), "the import runs in the worker"
+    # one job per pack at a time
+    busy = client.post(
+        "/api/knowledge/packs/import",
+        data={**body, "confirm": True},
+        content_type="application/json",
+        headers=world["admin"],
+    )
+    assert busy.status_code == 409 and f"pack job {job['id']}" in busy.json()["detail"]
+    finished = run_jobs(client, world)
+    assert finished["status"] == "done", finished
+    assert finished["result"]["status"] == "active" and finished["result"]["reindexed"] == ["texts"]
+    assert Pack.objects.get(version="0.2.0").status == Pack.Status.ACTIVE
     assert Pack.objects.get(version="0.1.0").status == Pack.Status.RETIRED
     assert world["queued"] == ["texts"]
 
@@ -233,10 +254,82 @@ def test_activation_needs_confirmation_then_rolls_back(
     ).json()
     assert diff["diff"]["summary"]["added"] == {"concept": 1}
     ok = client.post(back + "&confirm=true", headers=world["admin"])
-    assert ok.status_code == 200 and ok.json()["status"] == "active"
+    assert ok.status_code == 202 and ok.json()["kind"] == "activate"
+    assert run_jobs(client, world)["result"]["status"] == "active"
+    assert Pack.objects.get(version="0.1.0").status == Pack.Status.ACTIVE
     # activating the active version again is not a change
     again = client.post(back, headers=world["admin"])
-    assert again.status_code == 200 and not again.json()["plan"]["requires_confirmation"]
+    assert again.status_code == 202 and not again.json()["plan"]["requires_confirmation"]
+    run_jobs(client, world)
+    events = [e.kind for e in Event.objects.filter(kind__startswith="pack.")]
+    assert events == ["pack.import", "pack.activate", "pack.activate"]
+
+
+def run_jobs(client: Client, world: dict[str, Any]) -> dict[str, Any]:
+    """Run the queued pack jobs as the worker would; the last one's state, read through the
+    API as `oss pack` and the UI follow it."""
+
+    from oss_server.knowledge.tasks import run_pack_job
+
+    last = 0
+    while world["jobs"]:
+        last = world["jobs"].pop(0)
+        run_pack_job(last)
+    r = client.get(f"/api/knowledge/pack-jobs/{last}", headers=world["admin"])
+    assert r.status_code == 200, r.content
+    return dict(r.json())
+
+
+@pytest.mark.django_db
+def test_a_failed_import_job_says_why(client: Client, world: dict[str, Any]) -> None:
+    body = {"path": str(world["candidate"]), "activate": False}
+    r = client.post(
+        "/api/knowledge/packs/import",
+        data=body,
+        content_type="application/json",
+        headers=world["admin"],
+    )
+    assert r.status_code == 202, r.content
+    (world["candidate"] / "taxonomy.ttl").write_text("not turtle {", encoding="utf-8")
+    job = run_jobs(client, world)
+    assert job["status"] == "failed" and "not valid" in job["error"], job
+    listed = client.get("/api/knowledge/pack-jobs", headers=world["admin"]).json()
+    assert listed[0]["id"] == job["id"]
+
+
+@pytest.mark.django_db
+def test_a_plain_list_imports_as_a_pack(client: Client, world: dict[str, Any]) -> None:
+    """LIST-05: a list of names becomes a valid bundle, imported as a job; its names tag."""
+
+    r = client.post(
+        "/api/knowledge/packs/import-list",
+        data={
+            "pack_id": "fruit",
+            "title": "Fruit",
+            "scheme": "Fruit",
+            "text": "Apple | Malus domestica\nPear\n# a comment\n\nApple | Eating apple",
+        },
+        content_type="application/json",
+        headers=world["admin"],
+    )
+    assert r.status_code == 202, r.content
+    job = run_jobs(client, world)
+    assert job["status"] == "done", job
+    pack = Pack.objects.get(pack_id="fruit")
+    assert pack.status == Pack.Status.ACTIVE and pack.cq_results["passed"] == 1
+    assert not [f for f in pack.findings if f["severity"] == "error"]
+    apple = Concept.objects.get(pack=pack, pref_label="Apple")
+    assert apple.alt_labels == ["Eating apple", "Malus domestica"] and apple.taggable
+    assert apple.scheme_slug == "fruit" and apple.path == "apple"
+    labels = {e["label"] for e in dictionary_entries(pack)}
+    assert labels == {"Apple", "Malus domestica", "Eating apple", "Pear"}
+    bad = client.post(
+        "/api/knowledge/packs/import-list",
+        data={"pack_id": "Bad Id", "text": "x"},
+        content_type="application/json",
+        headers=world["admin"],
+    )
+    assert bad.status_code == 422
 
 
 @pytest.mark.django_db

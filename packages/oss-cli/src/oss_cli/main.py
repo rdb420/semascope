@@ -490,14 +490,16 @@ def demo(
     if only:
         settings["include"] = [f"{slug}.txt" for slug in only]
     with _api() as api:
-        out = _check(
+        job = _check(
             api.post(
                 "/knowledge/packs/import",
                 # the demo seeds its own pack: no plan to review
                 json={"path": str(pack), "activate": True, "reindex": False, "confirm": True},
             )
         )
-        console.print(f"pack {out['pack_id']}@{out['version']} {out['status']}")
+        # the documents are tagged with the dictionary the job syncs: wait for it
+        out = _follow_pack_job(api, job).get("result") or {}
+        console.print(f"pack {out.get('pack_id')}@{out.get('version')} {out.get('status')}")
         if api.get(f"/collections/{collection}").status_code == 404:
             _check(
                 api.post(
@@ -653,6 +655,28 @@ def _print_plan(out: dict[str, Any]) -> None:
         console.print(f"activation reindexes: {', '.join(plan['reindex'])}")
 
 
+def _follow_pack_job(api: httpx.Client, job: dict[str, Any], timeout_s: float = 1800) -> Any:
+    """Poll a pack job (import or activation) until it is done; exit 1 if it failed."""
+
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    shown = ""
+    while job.get("status") in ("queued", "running"):
+        if job["status"] != shown:
+            console.print(f"pack job {job['id']} {job['status']}")
+            shown = job["status"]
+        if time.monotonic() > deadline:
+            console.print(f"[yellow]pack job {job['id']} still {job['status']}[/yellow]")
+            raise typer.Exit(code=1)
+        time.sleep(1)
+        job = _check(api.get(f"/knowledge/pack-jobs/{job['id']}"))
+    if job.get("status") != "done":
+        console.print(f"[red]pack job {job['id']} failed[/red] {job.get('error', '')[:2000]}")
+        raise typer.Exit(code=1)
+    return job
+
+
 def _plan_or_exit(resp: httpx.Response) -> Any:
     """Print the plan of a 409 (confirmation needed) and stop; otherwise check as usual."""
 
@@ -676,10 +700,12 @@ def pack_import(
     yes: bool = typer.Option(
         False, "--yes", help="Confirm replacing the active version (see `oss pack diff`)"
     ),
+    wait: bool = typer.Option(True, help="Follow the import job until it is done"),
 ) -> None:
     """Import a bundle directory into the running Semascope (path as seen by the server).
 
     Replacing an active version prints the diff and reindex plan and stops, unless --yes.
+    The import runs as a job on the server; the command follows it unless --no-wait.
     """
 
     body = {
@@ -690,15 +716,22 @@ def pack_import(
         "confirm": yes,
     }
     with _api() as api:
-        out = _plan_or_exit(api.post("/knowledge/packs/import", json=body))
-    if out.get("plan") and out["plan"].get("requires_confirmation"):
-        _print_plan(out["plan"])
-    terms = out["counts"].get("terms")
-    label = f"{out['pack_id']}@{out['version']}"
-    console.print(f"[green]imported[/green] {label} status={out['status']} terms={terms}")
+        job = _plan_or_exit(api.post("/knowledge/packs/import", json=body))
+        if job.get("plan") and job["plan"].get("requires_confirmation"):
+            _print_plan(job["plan"])
+        if not wait:
+            console.print(f"queued pack job {job['id']}")
+            return
+        job = _follow_pack_job(api, job)
+    out = job.get("result") or {}
+    terms = (out.get("counts") or {}).get("terms")
+    label = f"{out.get('pack_id')}@{out.get('version')}"
+    console.print(f"[green]imported[/green] {label} status={out.get('status')} terms={terms}")
     cq = out.get("cq_results") or {}
     if cq.get("tests"):
         console.print(f"competency tests: {cq.get('passed')}/{cq.get('tests')} passed")
+    if out.get("reindexed"):
+        console.print(f"reindex queued: {', '.join(out['reindexed'])}")
 
 
 @pack_app.command("diff")
@@ -718,19 +751,58 @@ def pack_activate(
     pack_id: str = typer.Argument(..., help="Pack id"),
     version: str = typer.Option(..., help="Imported version to activate"),
     yes: bool = typer.Option(False, "--yes", help="Confirm replacing the active version"),
+    wait: bool = typer.Option(True, help="Follow the activation job until it is done"),
 ) -> None:
     """Activate an imported version (upgrade or roll back); shows the plan, needs --yes."""
 
     with _api() as api:
-        out = _plan_or_exit(
+        job = _plan_or_exit(
             api.post(
                 f"/knowledge/packs/{pack_id}/activate",
                 params={"version": version, "confirm": "true" if yes else "false"},
             )
         )
-    if out.get("plan") and out["plan"].get("requires_confirmation"):
-        _print_plan(out["plan"])
-    console.print(f"[green]activated[/green] {out['pack_id']}@{out['version']}")
+        if job.get("plan") and job["plan"].get("requires_confirmation"):
+            _print_plan(job["plan"])
+        if not wait:
+            console.print(f"queued pack job {job['id']}")
+            return
+        _follow_pack_job(api, job)
+    console.print(f"[green]activated[/green] {job['pack_id']}@{job['version']}")
+
+
+@pack_app.command("import-list")
+def pack_import_list(
+    file: Path = typer.Argument(..., exists=True, dir_okay=False, help="One name per line"),
+    pack_id: str = typer.Option(..., "--id", help="Pack id (lower case, digits, - and _)"),
+    version: str = typer.Option("1.0.0", help="Pack version"),
+    title: str = typer.Option("", help="Pack title (defaults to the id)"),
+    scheme: str = typer.Option("", help="Name of the list's concept scheme (the facet)"),
+    lang: str = typer.Option("en", help="Language of the names"),
+    yes: bool = typer.Option(False, "--yes", help="Confirm replacing the active version"),
+) -> None:
+    """Import a plain list as a pack: one concept per line, `Name | other name | ...`.
+
+    The file is read here and sent to the server, which writes it as a bundle and
+    imports it as a job, as `oss pack import` does.
+    """
+
+    body = {
+        "pack_id": pack_id,
+        "version": version,
+        "title": title,
+        "scheme": scheme,
+        "lang": lang,
+        "text": file.read_text(encoding="utf-8"),
+        "confirm": yes,
+    }
+    with _api() as api:
+        job = _plan_or_exit(api.post("/knowledge/packs/import-list", json=body))
+        job = _follow_pack_job(api, job)
+    out = job.get("result") or {}
+    terms = (out.get("counts") or {}).get("terms")
+    label = f"{out.get('pack_id')}@{out.get('version')}"
+    console.print(f"[green]imported[/green] {label} terms={terms}")
 
 
 @pack_app.command("remove")

@@ -230,3 +230,124 @@ def test_demo_pack_places_carry_coordinates() -> None:
     assert abs(troy["extra"]["lat"] - 39.957) < 0.01 and abs(troy["extra"]["lon"] - 26.239) < 0.01
     asgard = next(r for r in rows if r["iri"].endswith("#asgard"))
     assert "lat" not in asgard["extra"]
+
+
+def test_polyhierarchy_keeps_every_path_and_related_concepts(tmp_path: Path) -> None:
+    """SEMA-071: a concept under two broader concepts has a path through each; skos:related
+    is kept in both directions; the tree shows the concept under both parents."""
+
+    import shutil
+
+    pack = tmp_path / "pack"
+    shutil.copytree(REPO / "packs" / "demo" / "pack", pack)
+    with (pack / "taxonomy.ttl").open("a", encoding="utf-8") as fh:
+        fh.write("\nth:descent skos:broader th:journey .\nth:flood skos:related th:creation .\n")
+    rows = {r["iri"]: r for r in derive(pack, load_pack(pack, force=True))}
+    th = "https://semascope.dev/ontology/demo/themes#"
+    descent = rows[th + "descent"]
+    assert descent["paths"] == [
+        "afterlife/descent-to-the-underworld",
+        "hero-s-journey/descent-to-the-underworld",
+    ]
+    assert descent["path"] == descent["paths"][0] and descent["depth"] == 1
+    assert rows[th + "creation"]["related"] == [th + "flood"]
+    assert rows[th + "flood"]["related"] == [th + "creation"]
+    assert rows[th + "flood"]["paths"] == ["flood"]
+
+
+@pytest.mark.django_db
+def test_the_tree_and_dictionary_carry_every_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    import pyoxigraph as ox
+
+    from oss_server.knowledge import store as store_mod
+
+    monkeypatch.setattr(store_mod, "store", lambda: ox.Store())
+    pack_dir = tmp_path / "pack"
+    shutil.copytree(REPO / "packs" / "demo" / "pack", pack_dir)
+    with (pack_dir / "taxonomy.ttl").open("a", encoding="utf-8") as fh:
+        # a cycle as well: the import still ends
+        fh.write("\nth:descent skos:broader th:journey .\nth:journey skos:broader th:descent .\n")
+    pack = import_pack(pack_dir, force=True)
+    tree = {n["label"]: n for n in hierarchy(pack, "themes")}
+    assert [c["label"] for c in tree["Afterlife"]["children"]] == ["Descent to the underworld"]
+    descent_iri = "https://semascope.dev/ontology/demo/themes#descent"
+    entries = [e for e in dictionary_entries(pack) if e["iri"] == descent_iri]
+    assert entries and all(len(e["paths"]) >= 1 for e in entries)
+    stored = Concept.objects.get(pack=pack, iri=descent_iri)
+    assert stored.paths[0] == "afterlife/descent-to-the-underworld"
+
+
+@pytest.mark.django_db
+def test_delta_export_cannot_inject_triples(client: Client) -> None:
+    """SEMA-054: curators' text reaches the Turtle only as escaped literals and checked IRIs;
+    the API refuses a malformed `broader`, `iri` or `lang`, and the export drops one that
+    was stored anyway."""
+
+    from rdflib import Graph
+
+    from oss_server.catalogue.models import Collection
+    from oss_server.knowledge.deltas import build_delta
+    from oss_server.knowledge.models import PackDelta
+
+    pack = Pack.objects.create(
+        pack_id="p",
+        version="1",
+        title="P",
+        base_iri="https://p.example/ont#",
+        status=Pack.Status.ACTIVE,
+        manifest_hash="m",
+        graph_iri="urn:p",
+    )
+    Concept.objects.create(pack=pack, iri="https://p.example/ont#a", kind="concept", pref_label="A")
+    texts = Collection.objects.create(slug="texts", name="texts")
+    user = User.objects.create_user("ed", is_staff=True)
+    auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
+    evil = "https://x> . <https://x> <https://evil> <https://y"
+    for params in (
+        {"label": "B", "scheme_slug": "s", "broader": evil},
+        {"label": "B", "scheme_slug": "s", "lang": 'en" .'},
+        {"label": "B", "scheme_slug": "s", "definition": 5},
+    ):
+        r = client.post(
+            "/api/knowledge/packs/p/deltas",
+            data={"collection": "texts", "kind": "new_concept", "params": params},
+            content_type="application/json",
+            headers=auth,
+        )
+        assert r.status_code == 422, (params, r.content)
+    stored = [
+        PackDelta(
+            pack_id="p",
+            pack_version="1",
+            collection=texts,
+            kind="new_concept",
+            params={
+                "label": 'Line one\n" ; <https://evil> "x',
+                "scheme_slug": "s> <https://evil",
+                "broader": evil,
+                "lang": "en .",
+                "definition": "with \\ backslash",
+            },
+        ),
+        PackDelta(
+            pack_id="p",
+            pack_version="1",
+            collection=texts,
+            kind="add_label",
+            params={"iri": "https://p.example/ont#a", "label": 'x"@en . <a> <b> <c', "lang": "fr"},
+        ),
+    ]
+    files = build_delta(pack, stored)
+    g = Graph().parse(data=files["taxonomy.delta.ttl"], format="turtle")
+    subjects = {str(s) for s in g.subjects()}
+    assert subjects == {
+        "https://p.example/ont/s-https-evil#line-one-https-evil-x",
+        "https://p.example/ont#a",
+    }, subjects
+    assert "https://evil" not in {str(o) for o in g.objects()}
+    assert len(g) == 4, list(g)  # type, prefLabel, definition; the alt label
+    assert "skipped_broader" in files["model.delta.yaml"]

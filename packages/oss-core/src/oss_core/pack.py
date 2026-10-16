@@ -613,11 +613,23 @@ def verify_manifest(info: PackInfo, *, force: bool = False) -> list[Finding]:
 
     Entries the hash excludes (validation reports, written by the skill's
     release_manifest.py too) are ignored. A difference is an error unless
-    `force`; a pack without a manifest gets a warning.
+    `force`. A pack without a manifest gets a warning, unless it says it is
+    `released`: a released pack's files are what its manifest vouches for, so a
+    missing manifest is an error (a warning with `force`).
     """
 
+    severity = "warning" if force else "error"
     file = info.path / "release-manifest.json"
     if not file.exists():
+        if info.status == "released":
+            return [
+                Finding(
+                    severity,
+                    "no_manifest",
+                    "release-manifest.json is absent from a released pack; "
+                    "its files cannot be verified",
+                )
+            ]
         return [
             Finding(
                 "warning",
@@ -625,7 +637,6 @@ def verify_manifest(info: PackInfo, *, force: bool = False) -> list[Finding]:
                 "release-manifest.json is absent; file hashes are not verified",
             )
         ]
-    severity = "warning" if force else "error"
     try:
         data = json.loads(file.read_text(encoding="utf-8"))
         listed = {

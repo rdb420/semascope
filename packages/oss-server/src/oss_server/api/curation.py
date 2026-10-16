@@ -17,13 +17,14 @@ from oss_server.api.access import check, read_scope, role_for
 from oss_server.catalogue.models import Collection, Document
 from oss_server.curation.models import (
     Annotation,
+    BulkTagJob,
     Event,
     Proposal,
     Review,
     ReviewDecision,
     Webhook,
 )
-from oss_server.curation.services import propose
+from oss_server.curation.services import decide_document_tag, propose
 
 router = Router(tags=["curation"])
 
@@ -404,36 +405,161 @@ def decide_tag(request: HttpRequest, doc_id: str, payload: TagDecisionIn) -> Pro
 
     d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
     check(request, "curator", d.collection.slug)
-    present = any(t.get("iri") == payload.iri for t in d.tags)
-    if payload.decision == "accept":
-        kind = Proposal.Kind.ACCEPT_TAG if present else Proposal.Kind.ADD_TAG
-    elif payload.decision == "reject":
-        kind = Proposal.Kind.REJECT_TAG if present else Proposal.Kind.REMOVE_TAG
-    else:
-        raise HttpError(422, "decision must be accept or reject")
-    p = propose(
-        d.collection,
-        kind,
-        payload.iri,
-        params={"label": payload.label, "kind": payload.kind},
-        reason=payload.reason,
-        document=d,
-        user=request.user,
-    )
-    # review items on this tag are settled by the decision; each keeps it in its history
-    user = _user_or_none(request)
-    status = Review.Status.ACCEPTED if payload.decision == "accept" else Review.Status.REJECTED
-    for r in Review.objects.filter(
-        document=d,
-        target=payload.iri,
-        status__in=(Review.Status.OPEN, Review.Status.DEFERRED),
-    ):
-        r.status, r.decided_by, r.decided_at, r.note = status, user, timezone.now(), payload.reason
-        r.save(update_fields=["status", "decided_by", "decided_at", "note"])
-        ReviewDecision.objects.create(
-            review=r, decision=payload.decision, note=payload.reason, decided_by=user, proposal=p
+    try:
+        p = decide_document_tag(
+            d,
+            payload.iri,
+            payload.decision,
+            label=payload.label,
+            kind=payload.kind,
+            reason=payload.reason,
+            user=request.user,
         )
+    except ValueError as exc:
+        raise HttpError(422, str(exc)) from exc
     return _proposal_out(p)
+
+
+# --- bulk tagging -------------------------------------------------------------------------------
+
+
+class BulkTagIn(Schema):
+    collection: str
+    q: str = "*:*"
+    filters: dict[str, list[str]] = {}
+    iri: str
+    decision: str  # accept | reject
+    label: str = ""
+    kind: str = "concept"
+    reason: str = ""
+    dry_run: bool = False
+
+
+class BulkTagCountOut(Schema):
+    matched: int
+    limit: int
+
+
+class BulkTagJobOut(Schema):
+    id: int
+    collection: str
+    query: dict[str, Any]
+    iri: str
+    label: str
+    kind: str
+    decision: str
+    reason: str
+    status: str
+    matched: int
+    decided: int
+    unchanged: int
+    unapplied: int
+    error: str
+    created_by: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+def _bulk_out(j: BulkTagJob) -> BulkTagJobOut:
+    return BulkTagJobOut(
+        id=j.id,
+        collection=j.collection.slug,
+        query=j.query,
+        iri=j.iri,
+        label=j.label,
+        kind=j.kind,
+        decision=j.decision,
+        reason=j.reason,
+        status=j.status,
+        matched=j.matched,
+        decided=j.decided,
+        unchanged=j.unchanged,
+        unapplied=j.unapplied,
+        error=j.error,
+        created_by=getattr(j.created_by, "username", None),
+        created_at=j.created_at,
+        started_at=j.started_at,
+        finished_at=j.finished_at,
+    )
+
+
+@router.post("/bulk-tags", response={200: BulkTagCountOut, 202: BulkTagJobOut})
+def bulk_tag(request: HttpRequest, payload: BulkTagIn) -> tuple[int, Any]:
+    """Accept or reject one tag on every document a search finds in a collection (curator).
+
+    `dry_run` answers how many documents match. Otherwise a job decides the tag on each
+    of them, one proposal per document (as a direct decision would), and answers 202 with
+    the job to follow at `GET /bulk-tags/{id}`. An accepted IRI must be a concept or
+    individual of an active pack; a search that finds more than 10,000 documents is
+    refused (narrow it).
+    """
+
+    from oss_server.curation.bulk import MAX_DOCUMENTS, count_matches
+    from oss_server.curation.tasks import run_bulk_tag_job
+    from oss_server.knowledge.models import Concept, Pack
+
+    collection = get_object_or_404(Collection, slug=payload.collection)
+    check(request, "curator", collection.slug)
+    if payload.decision not in ("accept", "reject"):
+        raise HttpError(422, "decision must be accept or reject")
+    if payload.kind not in ("concept", "entity"):
+        raise HttpError(422, "kind must be concept or entity")
+    label, kind = payload.label, payload.kind
+    concept = (
+        Concept.objects.filter(iri=payload.iri, pack__status=Pack.Status.ACTIVE)
+        .exclude(kind=Concept.Kind.SCHEME)
+        .first()
+    )
+    if concept is not None:
+        label = label or concept.pref_label
+        kind = "concept" if concept.kind == Concept.Kind.CONCEPT else "entity"
+    elif payload.decision == "accept":
+        raise HttpError(422, "iri is not a concept or individual of an active pack")
+    matched = count_matches(collection.slug, payload.q, payload.filters)
+    if payload.dry_run:
+        return 200, BulkTagCountOut(matched=matched, limit=MAX_DOCUMENTS)
+    if matched > MAX_DOCUMENTS:
+        raise HttpError(422, f"the search finds {matched} documents; at most {MAX_DOCUMENTS}")
+    job = BulkTagJob.objects.create(
+        collection=collection,
+        query={"q": payload.q, "filters": payload.filters},
+        iri=payload.iri,
+        label=label,
+        kind=kind,
+        decision=payload.decision,
+        reason=payload.reason,
+        matched=matched,
+        created_by=_user_or_none(request),
+    )
+    run_bulk_tag_job.delay(job.pk)
+    return 202, _bulk_out(job)
+
+
+@router.get("/bulk-tags", response=list[BulkTagJobOut])
+def list_bulk_tags(
+    request: HttpRequest, collection: str | None = None, iri: str | None = None, limit: int = 20
+) -> list[BulkTagJobOut]:
+    """Bulk tagging jobs, newest first, in the collections the caller may read."""
+
+    qs = BulkTagJob.objects.select_related("collection", "created_by")
+    allowed = read_scope(request, collection)
+    if allowed is not None:
+        qs = qs.filter(collection__slug__in=allowed)
+    if collection:
+        qs = qs.filter(collection__slug=collection)
+    if iri:
+        qs = qs.filter(iri=iri)
+    return [_bulk_out(j) for j in qs[: min(max(limit, 1), 200)]]
+
+
+@router.get("/bulk-tags/{bulk_job_id}", response=BulkTagJobOut)
+def get_bulk_tag(request: HttpRequest, bulk_job_id: int) -> BulkTagJobOut:
+    j = get_object_or_404(
+        BulkTagJob.objects.select_related("collection", "created_by"), pk=bulk_job_id
+    )
+    check(request, "reader", j.collection.slug)
+    return _bulk_out(j)
 
 
 @router.get("/documents/{doc_id}/annotations", response=list[AnnotationOut])

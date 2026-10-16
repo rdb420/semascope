@@ -217,3 +217,72 @@ def test_curated_decisions_shape_the_index() -> None:
     out = to_solr_document(doc)
     assert out["concept_iris_ss"] == ["https://p#a", "https://p#c"]
     assert out["curated_ss"] == ["https://p#b:reject", "https://p#c:accept"]
+
+
+def _paths_doc() -> WorkingDocument:
+    from oss_core.contracts import Tag
+
+    doc = _doc("x")
+    doc.tags = [
+        Tag(iri="https://p#a", label="A", kind="concept", pack_id="p", stage="tag"),
+        Tag(iri="https://p#b", label="B", kind="concept", pack_id="p", stage="tag"),
+    ]
+    doc.fields["tagged_schemes"] = ["themes", "old"]
+    doc.fields["x_themes_paths"] = ["water/flood", "journey/descent", "afterlife/descent"]
+    doc.fields["x_old_paths"] = ["gone"]  # a scheme an earlier run tagged
+    return doc
+
+
+def test_tree_facet_comes_from_the_curated_view() -> None:
+    """SEMA-030: a rejected concept leaves `<scheme>_paths`, an added one joins it, at every
+    reindex; a concept in a polyhierarchy contributes every path."""
+
+    doc = _paths_doc()
+    doc.fields["paths_by_tag"] = {
+        "https://p#a": {"themes": ["water/flood"]},
+        "https://p#b": {"themes": ["afterlife/descent", "journey/descent"]},
+    }
+    doc.fields["curated"] = {
+        "https://p#a": {"decision": "reject", "paths": {"themes": ["water/flood"]}},
+        "https://p#c": {
+            "decision": "accept",
+            "label": "C",
+            "kind": "concept",
+            "paths": {"places": ["greece/ithaca"]},
+        },
+    }
+    out = to_solr_document(doc)
+    assert out["themes_paths"] == ["afterlife", "afterlife/descent", "journey", "journey/descent"]
+    assert out["places_paths"] == ["greece", "greece/ithaca"]
+    assert "old_paths" not in out, "a scheme no tag of the curated view is in is left out"
+
+
+def test_tree_facet_of_a_document_tagged_before_paths_by_tag() -> None:
+    doc = _paths_doc()
+    doc.fields["curated"] = {
+        "https://p#a": {"decision": "reject", "paths": {"themes": ["water/flood"]}},
+        "https://p#c": {
+            "decision": "accept",
+            "label": "C",
+            "kind": "concept",
+            "paths": {"themes": ["virtue"]},
+        },
+    }
+    out = to_solr_document(doc)
+    assert "water/flood" not in out["themes_paths"] and "water" not in out["themes_paths"]
+    assert {"virtue", "journey/descent"} <= set(out["themes_paths"])
+    assert out["old_paths"] == ["gone"], "without paths_by_tag the stored paths are all it has"
+
+
+def test_curated_path_fields_clear_a_scheme_left_empty() -> None:
+    from oss_core.contracts import Tag
+    from oss_pipeline.stages.index import curated_path_fields
+
+    fields = {
+        "tagged_schemes": ["themes"],
+        "paths_by_tag": {"https://p#a": {"themes": ["water/flood"]}},
+        "curated": {"https://p#a": {"decision": "reject"}},
+    }
+    assert curated_path_fields(fields, []) == {"themes_paths": None}
+    kept = [Tag(iri="https://p#a", label="A", kind="concept", stage="tag")]
+    assert curated_path_fields(fields, kept) == {"themes_paths": ["water", "water/flood"]}
