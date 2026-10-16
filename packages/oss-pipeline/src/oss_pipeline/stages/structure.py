@@ -2,7 +2,8 @@
 
 Tika marks page boundaries in PDF text with form feeds. Chunks are built by
 words (a crude token proxy that needs no model) with overlap, and each chunk
-remembers the page it starts on.
+remembers the page it starts on. `fields["page_starts"]` records where each
+page starts in the joined text, so later stages can give every span its page.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import re
 
 from oss_core.contracts import StageContext, WorkingDocument
+from oss_pipeline.provenance import PAGE_SEPARATOR
 
 _WS = re.compile(r"[ \t]+")
 _BLANKS = re.compile(r"\n{3,}")
@@ -37,7 +39,7 @@ def chunk_words(text: str, size: int, overlap: int) -> list[str]:
 
 class StructureStage:
     name = "structure"
-    version = "1"
+    version = "2"
     queue = "cpu"
     requires = ("text",)
     provides = ("pages", "chunks")
@@ -47,7 +49,13 @@ class StructureStage:
         overlap = int(ctx.settings.get("chunk_overlap", 40))
         text = doc.text or ""
         doc.pages = split_pages(text)
-        doc.text = "\n\n".join(doc.pages)
+        doc.text = PAGE_SEPARATOR.join(doc.pages)
+        starts: list[int] = []
+        pos = 0
+        for page in doc.pages:
+            starts.append(pos)
+            pos += len(page) + len(PAGE_SEPARATOR)
+        doc.fields["page_starts"] = starts  # where each page starts in doc.text (span pages)
         chunks: list[str] = []
         chunk_pages: list[int] = []
         for page_no, page in enumerate(doc.pages, start=1):

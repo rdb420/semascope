@@ -5,15 +5,16 @@ Projection (rebuild specification, section 8):
     (:Document {id, collection, title, source_uri, content_hash, language, indexed_at})
       -[:FROM]-> (:Source {uri})
       -[:IN]-> (:Collection {slug})
-      -[:TAGGED {pack_version, count, confidence, stage}]-> (:Concept {iri, pack_id, pref_label})
-      -[:MENTIONS {count, confidence, stage}]-> (:Entity {key, label, class})
+      -[:TAGGED {pack_version, count, confidence, stage, stage_version}]-> (:Concept {iri, ...})
+      -[:MENTIONS {pack_version, count, confidence, stage, stage_version}]-> (:Entity {key, ...})
     (:Entity)-[:DEFINED_IN]->(:Pack {key})  for pack individuals
     (:Concept)-[:IN_SCHEME]->(:Pack {key})
 
 Entity keys: the IRI for pack individuals; `<class>/<normalised label>` for
 NER entities, or an HMAC of that when the collection sets `pseudonymise`
 (the label then stays in Postgres only). Machine edges are replaced on every
-run; `CURATED` edges (Phase 3 review) are never touched here.
+run; `CURATED` edges (Phase 3 review) are never touched here. Spans, matched
+labels and `linked_from` stay in PostgreSQL; an edge carries the count only.
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ def entity_class(tag: Tag) -> str:
 
 class GraphStage:
     name = "graph"
-    version = "1"
+    version = "2"
     queue = "graph"
     requires = ("tags",)
     provides = ("graph_written",)
@@ -122,6 +123,7 @@ class GraphStage:
                         "count": count,
                         "confidence": tag.confidence,
                         "stage": tag.stage,
+                        "stage_version": tag.stage_version,
                     }
                 )
             else:
@@ -132,9 +134,11 @@ class GraphStage:
                         "label": "" if secret and not tag.pack_id else tag.label,
                         "class": entity_class(tag),
                         "pack_key": f"{tag.pack_id}@{tag.pack_version}" if tag.pack_id else None,
+                        "pack_version": tag.pack_version,
                         "count": count,
                         "confidence": tag.confidence,
                         "stage": tag.stage,
+                        "stage_version": tag.stage_version,
                     }
                 )
         if concepts:
@@ -146,7 +150,7 @@ class GraphStage:
                 SET c.pref_label = row.label, c.pack_id = row.pack_id
                 MERGE (d)-[t:TAGGED]->(c)
                 SET t.count = row.count, t.confidence = row.confidence, t.stage = row.stage,
-                    t.pack_version = row.pack_version
+                    t.stage_version = row.stage_version, t.pack_version = row.pack_version
                 WITH c, row WHERE row.pack_key IS NOT NULL
                 MERGE (p:Pack {key: row.pack_key})
                 MERGE (c)-[:IN_SCHEME]->(p)
@@ -162,7 +166,8 @@ class GraphStage:
                 SET e.label = CASE WHEN row.label <> '' THEN row.label ELSE e.label END,
                     e.class = row.class
                 MERGE (d)-[m:MENTIONS]->(e)
-                SET m.count = row.count, m.confidence = row.confidence, m.stage = row.stage
+                SET m.count = row.count, m.confidence = row.confidence, m.stage = row.stage,
+                    m.stage_version = row.stage_version, m.pack_version = row.pack_version
                 WITH e, row WHERE row.pack_key IS NOT NULL
                 MERGE (p:Pack {key: row.pack_key})
                 MERGE (e)-[:DEFINED_IN]->(p)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from oss_core.contracts import Span, StageContext, Tag, WorkingDocument
+from oss_pipeline.provenance import assign_pages
 
 BASE = "https://semascope.dev/ontology/base#"
 
@@ -26,7 +27,7 @@ PATTERNS: dict[str, tuple[str, re.Pattern[str]]] = {
 
 class PatternsStage:
     name = "patterns"
-    version = "1"
+    version = "2"
     queue = "cpu"
     requires = ("text",)
     provides = ("tags",)
@@ -50,10 +51,12 @@ class PatternsStage:
                         label=value,
                         kind="entity",
                         stage=self.name,
+                        stage_version=self.version,
                         confidence=0.9,
                     )
                     seen[key] = tag
                     doc.tags.append(tag)
                 tag.spans.append(Span(start=match.start(), end=match.end()))
+            assign_pages(seen.values(), doc)
             doc.fields[field_name] = sorted({t.label for t in seen.values()})
         return doc

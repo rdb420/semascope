@@ -59,13 +59,38 @@ class FetchedItem(BaseModel):
 
 
 class Span(BaseModel):
+    """One occurrence: character offsets into the document's text, and its page (1-based).
+
+    `matched` is the dictionary label the occurrence matched (tag stage only).
+    """
+
     start: int
     end: int
     page: int | None = None
+    matched: str | None = None
+
+
+class LinkedFrom(BaseModel):
+    """What an NER tag was before the link stage (or a curator) pointed it at an individual."""
+
+    iri: str
+    label: str
+    confidence: float | None = None
+    model: str | None = None
+    link_version: str | None = None
 
 
 class Tag(BaseModel):
-    """A concept or entity found in a document, with provenance."""
+    """A concept or entity found in a document, with provenance.
+
+    Every provenance field is optional, so tags stored before 1.0 still load:
+
+    - `stage`, `stage_version`: the stage that produced the tag and its code version
+    - `matched_label`, `label_type`, `lang`: the dictionary entry behind a tag-stage match
+      (the label type that gave the confidence: pref, alt, draft or hidden)
+    - `model`: `provider:model` for NER tags
+    - `linked_from`: the NER entity the link stage replaced with a pack individual
+    """
 
     iri: str
     label: str
@@ -73,7 +98,13 @@ class Tag(BaseModel):
     pack_id: str | None = None
     pack_version: str | None = None
     stage: str
+    stage_version: str | None = None
     confidence: float = 1.0
+    matched_label: str | None = None
+    label_type: str | None = None
+    lang: str | None = None
+    model: str | None = None
+    linked_from: LinkedFrom | None = None
     spans: list[Span] = Field(default_factory=list)
 
 
