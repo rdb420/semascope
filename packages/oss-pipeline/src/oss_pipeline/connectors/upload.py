@@ -13,6 +13,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import (
+    all_upload_roots,
+    confine_path,
+    confined_files,
+    upload_roots,
+)
 
 
 def upload_root(data_dir: Path, collection: str) -> Path:
@@ -33,10 +39,11 @@ class UploadConnector:
     name = "upload"
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
-        root = Path(str(source.settings["path"]))
+        roots = upload_roots(source.collection)
+        root = confine_path(str(source.settings["path"]), roots)
         if not root.exists():
             return
-        for file in sorted(p for p in root.rglob("*") if p.is_file()):
+        for file in confined_files(sorted(p for p in root.rglob("*") if p.is_file()), roots):
             stat = file.stat()
             if stat.st_size == 0:
                 continue
@@ -54,7 +61,8 @@ class UploadConnector:
             )
 
     def fetch(self, item: SourceItem) -> FetchedItem:
-        return FetchedItem(item=item, path=str(item.metadata["path"]))
+        path = confine_path(str(item.metadata["path"]), all_upload_roots())
+        return FetchedItem(item=item, path=str(path))
 
     def deleted(self, source: SourceConfig, since: Cursor) -> Iterable[str]:
         return []

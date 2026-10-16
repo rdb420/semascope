@@ -2,7 +2,9 @@
 
 Settings: `path` (required), `include` (list of globs, default everything),
 `exclude` (list of globs), `follow_symlinks` (false), `max_bytes` (512 MiB).
-Content hashes are computed on discovery so unchanged files are skipped.
+Content hashes are computed on discovery so unchanged files are skipped. The
+path must lie under the source roots, and files whose symlinks resolve
+outside them are skipped (see `guard`).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import confine_path, source_roots, within
 
 DEFAULT_EXCLUDES = (".*", "*~", "*.tmp", "*.part", "Thumbs.db", "node_modules", ".git", ".venv")
 
@@ -31,7 +34,8 @@ class FilesystemConnector:
     name = "filesystem"
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
-        root = Path(str(source.settings["path"])).expanduser().resolve()
+        roots = source_roots()
+        root = confine_path(str(source.settings["path"]), roots)
         if not root.is_dir():
             raise FileNotFoundError(f"{root} is not a directory")
         include = list(source.settings.get("include") or ["*"])
@@ -47,6 +51,8 @@ class FilesystemConnector:
                     continue
                 file = Path(dirpath) / filename
                 try:
+                    if not within(file.resolve(), roots):
+                        continue
                     stat = file.stat()
                 except OSError:
                     continue
@@ -66,7 +72,7 @@ class FilesystemConnector:
                 )
 
     def fetch(self, item: SourceItem) -> FetchedItem:
-        path = Path(str(item.metadata["path"]))
+        path = confine_path(str(item.metadata["path"]), source_roots())
         return FetchedItem(item=item, path=str(path))
 
     def deleted(self, source: SourceConfig, since: Cursor) -> Iterable[str]:

@@ -12,7 +12,7 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from oss_core.config import get_settings
-from oss_server.api.access import check
+from oss_server.api.access import check, read_scope
 from oss_server.knowledge import store
 from oss_server.knowledge.importer import activate_pack, hierarchy, import_pack
 from oss_server.knowledge.models import Concept, Pack, PackDelta
@@ -251,10 +251,11 @@ def concept_documents(
 ) -> dict[str, Any]:
     """Documents tagged with a concept or linked to an individual."""
 
-    from oss_server.api.search import HIT_FIELDS
+    from oss_server.api.search import HIT_FIELDS, collection_filter
     from oss_server.services import solr_client, solr_documents_collection
 
-    fq = [f'concept_iris_ss:"{iri}" OR entity_iris_ss:"{iri}"']
+    allowed = read_scope(request, collection)
+    fq = [f'concept_iris_ss:"{iri}" OR entity_iris_ss:"{iri}"', *collection_filter(allowed)]
     if collection:
         fq.append(f'collection_s:"{collection}"')
     body = solr_client().select(
@@ -267,7 +268,10 @@ def concept_documents(
 def places(request: HttpRequest, collection: str | None = None) -> list[dict[str, Any]]:
     """Pack individuals with coordinates and how many documents mention each (for the map)."""
 
+    from oss_server.api.search import collection_filter
     from oss_server.services import solr_client, solr_documents_collection
+
+    allowed = read_scope(request, collection)
 
     rows = [
         c
@@ -278,7 +282,9 @@ def places(request: HttpRequest, collection: str | None = None) -> list[dict[str
     ]
     if not rows:
         return []
-    fq = [f'collection_s:"{collection}"'] if collection else []
+    fq = collection_filter(allowed)
+    if collection:
+        fq.append(f'collection_s:"{collection}"')
     body = solr_client().select(
         solr_documents_collection(),
         q="*:*",
@@ -360,6 +366,9 @@ def _delta_out(d: PackDelta) -> DeltaOut:
 @router.get("/packs/{pack_id}/deltas", response=list[DeltaOut])
 def list_deltas(request: HttpRequest, pack_id: str, status: str | None = None) -> list[DeltaOut]:
     qs = PackDelta.objects.filter(pack_id=pack_id).select_related("collection")
+    allowed = read_scope(request)
+    if allowed is not None:
+        qs = qs.filter(collection__slug__in=allowed)
     if status:
         qs = qs.filter(status=status)
     return [_delta_out(d) for d in qs]
@@ -423,23 +432,42 @@ def _apply_draft_label(pack: Pack, collection_slug: str, params: dict[str, Any])
     solr_client().add(solr_entities_collection(), [entry], commit_within_ms=1000)
 
 
+def _draft_deltas(request: HttpRequest, pack_id: str) -> tuple[Pack, list[PackDelta]]:
+    pack = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
+    qs = PackDelta.objects.filter(pack_id=pack_id, status=PackDelta.Status.DRAFT).select_related(
+        "collection"
+    )
+    allowed = read_scope(request)
+    if allowed is not None:
+        qs = qs.filter(collection__slug__in=allowed)
+    return pack, list(qs)
+
+
 @router.get("/packs/{pack_id}/deltas/export", response=dict[str, str])
-def export_deltas(request: HttpRequest, pack_id: str, mark: bool = False) -> dict[str, str]:
-    """The pending deltas as a bundle fragment (taxonomy.delta.ttl, model.delta.yaml)."""
+def export_deltas(request: HttpRequest, pack_id: str) -> dict[str, str]:
+    """The pending deltas as a bundle fragment (taxonomy.delta.ttl, model.delta.yaml).
+
+    Read-only: the deltas stay drafts. POST to the same path to export and mark them.
+    """
+
+    from oss_server.knowledge.deltas import build_delta
+
+    pack, deltas = _draft_deltas(request, pack_id)
+    return build_delta(pack, deltas)
+
+
+@router.post("/packs/{pack_id}/deltas/export", response=dict[str, str])
+def export_and_mark_deltas(request: HttpRequest, pack_id: str) -> dict[str, str]:
+    """Export the pending deltas and mark exactly those as exported (editor)."""
 
     from django.utils import timezone
 
     from oss_server.knowledge.deltas import build_delta
 
-    pack = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
-    deltas = list(
-        PackDelta.objects.filter(pack_id=pack_id, status=PackDelta.Status.DRAFT).select_related(
-            "collection"
-        )
-    )
+    check(request, "editor")
+    pack, deltas = _draft_deltas(request, pack_id)
     files = build_delta(pack, deltas)
-    if mark:
-        PackDelta.objects.filter(pk__in=[d.pk for d in deltas]).update(
-            status=PackDelta.Status.EXPORTED, exported_at=timezone.now()
-        )
+    PackDelta.objects.filter(pk__in=[d.pk for d in deltas]).update(
+        status=PackDelta.Status.EXPORTED, exported_at=timezone.now()
+    )
     return files

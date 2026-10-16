@@ -1,10 +1,12 @@
 """RDF connector: one document per subject from RDF files or a SPARQL endpoint.
 
-Settings: `path` (file or folder of .ttl/.nt/.rdf/.jsonld), or `endpoint`
-(SPARQL) with `graph` (optional) and `types` (list of class IRIs to select;
-empty = every subject with a label). Each subject is rendered as readable
-"predicate: value" lines with its label as title, so Tika and the pattern
-and tag stages see text, and its IRI is kept in `x_subject_s`.
+Settings: `path` (file or folder of .ttl/.nt/.rdf/.jsonld, under the source
+roots), or `endpoint` (SPARQL, a public address unless the operator allows a
+private one) with `graph` (optional), `types` (list of class IRIs to select;
+empty = every subject with a label) and `max_bytes` (the response cap). Each
+subject is rendered as readable "predicate: value" lines with its label as
+title, so Tika and the pattern and tag stages see text, and its IRI is kept in
+`x_subject_s`.
 """
 
 from __future__ import annotations
@@ -16,6 +18,14 @@ from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import (
+    DEFAULT_MAX_BYTES,
+    confine_path,
+    confined_files,
+    get_capped,
+    guarded_client,
+    source_roots,
+)
 
 LABEL_PREDICATES = (
     "http://www.w3.org/2000/01/rdf-schema#label",
@@ -69,20 +79,24 @@ def _subjects_from_graph(
 
 
 def _subjects_from_endpoint(
-    endpoint: str, graph: str | None, types: list[str], limit: int
+    endpoint: str, graph: str | None, types: list[str], limit: int, max_bytes: int
 ) -> Iterator[tuple[str, str, list[tuple[str, str]]]]:
-    import httpx
+    import json
 
     type_filter = " UNION ".join(f"{{ ?s a <{t}> }}" for t in types) if types else ""
     from_clause = f"FROM <{graph}>" if graph else ""
     where = f"WHERE {{ {type_filter} ?s ?p ?o . FILTER(isIRI(?s)) }}"
     query = f"SELECT ?s ?p ?o {from_clause} {where} LIMIT {limit}"
-    with httpx.Client(timeout=120.0) as client:
-        resp = client.get(
-            endpoint, params={"query": query}, headers={"Accept": "application/sparql-results+json"}
+    with guarded_client(timeout=120.0) as client:
+        resp, body = get_capped(
+            client,
+            endpoint,
+            max_bytes,
+            params={"query": query},
+            headers={"Accept": "application/sparql-results+json"},
         )
         resp.raise_for_status()
-        bindings = resp.json().get("results", {}).get("bindings", [])
+        bindings = json.loads(body).get("results", {}).get("bindings", [])
     by_subject: dict[str, list[tuple[str, str]]] = {}
     labels: dict[str, str] = {}
     for b in bindings:
@@ -110,16 +124,19 @@ class RdfConnector:
                 settings.get("graph"),
                 types,
                 int(settings.get("limit", 100000)),
+                int(settings.get("max_bytes", 4 * DEFAULT_MAX_BYTES)),
             )
         else:
             from rdflib import Graph
 
-            root = Path(str(settings["path"])).expanduser()
+            roots = source_roots()
+            root = confine_path(str(settings["path"]), roots)
             files = (
                 [root]
                 if root.is_file()
                 else sorted(p for p in root.rglob("*") if p.suffix.lower() in FORMATS)
             )
+            files = list(confined_files(files, roots))
             g = Graph()
             for file in files:
                 g.parse(str(file), format=FORMATS[file.suffix.lower()])

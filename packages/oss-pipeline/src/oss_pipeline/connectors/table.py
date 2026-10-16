@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import confine_path, confined_files, source_roots
 
 
 def _rows(path: Path, settings: dict[str, Any]) -> Iterator[dict[str, str]]:
@@ -49,12 +50,14 @@ class TableConnector:
     name = "table"
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
-        root = Path(str(source.settings["path"])).expanduser()
+        roots = source_roots()
+        root = confine_path(str(source.settings["path"]), roots)
         files = (
             [root]
             if root.is_file()
             else sorted(p for p in root.rglob("*") if p.suffix.lower() in (".csv", ".tsv", ".xlsx"))
         )
+        files = list(confined_files(files, roots))
         settings = source.settings
         text_columns = [str(c) for c in settings.get("text_columns") or []]
         title_column = str(settings.get("title_column") or "")

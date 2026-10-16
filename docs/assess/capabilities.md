@@ -137,7 +137,7 @@ hand against a live stack); `bench` and `quality` are
 | Runtimes `cpu`, `gpu`, `remote`, a provider per heavy stage | implemented (cpu), experimental (gpu, remote) | ci, bench | |
 | Local accounts and API tokens | implemented | ci | |
 | Single sign-on (OpenID Connect) | experimental | — | |
-| Roles per collection | implemented | ci | roles govern writing; reading is not restricted per collection |
+| Roles per collection | implemented | ci | roles govern reading and writing; `SEMASCOPE_DEFAULT_ROLE=none` makes reading per collection (the default `reader` keeps it open to every signed-in user); a route-by-route authorisation test covers every endpoint |
 | Backup and restore | implemented | fresh-clone check | no automated test |
 | OpenTelemetry traces and metrics | experimental | ci (set-up) | server, workers and beat export both over OTLP since the fix after rc.2; the bundled collector logs traces and passes metrics to Prometheus; not exercised against a live collector in CI |
 | Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image is amd64 only |

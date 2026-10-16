@@ -7,6 +7,7 @@ collection's profile and stores the result. Both are idempotent.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 from datetime import UTC, datetime
@@ -167,6 +168,15 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
             status=Source.Status.FAILED, last_error=f"unknown connector {source.connector}"
         )
         return {"error": 1}
+    from oss_pipeline.connectors.guard import SourceNotAllowed, check_source
+
+    try:
+        check_source(source.connector, source.settings, source.collection.slug)
+    except SourceNotAllowed as exc:
+        Source.objects.filter(pk=source_id).update(
+            status=Source.Status.FAILED, last_error=f"refused: {exc}"[:2000]
+        )
+        return {"error": 1}
     Source.objects.filter(pk=source_id).update(status=Source.Status.RUNNING, last_error="")
     config = SourceConfig(
         id=str(source.id),
@@ -278,7 +288,9 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any]) -> str:
     Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
     connector = connectors()[doc_row.source.connector]
     try:
-        fetched = connector.fetch(SourceItem.model_validate(item))
+        fetched = _fetch(
+            connector, SourceItem.model_validate(item), doc_row.source, doc_row.collection.slug
+        )
     except Exception as exc:  # noqa: BLE001 - recorded on the document
         retries, base = _retry_policy(doc_row.collection)
         attempt = int(getattr(self.request, "retries", 0) or 0) + 1
@@ -320,6 +332,20 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any]) -> str:
     _store(doc_row, work)
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
+
+
+def _fetch(connector: Any, item: SourceItem, source: Source, collection: str) -> Any:
+    """Fetch an item; connectors that take `source` get its current settings (credentials)."""
+
+    if "source" in inspect.signature(connector.fetch).parameters:
+        config = SourceConfig(
+            id=str(source.id),
+            collection=collection,
+            connector=source.connector,
+            settings=source.settings,
+        )
+        return connector.fetch(item, source=config)
+    return connector.fetch(item)
 
 
 PREREQS = {"embed": ("structure",)}  # not stored on the row, so recomputed for the replayed stage
@@ -425,8 +451,11 @@ def tick() -> dict[str, int]:
 
 @shared_task(bind=True, name="semascope.delete_document", queue="io")
 def delete_document(self: Any, doc_id: str) -> None:
+    from oss_server.services import solr_chunks_collection
+
     try:
         solr_client().delete_by_id(solr_documents_collection(), [doc_id])
+        solr_client().delete_by_query(solr_chunks_collection(), f'document_id:"{doc_id}"')
     except Exception as exc:
         if is_transient(exc) and self.request.retries < TASK_RETRIES:
             raise self.retry(
@@ -583,6 +612,7 @@ def check_alerts() -> int:
     """Run every saved search with an alert; emit an event when its total grew."""
 
     from oss_server.api import search as search_mod
+    from oss_server.api.access import can_read, readable_collections
     from oss_server.api.schemas import SearchIn
     from oss_server.catalogue.models import SavedSearch
     from oss_server.curation.services import emit
@@ -593,7 +623,12 @@ def check_alerts() -> int:
             req = SearchIn(**saved.query).model_copy(
                 update={"page": 1, "page_size": 5, "facets": []}
             )
-            res = search_mod.search(solr_client(), solr_documents_collection(), req)
+            # an alert sees what its owner may read now, not what they could when saving it
+            if req.collection and not can_read(saved.user, req.collection):
+                continue
+            readable = readable_collections(saved.user)
+            allowed = None if readable is None else sorted(readable)
+            res = search_mod.search(solr_client(), solr_documents_collection(), req, allowed)
         except Exception:  # noqa: BLE001
             log.exception("alert %s failed", saved.pk)
             continue

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from oss_core.contracts import SourceConfig
 from oss_pipeline.connectors.filesystem import FilesystemConnector
 
@@ -25,8 +27,10 @@ def test_discover_respects_globs_and_hashes(tmp_path: Path) -> None:
     assert fetched.path and Path(fetched.path).exists()
 
 
-def test_upload_connector_round_trip(tmp_path: Path) -> None:
+def test_upload_connector_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from oss_pipeline.connectors.upload import UploadConnector, store_upload
+
+    monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path))
 
     dest = store_upload(tmp_path, "c", "../evil.txt", b"hello")
     assert dest.name == "evil.txt" and dest.parent.parent.name == "c"

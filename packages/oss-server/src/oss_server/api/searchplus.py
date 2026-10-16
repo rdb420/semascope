@@ -16,6 +16,7 @@ from ninja.errors import HttpError
 from pydantic import ValidationError
 
 from oss_server.api import search as search_mod
+from oss_server.api.access import read_scope
 from oss_server.api.schemas import SearchIn
 from oss_server.catalogue.models import Document, SavedSearch
 from oss_server.services import solr_client, solr_documents_collection
@@ -72,12 +73,14 @@ def list_saved(request: HttpRequest) -> list[SavedSearchOut]:
 
 @router.post("/saved", response={201: SavedSearchOut})
 def save_search(request: HttpRequest, payload: SavedSearchIn) -> tuple[int, SavedSearchOut]:
+    user = _user(request)
     try:
-        SearchIn(**payload.query)
+        query = SearchIn(**payload.query)
     except ValidationError as exc:
         raise HttpError(422, str(exc)[:300]) from exc
+    read_scope(request, query.collection)
     s, _ = SavedSearch.objects.update_or_create(
-        user=_user(request),
+        user=user,
         name=payload.name,
         defaults={"query": payload.query, "alert": payload.alert},
     )
@@ -96,6 +99,7 @@ def list_search(request: HttpRequest, payload: ListSearchIn) -> dict[str, Any]:
 
     if len(payload.names) > 500:
         raise HttpError(422, "at most 500 names per call")
+    allowed = read_scope(request, payload.collection)
     client = solr_client()
     out: dict[str, Any] = {}
     for name in payload.names:
@@ -109,7 +113,7 @@ def list_search(request: HttpRequest, payload: ListSearchIn) -> dict[str, Any]:
             page_size=max(1, min(payload.rows_per_name, 20)),
             highlight=True,
         )
-        res = search_mod.search(client, solr_documents_collection(), req)
+        res = search_mod.search(client, solr_documents_collection(), req, allowed)
         out[name] = {"total": res.total, "hits": [h.model_dump() for h in res.hits]}
     return out
 
@@ -118,6 +122,7 @@ def list_search(request: HttpRequest, payload: ListSearchIn) -> dict[str, Any]:
 def export_csv(request: HttpRequest, payload: SearchIn) -> HttpResponse:
     """The first 10,000 hits of a search as CSV (id, title, uri, type, language, dates)."""
 
+    allowed = read_scope(request, payload.collection)
     client = solr_client()
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -142,7 +147,7 @@ def export_csv(request: HttpRequest, payload: SearchIn) -> HttpResponse:
         req = payload.model_copy(
             update={"page": page, "page_size": 100, "highlight": False, "facets": []}
         )
-        res = search_mod.search(client, solr_documents_collection(), req)
+        res = search_mod.search(client, solr_documents_collection(), req, allowed)
         for h in res.hits:
             writer.writerow(
                 [
@@ -174,11 +179,12 @@ def terms(
 ) -> list[dict[str, Any]]:
     """The words that stand out in the top hits of a search, against the collection's background."""
 
+    allowed = read_scope(request, payload.collection)
     client = solr_client()
     req = payload.model_copy(
         update={"page": 1, "page_size": max(1, min(sample, 100)), "highlight": False, "facets": []}
     )
-    res = search_mod.search(client, solr_documents_collection(), req)
+    res = search_mod.search(client, solr_documents_collection(), req, allowed)
     ids = [h.id for h in res.hits]
     if not ids:
         return []

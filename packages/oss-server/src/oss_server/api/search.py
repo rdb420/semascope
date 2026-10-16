@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from oss_core.vectors import UnsupportedDimensionError, vector_field
 from oss_pipeline.clients.solr import SolrClient
 from oss_server.api.schemas import FacetValue, SearchHit, SearchIn, SearchOut
+
+log = logging.getLogger(__name__)
 
 ALLOWED_FACETS = {
     "content_type_group_s",
@@ -46,18 +49,35 @@ def _escape(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def build_params(req: SearchIn) -> dict[str, Any]:
-    fq: list[str] = []
-    if req.collection:
-        fq.append(f"collection_s:{_escape(req.collection)}")
+def collection_filter(allowed: list[str] | None) -> list[str]:
+    """The filter query that keeps a search inside the readable collections (none for all)."""
+
+    if allowed is None:
+        return []
+    if not allowed:
+        return ["-*:*"]
+    return ["collection_s:(" + " OR ".join(_escape(c) for c in allowed) + ")"]
+
+
+def facet_filters(req: SearchIn) -> list[tuple[str, str]]:
+    """The request's facet filters as (field, clause) pairs, unknown fields dropped."""
+
+    out: list[tuple[str, str]] = []
     for field, values in req.filters.items():
         if not values or not (
             field in ALLOWED_FACETS or field.endswith(("_s", "_ss", "_b", "_paths"))
         ):
             continue
-        fq.append(
-            "{!tag=" + field + "}" + field + ":(" + " OR ".join(_escape(v) for v in values) + ")"
-        )
+        out.append((field, field + ":(" + " OR ".join(_escape(v) for v in values) + ")"))
+    return out
+
+
+def build_params(req: SearchIn, allowed: list[str] | None = None) -> dict[str, Any]:
+    fq: list[str] = collection_filter(allowed)
+    if req.collection:
+        fq.append(f"collection_s:{_escape(req.collection)}")
+    for field, clause in facet_filters(req):
+        fq.append("{!tag=" + field + "}" + clause)
     facets = [f for f in req.facets if f in ALLOWED_FACETS or f.endswith(("_ss", "_paths"))]
     params: dict[str, Any] = {
         "q": req.q.strip() or "*:*",
@@ -164,13 +184,17 @@ def entity_class_facets() -> list[str]:
     )
 
 
-def search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
+def search(
+    client: SolrClient, collection_name: str, req: SearchIn, allowed: list[str] | None = None
+) -> SearchOut:
+    """Run a search. `allowed` limits it to those collections (None: no limit)."""
+
     extra = [f for f in [*scheme_facets(), *entity_class_facets()] if f not in req.facets]
     if extra:
         req = req.model_copy(update={"facets": [*req.facets, *extra]})
     if req.mode in ("semantic", "hybrid") and req.q.strip() and req.q.strip() != "*:*":
-        return _semantic_search(client, collection_name, req)
-    body = client.select(collection_name, **build_params(req))
+        return _semantic_search(client, collection_name, req, allowed)
+    body = client.select(collection_name, **build_params(req, allowed))
     return parse_response(req, body)
 
 
@@ -198,12 +222,24 @@ def current_embed_model() -> str:
         return get_settings().semascope_embed_model
 
 
-def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any]]:
+def _knn_chunks(
+    client: SolrClient,
+    req: SearchIn,
+    k: int,
+    allowed: list[str] | None = None,
+    documents: str = "documents",
+) -> list[dict[str, Any]]:
     """Top-k chunks by vector similarity, with their passage text.
 
     Only chunks embedded by the current model take part: vectors of different
     models are not comparable, so after a provider change the semantic modes
     see the re-embedded documents only until `reindex --stage embed` is done.
+
+    Filters are pre-filters: Solr applies `fq` before picking the top k. Chunks
+    carry their collection; facet filters live on the documents, so they reach
+    the chunks through a join on the document id. Where the join is not
+    available (a sharded documents collection), the candidates are filtered
+    afterwards instead, which keeps results correct but may find fewer.
     """
 
     from oss_server.services import solr_chunks_collection
@@ -211,7 +247,9 @@ def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any
     embedder = query_embedder()
     query_vec = getattr(embedder, "embed_query", None)
     vector = query_vec(req.q) if query_vec else embedder.embed([req.q])[0]
-    fq = [f'collection_s:"{req.collection}"'] if req.collection else []
+    fq = collection_filter(allowed)
+    if req.collection:
+        fq.append(f"collection_s:{_escape(req.collection)}")
     model = str(getattr(embedder, "model_name", "") or "")
     if model:
         fq.append(f'model_s:"{model}"')
@@ -221,22 +259,36 @@ def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any
         from ninja.errors import HttpError
 
         raise HttpError(422, str(exc)) from exc
-    body = client.select(
-        solr_chunks_collection(),
-        q=f"{{!knn f={field} topK={k}}}" + "[" + ",".join(f"{x:.6f}" for x in vector) + "]",
-        fq=fq,
-        rows=k,
-        fl="id,document_id,text_txt,page_i,score",
-        hl=False,
-    )
+    params: dict[str, Any] = {
+        "q": f"{{!knn f={field} topK={k}}}" + "[" + ",".join(f"{x:.6f}" for x in vector) + "]",
+        "fq": fq,
+        "rows": k,
+        "fl": "id,document_id,text_txt,page_i,score",
+        "hl": False,
+    }
+    clauses = [clause for _, clause in facet_filters(req)]
+    if clauses:
+        joined = {
+            **params,
+            "fq": [*fq, "{!join fromIndex=" + documents + " from=id to=document_id v=$docfq}"],
+            "docfq": " AND ".join(f"({c})" for c in clauses),
+        }
+        try:
+            body = client.select(solr_chunks_collection(), **joined)
+            return list(body.get("response", {}).get("docs", []))
+        except Exception:  # noqa: BLE001 - no join here: filter the candidates afterwards
+            log.info("chunks: join pre-filter unavailable; filtering the candidates afterwards")
+    body = client.select(solr_chunks_collection(), **params)
     return list(body.get("response", {}).get("docs", []))
 
 
-def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
+def _semantic_search(
+    client: SolrClient, collection_name: str, req: SearchIn, allowed: list[str] | None = None
+) -> SearchOut:
     """Semantic: rank documents by their best chunk. Hybrid: reciprocal rank fusion with keyword."""
 
     k = max(200, req.page_size * 20)
-    chunks = _knn_chunks(client, req, k)
+    chunks = _knn_chunks(client, req, k, allowed, collection_name)
     # rank documents by their best chunk, but count at most three chunks per document so one
     # long text cannot crowd out every other hit
     doc_order: list[str] = []
@@ -257,15 +309,13 @@ def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) ->
         kw = req.model_copy(
             update={"page": 1, "page_size": k, "facets": [], "highlight": False, "mode": "keyword"}
         )
-        kw_body = client.select(collection_name, **build_params(kw))
+        kw_body = client.select(collection_name, **build_params(kw, allowed))
         for i, d in enumerate(kw_body.get("response", {}).get("docs", [])):
             ranks[d["id"]] = ranks.get(d["id"], 0.0) + 1.0 / (60 + i)
-    ordered = sorted(ranks, key=lambda d: -ranks[d])
-    start = (max(req.page, 1) - 1) * req.page_size
-    page_ids = ordered[start : start + req.page_size]
-    if not page_ids:
+    ordered = sorted(ranks, key=lambda d: -ranks[d])[:1000]
+    if not ordered:
         return SearchOut(
-            total=len(ordered),
+            total=0,
             page=req.page,
             page_size=req.page_size,
             took_ms=0,
@@ -273,40 +323,53 @@ def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) ->
             facets={},
             histogram=[],
         )
-    # fetch the page's documents, with facets over the whole fused set
-    id_query = " OR ".join(f'id:"{d}"' for d in ordered[:1000])
-    fetch = req.model_copy(
-        update={
-            "q": id_query,
-            "page": 1,
-            "page_size": len(ordered[:1000]),
-            "highlight": req.highlight,
-            "mode": "keyword",
-        }
+    # 1. which candidates pass every filter (facets, collection, read scope), with facets
+    #    and the histogram over that filtered set
+    candidates = req.model_copy(update={"highlight": False, "mode": "keyword"})
+    params = build_params(candidates, allowed)
+    params.update(
+        q="{!terms f=id}" + ",".join(ordered), defType="lucene", start=0, rows=len(ordered)
     )
-    params = build_params(fetch)
-    params["q"] = id_query
-    params["defType"] = "lucene"
-    params["df"] = "text_txt"
-    params["hl.q"] = "{!edismax qf='title_txt text_txt' v=$hlq}"
-    params["hlq"] = req.q
+    params["fl"] = "id"
     body = client.select(collection_name, **params)
-    parsed = parse_response(fetch, body)
-    by_id = {h.id: h for h in parsed.hits}
-    hits = []
-    for did in page_ids:
-        hit = by_id.get(did)
-        if hit is None:
-            continue
-        hit.passages = passages.get(did, [])
-        hit.score = round(ranks[did], 5)
-        hits.append(hit)
+    passing = {str(d["id"]) for d in body.get("response", {}).get("docs", [])}
+    counted = parse_response(candidates, body)
+    filtered = [d for d in ordered if d in passing]
+    start = (max(req.page, 1) - 1) * req.page_size
+    page_ids = filtered[start : start + req.page_size]
+    hits: list[SearchHit] = []
+    took = counted.took_ms
+    if page_ids:
+        # 2. the page's documents, with highlighting
+        page = req.model_copy(
+            update={"page": 1, "facets": [], "histogram": None, "mode": "keyword", "filters": {}}
+        )
+        params = build_params(page, allowed)
+        params.update(
+            q="{!terms f=id}" + ",".join(page_ids),
+            defType="lucene",
+            df="text_txt",
+            start=0,
+            rows=len(page_ids),
+        )
+        params["hl.q"] = "{!edismax qf='title_txt text_txt' v=$hlq}"
+        params["hlq"] = req.q
+        page_body = client.select(collection_name, **params)
+        took += int(page_body.get("responseHeader", {}).get("QTime", 0))
+        by_id = {h.id: h for h in parse_response(page, page_body).hits}
+        for did in page_ids:
+            hit = by_id.get(did)
+            if hit is None:
+                continue
+            hit.passages = passages.get(did, [])
+            hit.score = round(ranks[did], 5)
+            hits.append(hit)
     return SearchOut(
-        total=len(ordered),
+        total=len(filtered),
         page=req.page,
         page_size=req.page_size,
-        took_ms=parsed.took_ms,
+        took_ms=took,
         hits=hits,
-        facets=parsed.facets,
-        histogram=parsed.histogram,
+        facets=counted.facets,
+        histogram=counted.histogram,
     )

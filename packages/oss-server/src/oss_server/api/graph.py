@@ -9,6 +9,7 @@ from django.http import HttpRequest
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
+from oss_server.api.access import read_scope
 from oss_server.services import graph_client
 
 router = Router(tags=["graph"])
@@ -98,6 +99,13 @@ def _collect(records: list[dict[str, Any]]) -> GraphOut:
     return GraphOut(nodes=list(nodes.values()), edges=list(edges.values()))
 
 
+# a path may only pass through documents (and collection nodes) of the readable collections
+READABLE_NODES = (
+    "all(x IN nodes(p) WHERE (NOT x:Document OR x.collection IN $allowed)"
+    " AND (NOT x:Collection OR x.slug IN $allowed))"
+)
+
+
 def _raw(cypher: str, **params: Any) -> list[dict[str, Any]]:
     client = graph_client()
     with client._driver.session() as session:  # noqa: SLF001 - raw records needed for node objects
@@ -128,11 +136,14 @@ def neighbours(
     }[kind]
     depth = max(1, min(depth, 3))
     wanted = [k for k in kinds.split(",") if k in LABELS] or list(LABELS)
+    allowed = read_scope(request, collection)
     scope = (
         " AND all(x IN nodes(p) WHERE NOT x:Document OR x.collection = $collection)"
         if collection
         else ""
     )
+    if allowed is not None:
+        scope += " AND " + READABLE_NODES
     cypher = (
         f"MATCH (n:{kind} {{{prop}: $key}}) "
         f"MATCH p = (n)-[:TAGGED|MENTIONS|CURATED|FROM|IN*1..{depth}]-(m) "
@@ -140,7 +151,12 @@ def neighbours(
         f"RETURN p LIMIT $limit"
     )
     rows = _raw(
-        cypher, key=key, wanted=wanted, limit=max(1, min(limit, 1000)), collection=collection
+        cypher,
+        key=key,
+        wanted=wanted,
+        limit=max(1, min(limit, 1000)),
+        collection=collection,
+        allowed=allowed,
     )
     return _collect(rows)
 
@@ -165,10 +181,12 @@ def path(request: HttpRequest, a: str, b: str, max_length: int = 4) -> GraphOut:
 
     ma, _, ka = match(a, "a")
     mb, _, kb = match(b, "b")
+    allowed = read_scope(request)
     length = max(1, min(max_length, 6))
     rels = f"[:TAGGED|MENTIONS|CURATED*..{length}]"
-    cypher = f"MATCH {ma}, {mb} MATCH p = shortestPath((a)-{rels}-(b)) RETURN p"
-    return _collect(_raw(cypher, a_key=ka, b_key=kb))
+    where = f" WHERE {READABLE_NODES}" if allowed is not None else ""
+    cypher = f"MATCH {ma}, {mb} MATCH p = shortestPath((a)-{rels}-(b)){where} RETURN p"
+    return _collect(_raw(cypher, a_key=ka, b_key=kb, allowed=allowed))
 
 
 @router.get("/shared", response=list[dict[str, Any]])
@@ -185,9 +203,12 @@ def shared(
     if kind not in ("Entity", "Concept"):
         raise HttpError(422, "kind must be Entity or Concept")
     rel = "MENTIONS" if kind == "Entity" else "TAGGED"
+    allowed = read_scope(request, collection)
     clauses = []
     if collection:
         clauses.append("d.collection = $collection")
+    if allowed is not None:
+        clauses.append("d.collection IN $allowed")
     if kind == "Entity" and linked_only:
         clauses.append("x.class = 'Individual'")
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -198,7 +219,11 @@ def shared(
         f"coalesce(x.iri, x.key) AS key, labels(x) AS labels, docs ORDER BY docs DESC LIMIT $limit"
     )
     rows: list[dict[str, Any]] = graph_client().run(
-        cypher, collection=collection, min_docs=min_docs, limit=max(1, min(limit, 500))
+        cypher,
+        collection=collection,
+        allowed=allowed,
+        min_docs=min_docs,
+        limit=max(1, min(limit, 500)),
     )
     return rows
 

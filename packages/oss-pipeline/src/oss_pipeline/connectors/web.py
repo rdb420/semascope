@@ -2,17 +2,16 @@
 
 Settings: `urls` (list, required), `mode` (`pages` | `sitemap` | `crawl`),
 `max_pages` (200), `max_depth` (2, crawl only), `include` / `exclude` (URL
-regexes), `respect_robots` (true), `delay_seconds` (0.5), `user_agent`.
-Fetched HTML goes to Tika like any other document; the connector only
-discovers and downloads. Private address ranges are refused.
+regexes), `respect_robots` (true), `delay_seconds` (0.5), `user_agent`,
+`max_bytes` (50 MiB per response). Fetched HTML goes to Tika like any other
+document; the connector only discovers and downloads. Private address ranges
+are refused on every request and redirect (see `guard`).
 """
 
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import re
-import socket
 import tempfile
 import time
 import urllib.robotparser
@@ -27,6 +26,14 @@ import httpx
 from defusedxml import ElementTree as SafeET
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import (
+    DEFAULT_MAX_BYTES,
+    SourceNotAllowed,
+    TooLarge,
+    get_capped,
+    guarded_client,
+    refuse_private,
+)
 
 USER_AGENT = "semascope/0.1 (+https://github.com/rdb420/semascope)"
 _HREF = re.compile(r"""<a\s[^>]*href\s*=\s*["']([^"']+)["']""", re.I)
@@ -67,14 +74,15 @@ class WebConnector:
         exclude = [re.compile(p) for p in settings.get("exclude") or []]
         delay = float(settings.get("delay_seconds", 0.5))
         agent = str(settings.get("user_agent") or USER_AGENT)
-        robots = _Robots(agent) if bool(settings.get("respect_robots", True)) else None
+        max_bytes = int(settings.get("max_bytes", DEFAULT_MAX_BYTES))
 
-        with httpx.Client(
+        with guarded_client(
             timeout=30.0, follow_redirects=True, headers={"User-Agent": agent}
         ) as client:
+            robots = _Robots(agent, client) if bool(settings.get("respect_robots", True)) else None
             if mode == "sitemap":
                 queue: deque[tuple[str, int]] = deque(
-                    (u, 0) for seed in seeds for u in _sitemap_urls(client, seed)
+                    (u, 0) for seed in seeds for u in _sitemap_urls(client, seed, max_bytes)
                 )
             else:
                 queue = deque((u, 0) for u in seeds)
@@ -85,17 +93,16 @@ class WebConnector:
                 url = urldefrag(url)[0]
                 if url in seen or not _allowed(url, include, exclude):
                     continue
+                refuse_private(url)
                 if robots and not robots.allowed(url):
                     continue
-                _refuse_private(url)
                 seen.add(url)
                 try:
-                    resp = client.get(url)
-                except httpx.HTTPError:
+                    resp, content = get_capped(client, url, max_bytes)
+                except (httpx.HTTPError, TooLarge, SourceNotAllowed):
                     continue
                 if resp.status_code != 200:
                     continue
-                content = resp.content
                 media_type = (
                     resp.headers.get("content-type", "application/octet-stream")
                     .split(";")[0]
@@ -137,8 +144,11 @@ class WebConnector:
 
 
 class _Robots:
-    def __init__(self, agent: str) -> None:
+    """robots.txt per host, fetched through the guarded client."""
+
+    def __init__(self, agent: str, client: httpx.Client) -> None:
         self.agent = agent
+        self.client = client
         self._parsers: dict[str, urllib.robotparser.RobotFileParser] = {}
 
     def allowed(self, url: str) -> bool:
@@ -147,11 +157,14 @@ class _Robots:
         parser = self._parsers.get(root)
         if parser is None:
             parser = urllib.robotparser.RobotFileParser(f"{root}/robots.txt")
+            lines: list[str] = []
             try:
-                parser.read()
+                resp, body = get_capped(self.client, f"{root}/robots.txt", 512 * 1024)
+                if resp.status_code == 200:
+                    lines = body.decode("utf-8", errors="ignore").splitlines()
             except Exception:  # noqa: BLE001 - unreadable robots means no restriction
-                parser = urllib.robotparser.RobotFileParser()
-                parser.parse([])
+                lines = []
+            parser.parse(lines)
             self._parsers[root] = parser
         return parser.can_fetch(self.agent, url)
 
@@ -166,21 +179,7 @@ def _allowed(url: str, include: list[re.Pattern[str]], exclude: list[re.Pattern[
     return not any(p.search(url) for p in exclude)
 
 
-def _refuse_private(url: str) -> None:
-    host = urlparse(url).hostname or ""
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as exc:
-        raise ValueError(f"cannot resolve {host}") from exc
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_reserved
-        ):
-            raise ValueError(f"{url} resolves to a private address; refused")
+_refuse_private = refuse_private  # the name feed and older callers import
 
 
 def _links(base: str, html: str) -> list[str]:
@@ -192,12 +191,16 @@ def _links(base: str, html: str) -> list[str]:
     return out
 
 
-def _sitemap_urls(client: httpx.Client, sitemap_url: str) -> list[str]:
+def _sitemap_urls(
+    client: httpx.Client, sitemap_url: str, max_bytes: int = DEFAULT_MAX_BYTES, depth: int = 0
+) -> list[str]:
+    if depth > 3:
+        return []
     try:
-        resp = client.get(sitemap_url)
+        resp, body = get_capped(client, sitemap_url, max_bytes)
         resp.raise_for_status()
-        root = SafeET.fromstring(resp.content)
-    except (httpx.HTTPError, ET.ParseError):
+        root = SafeET.fromstring(body)
+    except (httpx.HTTPError, ET.ParseError, TooLarge, SourceNotAllowed):
         return []
     urls: list[str] = []
     for el in root.iter():
@@ -205,7 +208,7 @@ def _sitemap_urls(client: httpx.Client, sitemap_url: str) -> list[str]:
         if tag == "loc" and el.text:
             loc = el.text.strip()
             if loc.endswith(".xml"):
-                urls.extend(_sitemap_urls(client, loc))
+                urls.extend(_sitemap_urls(client, loc, max_bytes, depth + 1))
             else:
                 urls.append(loc)
     return urls

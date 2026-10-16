@@ -4,12 +4,16 @@ Settings: `bucket` (required), `prefix`, `endpoint_url` (for MinIO and
 friends), `region`, `access_key`, `secret_key` (prefer the environment:
 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), `include` / `exclude` globs on
 the key, `max_bytes`. Change detection by ETag; objects are downloaded to a
-temporary file on fetch.
+temporary file on fetch. Credentials stay in the source settings (or the
+environment) and are read from there when an object is fetched; they never
+travel with the queued item. An `endpoint_url` must be a public address
+unless the operator allows the host (see `guard`).
 """
 
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import tempfile
 from collections.abc import Iterable
 from datetime import UTC
@@ -17,6 +21,9 @@ from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import refuse_private
+
+CONNECTION_KEYS = ("endpoint_url", "region")  # what an item may carry; never credentials
 
 
 def _client(settings: dict[str, Any]) -> Any:
@@ -42,8 +49,12 @@ class S3Connector:
         self._clients: dict[str, Any] = {}
 
     def _for(self, settings: dict[str, Any]) -> Any:
+        if settings.get("endpoint_url"):
+            refuse_private(str(settings["endpoint_url"]))  # on every use: addresses change
+        secret = hashlib.sha256(str(settings.get("secret_key") or "").encode()).hexdigest()[:16]
         key = (
-            f"{settings.get('endpoint_url')}|{settings.get('region')}|{settings.get('access_key')}"
+            f"{settings.get('endpoint_url')}|{settings.get('region')}|"
+            f"{settings.get('access_key')}|{secret}"
         )
         if key not in self._clients:
             self._clients[key] = _client(settings)
@@ -80,19 +91,20 @@ class S3Connector:
                     metadata={
                         "bucket": bucket,
                         "key": key,
-                        "settings": {k: v for k, v in settings.items() if k not in ("secret_key",)},
-                        "endpoint_url": settings.get("endpoint_url"),
-                        "region": settings.get("region"),
-                        "access_key": settings.get("access_key"),
-                        "secret_key": settings.get("secret_key"),
+                        **{k: settings.get(k) for k in CONNECTION_KEYS},
                     },
                 )
 
-    def fetch(self, item: SourceItem) -> FetchedItem:
+    def fetch(self, item: SourceItem, source: SourceConfig | None = None) -> FetchedItem:
+        """Download the object, with the credentials of the source it came from."""
+
         meta = item.metadata
-        client = self._for(
-            {k: meta.get(k) for k in ("endpoint_url", "region", "access_key", "secret_key")}
+        settings = (
+            dict(source.settings)
+            if source is not None
+            else {k: meta.get(k) for k in CONNECTION_KEYS}
         )
+        client = self._for(settings)
         tmp = Path(tempfile.gettempdir()) / "semascope-s3"
         tmp.mkdir(parents=True, exist_ok=True)
         dest = tmp / f"{item.content_hash or 'obj'}-{str(meta['key']).rsplit('/', 1)[-1]}"

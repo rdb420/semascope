@@ -198,9 +198,13 @@ def test_deltas_export_as_bundle_fragment(client: Client, monkeypatch: pytest.Mo
         headers=auth,
     )
     assert bad.status_code == 422
-    files = client.get(
-        "/api/knowledge/packs/semascope-demo/deltas/export?mark=true", headers=auth
-    ).json()
+    preview = client.get("/api/knowledge/packs/semascope-demo/deltas/export", headers=auth).json()
+    assert all(
+        d["status"] == "draft"
+        for d in client.get("/api/knowledge/packs/semascope-demo/deltas", headers=auth).json()
+    )
+    files = client.post("/api/knowledge/packs/semascope-demo/deltas/export", headers=auth).json()
+    assert files["taxonomy.delta.ttl"] == preview["taxonomy.delta.ttl"]
     assert 'skos:altLabel "Odusseus"@en' in files["taxonomy.delta.ttl"]
     assert "themes#oracle> a skos:Concept" in files["taxonomy.delta.ttl"]
     import yaml

@@ -11,7 +11,7 @@ from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
-from oss_server.api.access import check
+from oss_server.api.access import check, read_scope, role_for
 from oss_server.catalogue.models import Collection, Document
 from oss_server.curation.models import Annotation, Event, Proposal, Review, Webhook
 from oss_server.curation.services import propose
@@ -158,6 +158,9 @@ def list_reviews(
     limit: int = 50,
 ) -> list[ReviewOut]:
     qs = Review.objects.select_related("collection", "document")
+    allowed = read_scope(request, collection)
+    if allowed is not None:
+        qs = qs.filter(collection__slug__in=allowed)
     if collection:
         qs = qs.filter(collection__slug=collection)
     if kind:
@@ -172,6 +175,9 @@ def review_summary(request: HttpRequest, collection: str | None = None) -> dict[
     from django.db.models import Count
 
     qs = Review.objects.filter(status=Review.Status.OPEN)
+    allowed = read_scope(request, collection)
+    if allowed is not None:
+        qs = qs.filter(collection__slug__in=allowed)
     if collection:
         qs = qs.filter(collection__slug=collection)
     return {row["kind"]: row["n"] for row in qs.values("kind").annotate(n=Count("id"))}
@@ -179,10 +185,15 @@ def review_summary(request: HttpRequest, collection: str | None = None) -> dict[
 
 @router.post("/reviews/{review_id}/decision", response=ReviewOut)
 def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewOut:
-    """Accept, reject or defer a review item. Accept and reject become proposals."""
+    """Accept, reject or defer a review item. Accept and reject become proposals.
+
+    An open or deferred item can be decided; an accepted or rejected one answers 409.
+    """
 
     r = get_object_or_404(Review.objects.select_related("collection", "document"), pk=review_id)
     check(request, "curator", r.collection.slug)
+    if r.status not in (Review.Status.OPEN, Review.Status.DEFERRED):
+        raise HttpError(409, f"review {r.pk} is already {r.status}")
     if payload.decision not in ("accept", "reject", "defer"):
         raise HttpError(422, "decision must be accept, reject or defer")
     if payload.decision == "defer":
@@ -250,7 +261,8 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
 
 @router.get("/documents/{doc_id}/tags", response=list[dict[str, Any]])
 def document_tags(request: HttpRequest, doc_id: str) -> list[dict[str, Any]]:
-    d = get_object_or_404(Document, pk=doc_id)
+    d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "reader", d.collection.slug)
     curated = d.fields.get("curated") or {}
     out = []
     for t in d.tags:
@@ -295,7 +307,8 @@ def decide_tag(request: HttpRequest, doc_id: str, payload: TagDecisionIn) -> Pro
 
 @router.get("/documents/{doc_id}/annotations", response=list[AnnotationOut])
 def list_annotations(request: HttpRequest, doc_id: str) -> list[AnnotationOut]:
-    get_object_or_404(Document, pk=doc_id)
+    d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "reader", d.collection.slug)
     return [
         AnnotationOut(
             id=a.id,
@@ -315,6 +328,7 @@ def add_annotation(
     request: HttpRequest, doc_id: str, payload: AnnotationIn
 ) -> tuple[int, AnnotationOut]:
     d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "curator", d.collection.slug)
     a = Annotation.objects.create(
         document=d,
         author=_user_or_none(request),
@@ -343,7 +357,16 @@ def add_annotation(
 
 @router.delete("/annotations/{annotation_id}", response={204: None})
 def delete_annotation(request: HttpRequest, annotation_id: int) -> tuple[int, None]:
-    a = get_object_or_404(Annotation, pk=annotation_id)
+    """Curators of the document's collection may delete any note; authors their own."""
+
+    a = get_object_or_404(
+        Annotation.objects.select_related("document__collection"), pk=annotation_id
+    )
+    user = _user_or_none(request)
+    slug = a.document.collection.slug
+    own = user is not None and a.author_id is not None and a.author_id == user.pk
+    if not (own and role_for(user, slug)):
+        check(request, "curator", slug)
     a.delete()
     return 204, None
 
@@ -364,6 +387,9 @@ def list_proposals(
         .filter(pk__gt=since_id)
         .order_by("pk")
     )
+    allowed = read_scope(request, collection)
+    if allowed is not None:
+        qs = qs.filter(collection__slug__in=allowed)
     if collection:
         qs = qs.filter(collection__slug=collection)
     if kind:
@@ -382,6 +408,10 @@ def list_events(
     """The outbox, by cursor: pass the last id you saw as since_id."""
 
     qs = Event.objects.filter(pk__gt=since_id)
+    allowed = read_scope(request, collection)
+    if allowed is not None:
+        # events without a collection (alerts over every collection) need read access to all
+        qs = qs.filter(collection__in=allowed)
     if kind:
         qs = qs.filter(kind__startswith=kind)
     if collection:

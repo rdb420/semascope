@@ -15,7 +15,7 @@ from ninja.files import UploadedFile
 from oss_core import __version__
 from oss_server.api import accounts, curation, graph, knowledge, reconcile, searchplus, ui
 from oss_server.api import search as search_mod
-from oss_server.api.access import check
+from oss_server.api.access import check, read_scope
 from oss_server.api.auth import AUTH
 from oss_server.api.schemas import (
     CollectionIn,
@@ -60,9 +60,11 @@ def _collection_out(c: Collection) -> CollectionOut:
 
 @api.get("/collections", response=list[CollectionOut], tags=["collections"])
 def list_collections(request: HttpRequest) -> list[CollectionOut]:
-    return [
-        _collection_out(c) for c in Collection.objects.annotate(document_count=Count("documents"))
-    ]
+    qs = Collection.objects.annotate(document_count=Count("documents"))
+    allowed = read_scope(request)
+    if allowed is not None:
+        qs = qs.filter(slug__in=allowed)
+    return [_collection_out(c) for c in qs]
 
 
 @api.post("/collections", response={201: CollectionOut}, tags=["collections"])
@@ -82,6 +84,7 @@ def create_collection(request: HttpRequest, payload: CollectionIn) -> tuple[int,
 
 @api.get("/collections/{slug}", response=CollectionOut, tags=["collections"])
 def get_collection(request: HttpRequest, slug: str) -> CollectionOut:
+    check(request, "reader", slug)
     return _collection_out(
         get_object_or_404(Collection.objects.annotate(document_count=Count("documents")), slug=slug)
     )
@@ -118,13 +121,33 @@ def reindex_collection_view(
 @api.delete("/collections/{slug}", response={204: None}, tags=["collections"])
 def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
     check(request, "admin", slug)
+    from oss_server.services import solr_chunks_collection
+
     c = get_object_or_404(Collection, slug=slug)
     solr_client().delete_by_query(solr_documents_collection(), f'collection_s:"{slug}"')
+    solr_client().delete_by_query(solr_chunks_collection(), f'collection_s:"{slug}"')
     c.delete()
     return 204, None
 
 
 # --- sources ----------------------------------------------------------------------------------
+
+
+SECRET_SETTING_WORDS = ("secret", "password", "token", "api_key", "apikey", "credential")
+
+
+def redact_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """Source settings with credential values masked: they are written, never read back."""
+
+    out: dict[str, Any] = {}
+    for key, value in settings.items():
+        if any(word in key.lower() for word in SECRET_SETTING_WORDS) and value:
+            out[key] = "********"
+        elif isinstance(value, dict):
+            out[key] = redact_settings(value)
+        else:
+            out[key] = value
+    return out
 
 
 def _source_out(s: Source) -> SourceOut:
@@ -133,7 +156,7 @@ def _source_out(s: Source) -> SourceOut:
         collection=s.collection.slug,
         name=s.name,
         connector=s.connector,
-        settings=s.settings,
+        settings=redact_settings(s.settings),
         enabled=s.enabled,
         schedule=s.schedule,
         status=s.status,
@@ -146,6 +169,7 @@ def _source_out(s: Source) -> SourceOut:
 @api.get("/collections/{slug}/sources", response=list[SourceOut], tags=["sources"])
 def list_sources(request: HttpRequest, slug: str) -> list[SourceOut]:
     c = get_object_or_404(Collection, slug=slug)
+    check(request, "reader", slug)
     return [
         _source_out(s)
         for s in c.sources.select_related("collection").annotate(document_count=Count("documents"))
@@ -162,6 +186,12 @@ def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[i
         raise HttpError(
             422, f"unknown connector {payload.connector}; known: {sorted(connectors())}"
         )
+    from oss_pipeline.connectors.guard import SourceNotAllowed, check_source
+
+    try:
+        check_source(payload.connector, payload.settings, slug)
+    except SourceNotAllowed as exc:
+        raise HttpError(422, str(exc)) from exc
     s, created = Source.objects.get_or_create(
         collection=c,
         name=payload.name,
@@ -191,7 +221,13 @@ def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
 def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
     s = get_object_or_404(Source, pk=source_id)
     check(request, "editor", s.collection.slug)
+    from oss_server.services import solr_chunks_collection
+
     solr_client().delete_by_query(solr_documents_collection(), f"source_id_s:{s.id}")
+    ids = list(s.documents.values_list("id", flat=True))
+    for i in range(0, len(ids), 500):
+        terms = "{!terms f=document_id}" + ",".join(ids[i : i + 500])
+        solr_client().delete_by_query(solr_chunks_collection(), terms)
     s.delete()
     return 204, None
 
@@ -271,14 +307,15 @@ def _document_out(d: Document) -> DocumentOut:
 
 @api.get("/documents/{doc_id}", response=DocumentOut, tags=["documents"])
 def get_document(request: HttpRequest, doc_id: str) -> DocumentOut:
-    return _document_out(
-        get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
-    )
+    d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "reader", d.collection.slug)
+    return _document_out(d)
 
 
 @api.get("/documents/{doc_id}/text", response=DocumentTextOut, tags=["documents"])
 def get_document_text(request: HttpRequest, doc_id: str) -> DocumentTextOut:
-    d = get_object_or_404(Document, pk=doc_id)
+    d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "reader", d.collection.slug)
     return DocumentTextOut(id=d.id, text=d.text, pages=d.pages)
 
 
@@ -286,7 +323,8 @@ def get_document_text(request: HttpRequest, doc_id: str) -> DocumentTextOut:
 def get_preview(request: HttpRequest, doc_id: str, page: int) -> FileResponse:
     """A rendered page (PDF) or thumbnail (image) as WebP."""
 
-    d = get_object_or_404(Document, pk=doc_id)
+    d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "reader", d.collection.slug)
     preview_dir = d.fields.get("preview_dir")
     if not preview_dir or page < 1:
         raise HttpError(404, "no preview")
@@ -302,7 +340,8 @@ def reindex_document(
 ) -> tuple[int, dict[str, str]]:
     from oss_server.pipeline.tasks import reindex_document as task
 
-    d = get_object_or_404(Document, pk=doc_id)
+    d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "editor", d.collection.slug)
     result = task.delay(d.id, _stage_list(stages) or None)
     return 202, {"task_id": str(result.id)}
 
@@ -312,7 +351,8 @@ def reindex_document(
 
 @api.post("/search", response=SearchOut, tags=["search"])
 def search(request: HttpRequest, payload: SearchIn) -> SearchOut:
-    return search_mod.search(solr_client(), solr_documents_collection(), payload)
+    allowed = read_scope(request, payload.collection)
+    return search_mod.search(solr_client(), solr_documents_collection(), payload, allowed)
 
 
 class TagQueryIn(Schema):
@@ -373,8 +413,12 @@ def suggest(request: HttpRequest, q: str, collection: str | None = None) -> Sugg
         "fl": "title_txt",
         "hl": False,
     }
+    allowed = read_scope(request, collection)
+    fq = search_mod.collection_filter(allowed)
     if collection:
-        params["fq"] = [f"collection_s:{search_mod._escape(collection)}"]
+        fq.append(f"collection_s:{search_mod._escape(collection)}")
+    if fq:
+        params["fq"] = fq
     body = solr_client().select(solr_documents_collection(), **params)
     titles = [
         str(d["title_txt"][0] if isinstance(d.get("title_txt"), list) else d.get("title_txt"))
@@ -386,24 +430,39 @@ def suggest(request: HttpRequest, q: str, collection: str | None = None) -> Sugg
 
 @api.get("/stats", response=StatsOut, tags=["admin"])
 def stats(request: HttpRequest) -> StatsOut:
+    allowed = read_scope(request)
+    collections = Collection.objects.all()
+    sources = Source.objects.all()
+    documents = Document.objects.all()
+    if allowed is not None:
+        collections = collections.filter(slug__in=allowed)
+        sources = sources.filter(collection__slug__in=allowed)
+        documents = documents.filter(collection__slug__in=allowed)
     by_status = {
-        row["status"]: row["n"] for row in Document.objects.values("status").annotate(n=Count("id"))
+        row["status"]: row["n"] for row in documents.values("status").annotate(n=Count("id"))
     }
     try:
-        solr_count: int | None = solr_client().count(solr_documents_collection())
+        body = solr_client().select(
+            solr_documents_collection(),
+            q="*:*",
+            fq=search_mod.collection_filter(allowed),
+            rows=0,
+            hl=False,
+        )
+        solr_count: int | None = int(body["response"]["numFound"])
     except Exception:  # noqa: BLE001
         solr_count = None
     return StatsOut(
-        collections=Collection.objects.count(),
-        sources=Source.objects.count(),
+        collections=collections.count(),
+        sources=sources.count(),
         documents=by_status,
         solr_documents=solr_count,
-        chunk_models=chunk_models(),
+        chunk_models=chunk_models(allowed),
         embed_model=search_mod.current_embed_model(),
     )
 
 
-def chunk_models() -> dict[str, int]:
+def chunk_models(allowed: list[str] | None = None) -> dict[str, int]:
     """How many chunk vectors each embedding model produced; a reindex is due when they differ."""
 
     from oss_server.services import solr_chunks_collection
@@ -412,6 +471,7 @@ def chunk_models() -> dict[str, int]:
         body = solr_client().select(
             solr_chunks_collection(),
             q="*:*",
+            fq=search_mod.collection_filter(allowed),
             rows=0,
             facet=True,
             **{"facet.field": "model_s", "facet.mincount": 1},

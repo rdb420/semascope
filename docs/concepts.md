@@ -126,11 +126,33 @@ a search.
 ## Roles
 
 `reader` searches and reads; `curator` decides reviews, tags and annotates;
-`editor` manages collections, sources and packs; `admin` does everything and
-is what Django staff and superusers are. Roles are per collection or global
-(`CollectionRole` in the admin). A signed-in user without roles gets
-`SEMASCOPE_DEFAULT_ROLE`. Local accounts always work; set the
-`SEMASCOPE_OIDC_*` variables to add single sign-on through OpenID Connect.
+`editor` manages collections, sources, pack imports and pack deltas; `admin`
+does everything and is what Django staff and superusers are. Each role
+includes the ones before it. A role is held on one collection or globally
+(`CollectionRole` in the admin, with or without a collection).
+
+Reading a collection needs at least `reader` on it. That covers documents,
+their text and previews, search in every mode (with its facets, terms, list
+search, CSV export, and saved searches and their alerts), the graph,
+concept documents and places, the curation queues (reviews, proposals,
+events, annotations, tags) and the statistics. A search, list or graph query
+that names no collection covers only the collections the user may read.
+
+`SEMASCOPE_DEFAULT_ROLE` is the role a signed-in user has on a collection
+they hold no role on:
+
+| Value | Effect |
+|---|---|
+| `reader` (default) | every signed-in user reads every collection; roles add the right to change things. |
+| `none` | per-collection reading: a user sees only the collections they have a role on, or all of them with a global role |
+| `curator`, `editor`, `admin` | that role on every collection, for small single-team installs |
+
+An unknown value counts as `none`. Up to 1.0.0-rc.2 every signed-in user
+could read every collection whatever this setting said. Packs, concepts and
+the Reconciliation API are not collection data and are readable by every
+signed-in user (the Reconciliation API also anonymously, for OpenRefine). Local accounts always
+work; set the `SEMASCOPE_OIDC_*` variables to add single sign-on through
+OpenID Connect. Users who sign in that way get roles the same way.
 
 ## Backup and restore
 
