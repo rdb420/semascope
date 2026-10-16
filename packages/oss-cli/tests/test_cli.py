@@ -1,8 +1,12 @@
+import json
 import re
 from pathlib import Path
 
+import httpx
+import pytest
 from typer.testing import CliRunner
 
+import oss_cli.main as cli
 from oss_cli.main import app
 
 REPO = Path(__file__).resolve().parents[3]
@@ -63,3 +67,35 @@ def test_init_runtime_and_provider_flags(tmp_path: Path) -> None:
     assert (
         gpu.exit_code == 0 and "SEMASCOPE_NER_PROVIDER=gliner" in (tmp_path / "g.env").read_text()
     )
+
+
+def test_demo_only_limits_the_corpus(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/knowledge/packs/import"):
+            return httpx.Response(200, json={"pack_id": "demo", "version": "1", "status": "ok"})
+        if path.endswith("/collections/demo"):
+            return httpx.Response(200, json={"slug": "demo"})
+        if path.endswith("/collections/demo/sources") and request.method == "GET":
+            return httpx.Response(200, json=[])
+        if path.endswith("/collections/demo/sources"):
+            created.append(json.loads(request.content))
+            return httpx.Response(201, json={"id": 7, **created[-1]})
+        if path.endswith("/sources/7/run"):
+            return httpx.Response(202, json={"source_id": 7, "task_id": "t"})
+        return httpx.Response(404)
+
+    monkeypatch.setattr(
+        cli,
+        "_api",
+        lambda: httpx.Client(base_url="http://api/api", transport=httpx.MockTransport(handler)),
+    )
+    result = runner.invoke(app, ["demo", "--only", "odyssey", "--only", "iliad"])
+    assert result.exit_code == 0, result.stdout
+    assert created[0]["settings"] == {
+        "path": "/app/packs/demo/corpus",
+        "include": ["odyssey.txt", "iliad.txt"],
+    }
+    assert "2 texts" in result.stdout
