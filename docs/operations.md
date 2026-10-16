@@ -162,8 +162,10 @@ starts, so no data changes. Starting with plain `docker compose up`
 instead, Valkey and the application stop with a message naming the
 missing value.
 
-To rotate: `oss init --force --import-dir <same>`
-writes new ones; PostgreSQL, Neo4j and Solr then need their passwords
+To rotate: `oss init --force` writes new secrets and keeps every other
+setting in `.env` (host, size, runtime, roles, single sign-on, allowed hosts
+and any line `init` does not write); an option given with it, such as
+`--size`, changes only its own lines; PostgreSQL, Neo4j and Solr then need their passwords
 changed to match (or recreate their volumes on a fresh install); Valkey and
 the secret key take the new value at the next start. Solr's
 basic authentication is set up from `SOLR_PASSWORD` on first start; the

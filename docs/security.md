@@ -28,7 +28,8 @@ the operator's job.
 
 - Put the stack behind your own TLS certificate and host name (`SEMASCOPE_HOST`,
   Caddy config) when it leaves a laptop.
-- Rotate `.env` secrets by re-running `oss init --force` and recreating the
+- Rotate `.env` secrets by re-running `oss init --force` (it keeps every
+  other setting) and recreating the
   volumes, or by editing `.env` and restarting; database passwords also need
   changing in the stores.
 - Decide who reads what. With the default `SEMASCOPE_DEFAULT_ROLE=none`

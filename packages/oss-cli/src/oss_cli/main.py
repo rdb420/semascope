@@ -33,8 +33,90 @@ def version() -> None:
     console.print(f"semascope {__version__} (pack contract {PACK_CONTRACT_VERSION})")
 
 
+# What `oss init` generates. `--force` writes new values for these and keeps the rest.
+SECRET_KEYS = frozenset(
+    {
+        "SEMASCOPE_SECRET_KEY",
+        "POSTGRES_PASSWORD",
+        "NEO4J_PASSWORD",
+        "SOLR_PASSWORD",
+        "VALKEY_PASSWORD",
+        "SEMASCOPE_ADMIN_PASSWORD",
+        "SEMASCOPE_API_TOKEN",
+    }
+)
+# The lines each init option writes: with --force they change only when the option is given.
+OPTION_KEYS: dict[str, tuple[str, ...]] = {
+    "host": ("SEMASCOPE_HOST",),
+    "https_port": ("SEMASCOPE_HTTPS_PORT",),
+    "size": (
+        "SEMASCOPE_SIZE",
+        "SOLR_HEAP",
+        "NEO4J_HEAP",
+        "TIKA_HEAP",
+        "SEMASCOPE_WORKER_CONCURRENCY",
+        "SEMASCOPE_WORKER_MEMORY",
+    ),
+    "import_dir": ("SEMASCOPE_IMPORT_DIR",),
+    "runtime": (
+        "SEMASCOPE_RUNTIME",
+        "SEMASCOPE_EMBEDDER",
+        "SEMASCOPE_EMBED_MODEL",
+        "SEMASCOPE_EMBED_BASE_URL",
+        "SEMASCOPE_NER_PROVIDER",
+        "SEMASCOPE_NER_BASE_URL",
+        "SEMASCOPE_EXTRACT_PROVIDER",
+        "SEMASCOPE_EXTRACT_BASE_URL",
+    ),
+    "remote_token": ("SEMASCOPE_REMOTE_API_KEY",),
+}
+# options that choose the runtime's provider lines together with --runtime
+for _option in ("embed", "ner", "extract", "embed_url", "embed_model", "ner_url", "extract_url"):
+    OPTION_KEYS[_option] = OPTION_KEYS["runtime"]
+
+
+def _env_lines(path: Path) -> list[tuple[str | None, str]]:
+    """An env file as (key, line) pairs; key is None for comments and blank lines."""
+
+    out: list[tuple[str | None, str]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, _ = line.partition("=")
+        name = key.strip()
+        if sep and name and not name.startswith("#"):
+            out.append((name, line))
+        else:
+            out.append((None, line))
+    return out
+
+
+def merge_env(old: Path, new_lines: list[str], given: set[str]) -> list[str]:
+    """`new_lines` with the old file's settings kept: every non-secret line the old file has
+    stays as it was unless an option in `given` writes it; lines `init` does not write
+    (single sign-on, roles, allowed hosts, ...) are kept at the end. Secrets are new."""
+
+    previous = _env_lines(old)
+    old_values = {k: line for k, line in previous if k}
+    replaced = {key for option in given for key in OPTION_KEYS.get(option, ())}
+    out: list[str] = []
+    written: set[str] = set()
+    for line in new_lines:
+        key = line.partition("=")[0]
+        written.add(key)
+        if key in SECRET_KEYS or key in replaced or key not in old_values:
+            out.append(line)
+        else:
+            out.append(old_values[key])
+    extra = [line for k, line in previous if k is None or k not in written]
+    while extra and not extra[0].strip():
+        extra.pop(0)
+    if [line for line in extra if line.strip()]:
+        out += ["", "# kept from the previous file", *extra]
+    return out
+
+
 @app.command()
 def init(
+    ctx: typer.Context,
     env_file: Path = typer.Option(Path(".env"), help="Where to write the environment file"),
     host: str = typer.Option("localhost", help="Host name the reverse proxy answers for"),
     size: str = typer.Option("small", help="small | medium | large"),
@@ -51,9 +133,19 @@ def init(
     ner_url: str = typer.Option("", help="Base URL of the remote entity service (POST /entities)"),
     extract_url: str = typer.Option("", help="Base URL of the MinerU parse server"),
     remote_token: str = typer.Option("", help="Bearer token sent to every remote service"),
-    force: bool = typer.Option(False, help="Overwrite an existing file"),
+    force: bool = typer.Option(
+        False,
+        help="Rewrite an existing file: new secrets; every other setting kept unless an "
+        "option here changes it",
+    ),
 ) -> None:
-    """Write an environment file with generated secrets."""
+    """Write an environment file with generated secrets.
+
+    With --force on an existing file (the way to rotate secrets) the secrets are generated
+    again and every other setting is kept: the options given on this command line change
+    their lines, and settings `init` does not write (SEMASCOPE_DEFAULT_ROLE, single sign-on,
+    allowed hosts, ...) stay as they are.
+    """
 
     if env_file.exists() and not force:
         raise typer.BadParameter(f"{env_file} exists; pass --force to overwrite")
@@ -102,6 +194,17 @@ def init(
         "SEMASCOPE_LLM_API_KEY=",
         "SEMASCOPE_LLM_MODEL=",
     ]
+    if env_file.exists():
+        given = {
+            name
+            for name in OPTION_KEYS
+            if getattr(ctx.get_parameter_source(name), "name", "DEFAULT") != "DEFAULT"
+        }
+        lines = merge_env(env_file, lines, given)
+        flags = ", ".join("--" + name.replace("_", "-") for name in sorted(given))
+        console.print(
+            "new secrets; every other setting kept" + (f" except what {flags} set" if flags else "")
+        )
     env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     env_file.chmod(0o600)
     console.print(f"wrote {env_file} (secrets generated; keep it out of git)")

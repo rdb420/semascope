@@ -32,3 +32,64 @@ def test_compose_worker_reads_the_size_settings() -> None:
     assert worker["deploy"]["resources"]["limits"]["memory"] == "${SEMASCOPE_WORKER_MEMORY:-4g}"
     example = (REPO / ".env.example").read_text()
     assert "SEMASCOPE_WORKER_CONCURRENCY=1" in example
+
+
+def _values(env: Path) -> dict[str, str]:
+    return dict(
+        line.split("=", 1)
+        for line in env.read_text().splitlines()
+        if "=" in line and not line.startswith("#")
+    )
+
+
+def test_init_force_rotates_secrets_and_keeps_every_other_setting(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    first = runner.invoke(
+        app, ["init", "--env-file", str(env), "--size", "large", "--host", "search.example.org"]
+    )
+    assert first.exit_code == 0, first.stdout
+    edited = env.read_text().replace("SEMASCOPE_DEFAULT_ROLE=none", "SEMASCOPE_DEFAULT_ROLE=reader")
+    edited += "SEMASCOPE_OIDC_CLIENT_ID=semascope\nSEMASCOPE_ALLOWED_PRIVATE_HOSTS=minio.lan\n"
+    edited += "SEMASCOPE_LLM_MODEL=local-model\n"
+    edited = edited.replace("SEMASCOPE_LLM_MODEL=\n", "")
+    env.write_text(edited)
+    before = _values(env)
+
+    result = runner.invoke(app, ["init", "--env-file", str(env), "--force"])
+    assert result.exit_code == 0, result.stdout
+    after = _values(env)
+    for key in (
+        "SEMASCOPE_SECRET_KEY",
+        "POSTGRES_PASSWORD",
+        "NEO4J_PASSWORD",
+        "SOLR_PASSWORD",
+        "VALKEY_PASSWORD",
+        "SEMASCOPE_ADMIN_PASSWORD",
+        "SEMASCOPE_API_TOKEN",
+    ):
+        assert after[key] and after[key] != before[key], key
+    unchanged = {k: v for k, v in before.items() if k in after and after[k] == v}
+    assert set(before) == set(after)
+    assert set(before) - set(unchanged) == {
+        "SEMASCOPE_SECRET_KEY",
+        "POSTGRES_PASSWORD",
+        "NEO4J_PASSWORD",
+        "SOLR_PASSWORD",
+        "VALKEY_PASSWORD",
+        "SEMASCOPE_ADMIN_PASSWORD",
+        "SEMASCOPE_API_TOKEN",
+    }
+    assert after["SEMASCOPE_DEFAULT_ROLE"] == "reader"
+    assert after["SEMASCOPE_SIZE"] == "large" and after["SOLR_HEAP"] == "4g"
+    assert after["SEMASCOPE_HOST"] == "search.example.org"
+    assert after["SEMASCOPE_OIDC_CLIENT_ID"] == "semascope"
+    assert after["SEMASCOPE_ALLOWED_PRIVATE_HOSTS"] == "minio.lan"
+    assert after["SEMASCOPE_LLM_MODEL"] == "local-model"
+
+    # an option given with --force changes its own lines, nothing else
+    resized = runner.invoke(app, ["init", "--env-file", str(env), "--force", "--size", "small"])
+    assert resized.exit_code == 0, resized.stdout
+    small = _values(env)
+    assert small["SEMASCOPE_SIZE"] == "small" and small["SOLR_HEAP"] == "1g"
+    assert small["SEMASCOPE_HOST"] == "search.example.org"
+    assert small["SEMASCOPE_DEFAULT_ROLE"] == "reader"
