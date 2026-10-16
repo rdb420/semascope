@@ -183,9 +183,22 @@ class Bench:
         )
 
     def wait_drained(self, collection: str, total: int, timeout: float) -> bool:
+        """Every document is in, none queued or processing, and no retry is still due.
+
+        A document indexed with a transiently failed stage keeps `indexed` while its retry
+        waits; its error then ends with "retry n/m in Ns" until the last run.
+        """
+
         def done() -> bool:
             s = self.statuses(collection)
-            return sum(s.values()) >= total and not s.get("queued") and not s.get("processing")
+            if sum(s.values()) < total or s.get("queued") or s.get("processing"):
+                return False
+            due = self.c.psql(
+                "SELECT count(*) FROM catalogue_document d JOIN catalogue_collection c ON "
+                f"c.id = d.collection_id WHERE c.slug = {q(collection)} AND d.error ~ "
+                "'; retry [0-9]+/[0-9]+ in [0-9]+s'"
+            )
+            return due[0] == ["0"]
 
         return self.wait_until(done, timeout)
 
