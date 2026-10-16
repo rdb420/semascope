@@ -25,8 +25,13 @@ jobs:
         run: |
           uv export --all-packages --no-dev --format requirements-txt > /tmp/requirements.txt
           uv run --with pip-audit pip-audit -r /tmp/requirements.txt --strict || echo "::warning::audit found issues"
-      - name: Clean-room similarity check
-        run: uv run python scripts/cleanroom_check.py --help
+      - name: Clean-room similarity check (ADR-0001)
+        # The legacy GPL sources are fetched at pinned commits into the runner's
+        # scratch space, never into the checkout. A failed fetch fails the step.
+        run: |
+          scripts/fetch_legacy.sh "$RUNNER_TEMP/legacy"
+          uv run python scripts/cleanroom_check.py --legacy "$RUNNER_TEMP/legacy" \
+            --threshold 0.6 --min-legacy-files 500
 
   compose:
     runs-on: ubuntu-24.04

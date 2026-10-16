@@ -2,12 +2,16 @@
 """Clean-room check: flag files that look copied from a GPL legacy tree.
 
 Usage: cleanroom_check.py --legacy <path-to-legacy-checkout> [--threshold 0.6]
+                          [--min-legacy-files N]
 
 Compares every Python, XML, PHP, JavaScript and CSS file in this repository
 with every file of the same kind in the legacy tree using a normalised
 token-shingle Jaccard similarity. Anything above the threshold fails the run.
 In CI the legacy path is a scratch checkout of github.com/opensemanticsearch
-that is deleted afterwards; it is never part of this repository.
+at pinned commits (scripts/fetch_legacy.sh), outside the repository and
+deleted with the runner; it is never part of this repository. A legacy path
+that is missing or holds fewer than --min-legacy-files comparable files is an
+error, so the check cannot pass by comparing against nothing.
 """
 
 from __future__ import annotations
@@ -48,14 +52,31 @@ def main() -> int:
     ap.add_argument("--legacy", type=Path, help="legacy checkout to compare against")
     ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     ap.add_argument("--threshold", type=float, default=0.6)
+    ap.add_argument(
+        "--min-legacy-files",
+        type=int,
+        default=1,
+        help="fail unless the legacy tree has at least this many comparable files",
+    )
     args = ap.parse_args()
     if args.legacy is None:
         print("no --legacy path given; nothing compared")
         return 0
+    if not args.legacy.is_dir():
+        print(f"ERROR legacy path {args.legacy} is not a directory", file=sys.stderr)
+        return 2
     ours = collect(args.repo)
     theirs = collect(args.legacy)
+    if len(theirs) < max(1, args.min_legacy_files):
+        print(
+            f"ERROR only {len(theirs)} comparable legacy files in {args.legacy} "
+            f"(need {args.min_legacy_files}); nothing meaningful was compared",
+            file=sys.stderr,
+        )
+        return 2
     worst = 0.0
     failures = 0
+    top: list[tuple[float, str, str]] = []
     for mine, a in ours.items():
         for other, b in theirs.items():
             if mine.suffix != other.suffix:
@@ -65,12 +86,20 @@ def main() -> int:
                 continue
             score = inter / len(a | b)
             worst = max(worst, score)
+            top.append(
+                (score, str(mine.relative_to(args.repo)), str(other.relative_to(args.legacy)))
+            )
             if score >= args.threshold:
                 failures += 1
                 mine_rel = mine.relative_to(args.repo)
                 other_rel = other.relative_to(args.legacy)
                 print(f"FAIL {score:.2f} {mine_rel} ~ {other_rel}")
-    print(f"compared {len(ours)} files against {len(theirs)}; worst similarity {worst:.2f}")
+    for score, mine_rel, other_rel in sorted(top, reverse=True)[:5]:
+        print(f"  {score:.2f} {mine_rel} ~ {other_rel}")
+    print(
+        f"compared {len(ours)} files against {len(theirs)}; worst similarity {worst:.2f} "
+        f"(threshold {args.threshold:.2f})"
+    )
     return 1 if failures else 0
 
 
