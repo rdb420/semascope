@@ -1,8 +1,23 @@
 import { useParams, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
-import { api } from "../api";
+import { useEffect, useState, type FormEvent } from "react";
+import { api, type TagSpan } from "../api";
 import { useUser } from "../components/Shell";
+import { Highlighted, TagExplain } from "../components/TagExplain";
+
+const PAGE_SEPARATOR = "\n\n"; // the structure stage joins pages with a blank line
+
+/** Where each page starts in the document text, or null when the pages do not make up the text. */
+function pageStarts(text: string, pages: string[]): number[] | null {
+  if (!pages.length || pages.join(PAGE_SEPARATOR) !== text) return null;
+  const starts: number[] = [];
+  let pos = 0;
+  for (const p of pages) {
+    starts.push(pos);
+    pos += p.length + PAGE_SEPARATOR.length;
+  }
+  return starts;
+}
 
 export function DocumentPage() {
   const { id } = useParams({ from: "/documents/$id" });
@@ -14,8 +29,22 @@ export function DocumentPage() {
   const qc = useQueryClient();
   const decideTag = useMutation({
     mutationFn: (body: { iri: string; decision: string; label?: string; kind?: string }) => api.decideTag(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["document-tags", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["document-tags", id] });
+      qc.invalidateQueries({ queryKey: ["tag-history", id] });
+    },
   });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [occurrence, setOccurrence] = useState(0);
+  const tag = selected ? tags.data?.find((t) => t.iri === selected) : undefined;
+  const spans: TagSpan[] = tag?.spans ?? [];
+  function select(iri: string) {
+    setSelected(iri === selected ? null : iri);
+    setOccurrence(0);
+  }
+  useEffect(() => {
+    if (tag) document.getElementById("tag-occurrence")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [selected, occurrence]);
   const [note, setNote] = useState("");
   const addNote = useMutation({
     mutationFn: () => api.addAnnotation(id, { text: note }),
@@ -34,7 +63,8 @@ export function DocumentPage() {
   if (!doc.data) return <p className="text-zinc-500">Loading…</p>;
   const d = doc.data;
   const previewPages = Number(d.fields.preview_pages ?? 0);
-  const entities = Object.entries(d.fields).filter(([k, v]) => Array.isArray(v) && (v as unknown[]).length && !k.endsWith("_path") && k !== "chunk_pages" && k !== "preview_pages");
+  const entities = Object.entries(d.fields).filter(([k, v]) => Array.isArray(v) && (v as unknown[]).length && !k.endsWith("_path") && !["chunk_pages", "preview_pages", "page_starts"].includes(k));
+  const starts = text.data ? pageStarts(text.data.text, text.data.pages) : null;
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_18rem]">
@@ -61,17 +91,29 @@ export function DocumentPage() {
             ))}
           </div>
         )}
-        {text.data?.pages.length ? (
+        {tag && (
+          <p className="mt-4 rounded bg-amber-50 px-2 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            Showing {spans.length} occurrence{spans.length === 1 ? "" : "s"} of <strong>{tag.label}</strong>.{" "}
+            <button onClick={() => setSelected(null)} className="underline">
+              Clear
+            </button>
+          </p>
+        )}
+        {text.data?.pages.length && starts ? (
           <div className="mt-4 space-y-6">
             {text.data.pages.map((p, i) => (
               <section key={i}>
                 {text.data!.pages.length > 1 && <h2 className="mb-1 text-xs font-semibold uppercase text-zinc-500">Page {i + 1}</h2>}
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-6">{p}</pre>
+                <pre className="whitespace-pre-wrap font-sans text-sm leading-6">
+                  <Highlighted text={p} base={starts[i]} spans={spans} active={occurrence} />
+                </pre>
               </section>
             ))}
           </div>
         ) : (
-          <pre className="mt-4 whitespace-pre-wrap font-sans text-sm leading-6">{text.data?.text}</pre>
+          <pre className="mt-4 whitespace-pre-wrap font-sans text-sm leading-6">
+            <Highlighted text={text.data?.text ?? ""} base={0} spans={spans} active={occurrence} />
+          </pre>
         )}
       </article>
       <aside className="space-y-4 text-sm">
@@ -103,15 +145,22 @@ export function DocumentPage() {
             ))}
           </div>
         )}
+        {tag && <TagExplain docId={id} tag={tag} occurrence={occurrence} onOccurrence={setOccurrence} onClose={() => setSelected(null)} />}
         {tags.data && tags.data.length > 0 && (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Tags ({tags.data.length})</h2>
+            <p className="mb-2 text-xs text-zinc-500">Select a tag to see where it occurs and why.</p>
             <ul className="max-h-96 space-y-1 overflow-y-auto">
               {[...tags.data].sort((a, b) => b.span_count - a.span_count).map((t) => (
-                <li key={t.iri} className="flex items-center gap-2">
-                  <Link to="/concepts" search={{ iri: t.iri }} className={`truncate hover:underline ${t.curated?.decision === "reject" ? "line-through text-zinc-400" : ""}`} title={`${t.stage} · ${t.confidence.toFixed(2)}`}>
+                <li key={t.iri} className={`flex items-center gap-2 rounded px-1 ${t.iri === selected ? "bg-amber-50 dark:bg-amber-950" : ""}`}>
+                  <button
+                    onClick={() => select(t.iri)}
+                    aria-pressed={t.iri === selected}
+                    className={`truncate text-left hover:underline ${t.rejected ? "line-through text-zinc-400" : ""}`}
+                    title={`${t.stage}${t.stage_version ? ` v${t.stage_version}` : ""} · ${t.confidence.toFixed(2)}${t.pack_id ? ` · ${t.pack_id}@${t.pack_version ?? "?"}` : ""}`}
+                  >
                     {t.label}
-                  </Link>
+                  </button>
                   <span className="text-xs text-zinc-400">{t.span_count}</span>
                   <span className="ml-auto flex gap-1">
                     <button title="accept" onClick={() => decideTag.mutate({ iri: t.iri, decision: "accept", label: t.label, kind: t.kind })} className={`rounded px-1 text-xs ${t.curated?.decision === "accept" ? "bg-green-600 text-white" : "bg-zinc-100 hover:bg-green-100 dark:bg-zinc-800"}`}>✓</button>

@@ -139,15 +139,68 @@ export type ReviewItem = {
   note: string;
   created_at: string;
 };
+export type TagSpan = { start: number; end: number; page: number | null; matched: string | null };
+export type LinkedFrom = {
+  iri: string;
+  label: string;
+  confidence: number | null;
+  model: string | null;
+  link_version?: string | null;
+};
 export type DocTag = {
   iri: string;
   label: string;
   kind: string;
   stage: string;
+  stage_version?: string | null;
   confidence: number;
   pack_id?: string | null;
+  pack_version?: string | null;
+  matched_label?: string | null;
+  label_type?: string | null;
+  lang?: string | null;
+  model?: string | null;
+  linked_from?: LinkedFrom | null;
+  spans: TagSpan[];
   span_count: number;
-  curated: { decision: string } | null;
+  curated: { decision: string; [key: string]: unknown } | null;
+  rejected: boolean;
+};
+export type Proposal = {
+  id: number;
+  collection: string;
+  document_id: string | null;
+  kind: string;
+  target: string;
+  params: Record<string, unknown> & { tag?: Partial<DocTag> };
+  reason: string;
+  pack_id: string;
+  pack_version: string;
+  decided_by: string | null;
+  decided_at: string;
+  external_ref: string;
+  applied: boolean;
+};
+export type ReviewDecision = {
+  decision: string;
+  note: string;
+  decided_by: string | null;
+  decided_at: string;
+  proposal_id: number | null;
+};
+export type TagHistory = {
+  iri: string;
+  curated: Record<string, unknown> | null;
+  proposals: Proposal[];
+  reviews: {
+    id: number;
+    kind: string;
+    target: string;
+    status: string;
+    confidence: number | null;
+    created_at: string;
+    decisions: ReviewDecision[];
+  }[];
 };
 export type Annotation = { id: number; document_id: string; author: string | null; text: string; tags: string[]; span: Record<string, number> | null; created_at: string };
 
@@ -230,6 +283,8 @@ export const api = {
   decideReview: (id: number, body: { decision: string; note: string; link_to?: string; label?: string }) =>
     request<ReviewItem>(`/api/curation/reviews/${id}/decision`, { method: "POST", body: JSON.stringify(body) }),
   documentTags: (id: string) => request<DocTag[]>(`/api/curation/documents/${id}/tags`),
+  tagHistory: (id: string, iri: string) =>
+    request<TagHistory>(`/api/curation/documents/${id}/tags/history?iri=${encodeURIComponent(iri)}`),
   decideTag: (id: string, body: { iri: string; decision: string; label?: string; kind?: string; reason?: string }) =>
     request<unknown>(`/api/curation/documents/${id}/tags`, { method: "POST", body: JSON.stringify(body) }),
   annotations: (id: string) => request<Annotation[]>(`/api/curation/documents/${id}/annotations`),
