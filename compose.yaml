@@ -12,7 +12,7 @@ x-app: &app
     dockerfile: deploy/docker/Dockerfile
   pull_policy: missing
   env_file:
-    - path: .env
+    - path: ${SEMASCOPE_ENV_FILE:-.env}
       required: false
   environment:
     DATABASE_URL: postgresql://semascope:${POSTGRES_PASSWORD}@postgres:5432/semascope
