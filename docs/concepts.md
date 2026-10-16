@@ -102,7 +102,9 @@ kept in the item's history. Proposals are applied at once to Semascope's stores
 (Postgres, the Solr facets, a `CURATED` edge in the graph) and written to
 the **outbox** (`/api/curation/events`, read by cursor) so an external
 system of record can mirror, reject or audit them. Webhooks deliver outbox
-events with an HMAC signature. A reindex never undoes a decision. A rejected
+events with an HMAC signature to an http(s) URL; like URL sources, they
+reach a receiver on a private address only when it is listed in
+`SEMASCOPE_ALLOWED_PRIVATE_HOSTS`, and a redirect is reported, not followed. A reindex never undoes a decision. A rejected
 tag stays on the document, flagged, as the machine's evidence; search and
 the graph leave it out. See the [explainability model](assess/explainability.md).
 

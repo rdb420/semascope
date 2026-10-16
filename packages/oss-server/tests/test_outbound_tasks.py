@@ -45,6 +45,13 @@ def receiver() -> Iterator[str]:
     server.shutdown()
 
 
+@pytest.fixture
+def loopback_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The receiver runs on 127.0.0.1, which deliveries reach only when the operator allows it."""
+
+    monkeypatch.setenv("SEMASCOPE_ALLOWED_PRIVATE_HOSTS", "127.0.0.1")
+
+
 def received(receiver: str, name: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = httpx.get(f"{receiver}/hook/{name}").json()
     return out
@@ -56,7 +63,9 @@ def closed_port() -> int:
         return int(s.getsockname()[1])
 
 
-def test_webhooks_are_signed_filtered_and_retried(receiver: str, db: None) -> None:
+def test_webhooks_are_signed_filtered_and_retried(
+    receiver: str, db: None, loopback_allowed: None
+) -> None:
     emit("proposal.accept_tag", collection="c", subject="before")  # before the hook: not sent
     head = Event.objects.order_by("-pk").first()
     assert head is not None
@@ -95,7 +104,9 @@ def test_webhooks_are_signed_filtered_and_retried(receiver: str, db: None) -> No
     assert len(received(receiver, "signed")) == 3
 
 
-def test_unsigned_disabled_and_unreachable_webhooks(receiver: str, db: None) -> None:
+def test_unsigned_disabled_and_unreachable_webhooks(
+    receiver: str, db: None, loopback_allowed: None
+) -> None:
     unsigned = Webhook.objects.create(url=f"{receiver}/hook/plain")
     Webhook.objects.create(url=f"{receiver}/hook/off", enabled=False)
     down = Webhook.objects.create(url=f"http://127.0.0.1:{closed_port()}/hook")
@@ -109,6 +120,88 @@ def test_unsigned_disabled_and_unreachable_webhooks(receiver: str, db: None) -> 
     assert down.last_error == f"ConnectError on event {event.pk}" and down.last_event_id == 0
     unsigned.refresh_from_db()
     assert unsigned.last_event_id == event.pk
+
+
+def test_a_webhook_on_a_private_address_is_refused(
+    receiver: str, db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SEMASCOPE_ALLOWED_PRIVATE_HOSTS", "")
+    port = receiver.rsplit(":", 1)[1]
+    hooks = [
+        Webhook.objects.create(url=f"{receiver}/hook/private"),
+        Webhook.objects.create(url=f"http://localhost:{port}/hook/private"),
+    ]
+    event = emit("proposal.add_tag", collection="c", subject="s")
+
+    assert tasks.deliver_webhooks() == 0
+    assert received(receiver, "private") == []
+    for hook in hooks:
+        hook.refresh_from_db()
+        assert hook.last_error.startswith(f"refused on event {event.pk}"), hook.last_error
+        assert hook.last_event_id == 0
+
+
+@pytest.fixture
+def redirector(receiver: str) -> Iterator[str]:
+    """A receiver that answers every delivery with a redirect to another receiver."""
+
+    import http.server
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - the http.server API
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.send_response(307)
+            self.send_header("Location", f"{receiver}/hook/redirected")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+def test_a_webhook_redirect_is_not_followed(
+    receiver: str, redirector: str, db: None, loopback_allowed: None
+) -> None:
+    hook = Webhook.objects.create(url=f"{redirector}/hook")
+    event = emit("proposal.add_tag", collection="c", subject="s")
+
+    assert tasks.deliver_webhooks() == 0
+    assert received(receiver, "redirected") == []
+    hook.refresh_from_db()
+    assert hook.last_error == f"307 on event {event.pk} (not followed)"
+    assert hook.last_event_id == 0
+
+
+@pytest.mark.parametrize(
+    "url", ["file:///etc/passwd", "gopher://hooks.example.test/", "http:///hook", "hook", ""]
+)
+def test_webhook_urls_are_http_with_a_host(url: str, db: None) -> None:
+    from django.test import Client
+
+    from oss_server.api.auth import issue_token
+
+    staff = User.objects.create_user("staff", password="x" * 16, is_staff=True)
+    auth = {"Authorization": f"Bearer {issue_token(staff, 'test')}"}
+    client = Client()
+
+    def add(target: str) -> int:
+        return client.post(
+            "/api/curation/webhooks",
+            data={"url": target},
+            content_type="application/json",
+            headers=auth,
+        ).status_code
+
+    assert add(url) == 422
+    assert add("https://hooks.example.test/semascope") == 201
+    assert list(Webhook.objects.values_list("url", flat=True)) == [
+        "https://hooks.example.test/semascope"
+    ]
 
 
 class FakeSearch:

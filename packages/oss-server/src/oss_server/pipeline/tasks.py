@@ -561,7 +561,11 @@ def _jsonable(value: Any) -> Any:
 
 @shared_task(name="semascope.deliver_webhooks", queue="io")
 def deliver_webhooks() -> int:
-    """Send outbox events to every enabled webhook, in order, with an HMAC signature."""
+    """Send outbox events to every enabled webhook, in order, with an HMAC signature.
+
+    Delivery goes through the outbound guard (oss_pipeline.connectors.guard): a receiver on
+    a private address needs SEMASCOPE_ALLOWED_PRIVATE_HOSTS, and redirects are not followed.
+    """
 
     import hashlib
     import hmac
@@ -569,6 +573,7 @@ def deliver_webhooks() -> int:
 
     import httpx
 
+    from oss_pipeline.connectors.guard import SourceNotAllowed, guarded_client
     from oss_server.curation.models import Event, Webhook
 
     sent = 0
@@ -595,13 +600,20 @@ def deliver_webhooks() -> int:
                     "sha256=" + hmac.new(hook.secret.encode(), body, hashlib.sha256).hexdigest()
                 )
             try:
-                resp = httpx.post(hook.url, content=body, headers=headers, timeout=15.0)
+                with guarded_client(timeout=15.0, follow_redirects=False) as client:
+                    resp = client.post(hook.url, content=body, headers=headers)
+                if resp.is_redirect:
+                    hook.last_error = f"{resp.status_code} on event {event.pk} (not followed)"
+                    break
                 if resp.status_code >= 400:
                     hook.last_error = f"{resp.status_code} on event {event.pk}"
                     break
                 hook.last_event_id = event.pk
                 hook.last_error = ""
                 sent += 1
+            except SourceNotAllowed as exc:
+                hook.last_error = f"refused on event {event.pk}: {exc}"[:2000]
+                break
             except httpx.HTTPError as exc:
                 hook.last_error = f"{type(exc).__name__} on event {event.pk}"
                 break

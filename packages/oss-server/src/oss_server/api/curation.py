@@ -10,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
+from pydantic import field_validator
 
 from oss_pipeline.provenance import curated_tags
 from oss_server.api.access import check, read_scope, role_for
@@ -130,6 +131,18 @@ class WebhookIn(Schema):
     kinds: list[str] = []
     secret: str = ""
     enabled: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def _http_url(cls, value: str) -> str:
+        """An http(s) URL with a host; its address is checked at each delivery."""
+
+        from urllib.parse import urlparse
+
+        parts = urlparse(value.strip())
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("a webhook URL is an http:// or https:// URL with a host name")
+        return value.strip()
 
 
 class WebhookOut(Schema):
