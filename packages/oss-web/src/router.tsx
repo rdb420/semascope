@@ -15,6 +15,7 @@ import { GraphPage } from "./pages/GraphPage";
 import { ReviewPage } from "./pages/ReviewPage";
 import { MapPage } from "./pages/MapPage";
 import { ListSearchPage } from "./pages/ListSearchPage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -68,7 +69,9 @@ const mapRoute = createRoute({ getParentRoute: () => rootRoute, path: "/map", co
 
 const listRoute = createRoute({ getParentRoute: () => rootRoute, path: "/list", component: ListSearchPage });
 
-const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute]);
+const analyticsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/analytics", component: AnalyticsPage });
+
+const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute, analyticsRoute]);
 
 export const router = createRouter({ routeTree });
 
