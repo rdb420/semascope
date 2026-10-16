@@ -1,0 +1,95 @@
+# Queries for the demo corpus's relevance judgements (`judgements.yaml`), which
+# `judge.py` derives from this file, the corpus text and `golden.yaml`.
+#
+# Each query has the text a user would type and `terms`: the names that show a
+# text is about what the query asks for, in the spellings the translations use
+# (Butler's Odyssey and Iliad say Ulysses and Jove; Crawford's Kalevala says
+# Wainamoinen). A text's grade comes from how often those terms occur in it,
+# never from what a search engine returns, so the judgements do not flatter any
+# search mode. `golden` names demo-pack individuals or schemes whose expected
+# texts in golden.yaml must come out relevant, and whose "absent" texts must not.
+#
+# The query text often differs from the terms on purpose: "Odysseus" finds few
+# words in a translation that says Ulysses, and "Väinämöinen" none in one that
+# says Wainamoinen. Those gaps are what an evaluation should show.
+queries:
+  - id: q01
+    query: Odysseus
+    terms: [Odysseus, Ulysses]
+    golden: [odysseus]
+  - id: q02
+    query: Odysseus returns home to Ithaca and Penelope
+    terms: [Ithaca, Penelope]
+    golden: [ithaca]
+  - id: q03
+    query: Achilles and Hector at Troy
+    terms: [Achilles, Hector]
+    golden: [achilles, hector]
+  - id: q04
+    query: the great flood
+    terms: [flood, deluge, Noah, Deucalion]
+    golden: [noah, deucalion]
+  - id: q05
+    query: Krishna teaches Arjuna on the battlefield
+    terms: [Krishna, Arjuna, Kurukshetra]
+    golden: [krishna, arjuna, kurukshetra]
+  - id: q06
+    query: the Buddha and Nirvana
+    terms: [Buddha, Nirvana]
+    golden: [buddha]
+  - id: q07
+    query: the forging of the Sampo
+    terms: [Sampo, Ilmarinen]
+    golden: [ilmarinen]
+  - id: q08
+    query: Väinämöinen
+    terms: [Väinämöinen, Vainamoinen, Wainamoinen]
+    golden: [vainamoinen]
+  - id: q09
+    query: King Arthur and his knights
+    terms: [Arthur]
+    golden: [arthur]
+  - id: q10
+    query: Thor, Odin and Loki in Asgard
+    terms: [Thor, Odin, Loki, Asgard]
+    golden: [odin, thor, loki, asgard]
+  - id: q11
+    query: Isis and Osiris
+    terms: [Isis, Osiris]
+  - id: q12
+    query: the Tao that can be told
+    terms: [Tao]
+  - id: q13
+    query: Confucius on filial piety
+    terms: [Confucius, filial]
+  - id: q14
+    query: fables of the fox
+    terms: [fox]
+  - id: q15
+    query: Hansel and Gretel
+    terms: [Hansel, Gretel]
+  - id: q16
+    query: the priest of Nemi and the golden bough
+    terms: [priest of Nemi, golden bough, mistletoe, Balder]
+  - id: q17
+    query: the Trojan war
+    terms: [Troy, Trojan]
+    golden: [troy]
+  - id: q18
+    query: the Prophet and Allah
+    terms: [Allah, Muhammad, Mohammed]
+  - id: q19
+    query: Moses and Pharaoh
+    terms: [Moses, Pharaoh, Sinai]
+    golden: [moses, mount-sinai]
+  - id: q20
+    query: the gods on Mount Olympus
+    terms: [Olympus]
+    golden: [mount-olympus]
+  - id: q21
+    query: Pwyll and Rhiannon
+    terms: [Pwyll, Rhiannon]
+  - id: q22
+    query: Zeus, king of the gods
+    terms: [Zeus, Jupiter, Jove]
+    golden: [zeus]

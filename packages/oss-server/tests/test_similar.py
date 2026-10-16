@@ -1,4 +1,4 @@
-"""More like this (FUZZ-12): MoreLikeThis on the text and kNN on the vectors, fused and read-scoped."""
+"""More like this (FUZZ-12): MoreLikeThis on text, kNN on vectors, fused and read-scoped."""
 
 from __future__ import annotations
 

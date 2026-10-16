@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from oss_cli import evaluate, export
 from oss_cli.vectors import vector_report
 from oss_core import PACK_CONTRACT_VERSION, __version__
 from oss_core.config import get_settings
@@ -23,6 +24,8 @@ from oss_core.pack import load_pack, run_competency_questions, write_manifest
 app = typer.Typer(no_args_is_help=True, help="Semascope command line.")
 pack_app = typer.Typer(help="Knowledge-model packs (ontology-skill bundles).")
 app.add_typer(pack_app, name="pack")
+app.add_typer(export.app, name="export")  # oss_cli/export.py
+app.command("eval")(evaluate.command)  # oss_cli/evaluate.py
 console = Console()
 
 
