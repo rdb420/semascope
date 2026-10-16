@@ -11,7 +11,7 @@
 #   COMPOSE_PROJECT_NAME  sem-ci       never `semascope`
 #   SEMASCOPE_ENV_FILE    .env.ci      written by `oss init` when missing
 #   SEMASCOPE_HTTPS_PORT  8473
-#   SEMASCOPE_IMAGE_TAG   ci           built from the checkout (SEMASCOPE_IT_BUILD=0 skips)
+#   SEMASCOPE_IMAGE_TAG   <project>    built from the checkout (SEMASCOPE_IT_BUILD=0 skips)
 #   SEMASCOPE_DEMO_ONLY   odyssey iliad dhammapada song-celestial
 #   SEMASCOPE_IT_ARTIFACTS  reports/integration (screenshots, logs)
 set -euo pipefail
@@ -22,7 +22,7 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-sem-ci}"
 export SEMASCOPE_ENV_FILE="${SEMASCOPE_ENV_FILE:-.env.ci}"
 export COMPOSE_ENV_FILES="$SEMASCOPE_ENV_FILE"
 export SEMASCOPE_HTTPS_PORT="${SEMASCOPE_HTTPS_PORT:-8473}"
-export SEMASCOPE_IMAGE_TAG="${SEMASCOPE_IMAGE_TAG:-ci}"
+export SEMASCOPE_IMAGE_TAG="${SEMASCOPE_IMAGE_TAG:-$COMPOSE_PROJECT_NAME}"  # one image per stack, so parallel runs never test each other's build
 export SEMASCOPE_DEMO_ONLY="${SEMASCOPE_DEMO_ONLY:-odyssey iliad dhammapada song-celestial}"
 export SEMASCOPE_IT_URL="${SEMASCOPE_IT_URL:-https://localhost:$SEMASCOPE_HTTPS_PORT}"
 export COMPOSE_FILE=compose.yaml  # the cpu runtime, whatever the env file says

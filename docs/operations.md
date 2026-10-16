@@ -152,7 +152,8 @@ traces.
 on a throwaway copy, the same way the `integration` workflow does in CI:
 
 1. `up`: `oss init` into `.env.ci` (small, cpu runtime) when it is missing,
-   builds the image from the checkout as `ghcr.io/rdb420/semascope:ci`, checks
+   builds the image from the checkout as `ghcr.io/rdb420/semascope:<project>`
+   (`sem-ci` by default; another `COMPOSE_PROJECT_NAME` gets its own image), checks
    the demo texts are in it, then `compose up --wait` and `oss doctor`.
 2. `demo`: `oss demo --only …` loads four demo texts (`SEMASCOPE_DEMO_ONLY`).
 3. `test`: `tests/integration/` against the HTTP API through Caddy: document
