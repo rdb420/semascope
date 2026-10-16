@@ -233,8 +233,9 @@
   - tests/e2e/ui_smoke.py
   - tests/integration/test_graph_search.py::test_csv_export_matches_the_search
 
-"UI surfaces | Document: text per page, page previews, tags with decisions, annotations, stage runs":
+"UI surfaces | Document: text per page, page previews, tags with decisions, highlighted occurrences and a \"why this tag\" panel (provenance and decision history), annotations, stage runs":
   - tests/e2e/ui_smoke.py
+  - packages/oss-server/tests/test_explain.py::test_tags_api_returns_spans_provenance_and_flags_rejections
 
 "UI surfaces | Packs and pack page: scheme tree, competency questions, deltas":
   - tests/e2e/ui_smoke.py
@@ -338,7 +339,8 @@
   - packages/oss-server/tests/test_curation.py::test_propose_is_idempotent_and_emits_events
   - tests/integration/test_curation.py::test_accepting_and_rejecting_reviews
 
-"Export targets | Proposals, read by cursor":
+"Export targets | Proposals, read by cursor (`params.tag` carries the decided tag's evidence)":
+  - packages/oss-server/tests/test_explain.py::test_a_rejected_tag_keeps_its_evidence_and_pack_version
   - tests/integration/test_decisions.py::test_add_reject_and_remove_tags
 
 "Export targets | Webhooks with HMAC signature":
@@ -403,3 +405,41 @@
 
 "Operation | Multi-arch images (amd64, arm64) with SBOM and provenance":
   - .github/workflows/release.yml
+
+"Review actions | Explanation of a tag: occurrences with pages, method and stage version, matched label, model, `linked_from`, decision history (API and document page)":
+  - packages/oss-pipeline/tests/test_provenance.py::test_tag_records_the_dictionary_entry_and_each_span
+  - packages/oss-pipeline/tests/test_provenance.py::test_ner_records_model_version_and_pages
+  - packages/oss-pipeline/tests/test_provenance.py::test_link_keeps_the_ner_entity_it_replaced
+  - packages/oss-server/tests/test_explain.py::test_tags_api_returns_spans_provenance_and_flags_rejections
+  - packages/oss-server/tests/test_explain.py::test_every_decision_on_a_review_is_kept
+  - tests/integration/test_curation.py::test_tags_explain_themselves
+  - tests/integration/test_curation.py::test_the_decision_history_is_kept
+  - tests/e2e/ui_smoke.py
+
+"Knowledge packs | Pack validation: contract, release manifest, SHACL over the pack's instances, competency questions (`oss pack validate`)":
+  - packages/oss-core/tests/test_pack_contract.py::test_shipped_packs_pass_every_check
+  - packages/oss-core/tests/test_pack_contract.py::test_manifest_mismatch_is_an_error_unless_forced
+  - packages/oss-core/tests/test_pack_contract.py::test_shacl_violations_in_instances_are_errors
+  - packages/oss-core/tests/test_pack_contract.py::test_unknown_expectation_fails
+  - packages/oss-cli/tests/test_pack_commands.py::test_pack_validate_runs_questions_and_checks_the_manifest
+  - .github/workflows/ci.yml
+
+"Knowledge packs | Pack upgrade as a diff and a reindex plan; activation needs confirmation":
+  - packages/oss-server/tests/test_pack_upgrade.py::test_diff_rows_reports_terms_labels_and_taggability
+  - packages/oss-server/tests/test_pack_upgrade.py::test_diff_and_plan_before_an_upgrade
+  - packages/oss-server/tests/test_pack_upgrade.py::test_activation_needs_confirmation_then_rolls_back
+  - packages/oss-cli/tests/test_pack_commands.py::test_import_and_activate_stop_at_the_plan_without_yes
+
+"Knowledge packs | Remove a pack version (admin)":
+  - packages/oss-server/tests/test_pack_upgrade.py::test_remove_a_version
+  - packages/oss-cli/tests/test_pack_commands.py::test_pack_remove
+
+"Knowledge packs | Packs in Turtle, N-Triples, RDF/XML or JSON-LD; `skos:notation`; preferred labels in several languages":
+  - packages/oss-core/tests/test_pack_contract.py::test_other_serialisations_load_like_turtle
+  - packages/oss-server/tests/test_pack_upgrade.py::test_candidate_keeps_notation_and_other_language_labels
+
+"Knowledge packs | Pack precedence for shared IRIs and labels; curator draft labels scoped to their collection":
+  - packages/oss-server/tests/test_pack_precedence.py::test_pack_order_by_binding_precedence
+  - packages/oss-server/tests/test_pack_precedence.py::test_draft_labels_are_scoped_and_survive_a_dictionary_sync
+  - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_tag_attributes_a_shared_iri_to_the_higher_precedence_pack
+  - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_link_picks_the_higher_precedence_pack_for_a_shared_label
