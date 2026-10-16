@@ -124,7 +124,8 @@ upload() {
   step "./oss upload quickstart-note.txt --collection mine"
   in_clone
   printf 'A note uploaded by the quick start check. Marker: %s.\n' "$marker" > quickstart-note.txt
-  ./oss upload quickstart-note.txt --collection mine
+  # `|| return`: `all` calls this as `upload || status=$?`, which turns off set -e here
+  ./oss upload quickstart-note.txt --collection mine || return
   step "./oss search finds the upload"
   wait_for_hits "$marker" mine
 }
