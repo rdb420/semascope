@@ -18,6 +18,8 @@ app.conf.beat_schedule = {
     "tick": {"task": "semascope.tick", "schedule": 60.0, "options": {"queue": "io"}},
     # requeue documents whose worker died, re-project graphs that waited for Neo4j
     "recover": {"task": "semascope.recover", "schedule": 120.0, "options": {"queue": "io"}},
+    # blobs and previews no document uses, stale work files (pipeline.retention.gc)
+    "gc": {"task": "semascope.gc", "schedule": 86400.0, "options": {"queue": "io"}},
 }
 
 __all__ = ["app"]

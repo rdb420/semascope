@@ -279,7 +279,14 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(store, "query", lambda *a, **k: [])
     monkeypatch.setattr(store, "drop_graph", lambda *a, **k: None)
     monkeypatch.setattr(curation_services, "apply_proposal", lambda *a, **k: None)
-    for name in ("reindex_collection", "discover_source", "process_document", "reindex_document"):
+    for name in (
+        "reindex_collection",
+        "discover_source",
+        "process_document",
+        "reindex_document",
+        "purge_documents",
+        "purge_area",
+    ):
         monkeypatch.setattr(getattr(tasks, name), "delay", lambda *a, **k: FakeResult())
 
 

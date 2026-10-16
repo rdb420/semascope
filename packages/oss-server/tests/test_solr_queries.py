@@ -50,10 +50,13 @@ class RecordingSolr:
 def solr(monkeypatch: pytest.MonkeyPatch) -> RecordingSolr:
     from oss_server import services
     from oss_server.api import root
+    from oss_server.pipeline import tasks
 
     fake = RecordingSolr()
     for module in (services, root):
         monkeypatch.setattr(module, "solr_client", lambda: fake)
+    for name in ("purge_documents", "purge_area"):  # the background part of a delete
+        monkeypatch.setattr(getattr(tasks, name), "delay", lambda *a, **k: None)
     return fake
 
 

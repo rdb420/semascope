@@ -123,12 +123,10 @@ def reindex_collection_view(
 @api.delete("/collections/{slug}", response={204: None}, tags=["collections"])
 def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
     check(request, "admin", slug)
-    from oss_server.services import solr_chunks_collection
+    from oss_server.pipeline.retention import purge_collection
 
     c = get_object_or_404(Collection, slug=slug)
-    term = search_mod._escape(slug)
-    solr_client().delete_by_query(solr_documents_collection(), f"collection_s:{term}")
-    solr_client().delete_by_query(solr_chunks_collection(), f"collection_s:{term}")
+    purge_collection(c)  # Solr now; graph, files and uploads in the background
     c.delete()
     return 204, None
 
@@ -220,10 +218,13 @@ def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[i
 
 @api.post("/sources/{source_id}/run", response={202: RunOut}, tags=["sources"])
 def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
+    from oss_server.pipeline.runs import is_running
     from oss_server.pipeline.tasks import discover_source
 
     s = get_object_or_404(Source, pk=source_id)
     check(request, "editor", s.collection.slug)
+    if is_running(s):
+        raise HttpError(409, f"source {s.id} is running; try again when its run has finished")
     result = discover_source.delay(s.id)
     return 202, RunOut(source_id=s.id, task_id=str(result.id))
 
@@ -232,15 +233,9 @@ def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
 def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
     s = get_object_or_404(Source, pk=source_id)
     check(request, "editor", s.collection.slug)
-    from oss_server.services import solr_chunks_collection
+    from oss_server.pipeline.retention import purge_source
 
-    solr_client().delete_by_query(
-        solr_documents_collection(), f"source_id_s:{search_mod._escape(str(s.id))}"
-    )
-    ids = list(s.documents.values_list("id", flat=True))
-    for i in range(0, len(ids), 500):
-        terms = "{!terms f=document_id}" + ",".join(ids[i : i + 500])
-        solr_client().delete_by_query(solr_chunks_collection(), terms)
+    purge_source(s)  # Solr now; graph, files and the work area in the background
     s.delete()
     return 204, None
 
