@@ -13,6 +13,7 @@ Derivation rules (from the rebuild specification, section 6):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -26,7 +27,7 @@ from django.db import transaction
 from django.utils import timezone
 from rdflib import OWL, RDF, RDFS, SKOS, Graph, Literal, URIRef
 
-from oss_core.pack import PackInfo, load_pack
+from oss_core.pack import PackInfo, load_pack, parse_rdf, rdf_files, run_competency_questions
 from oss_server.knowledge import store
 from oss_server.knowledge.models import Concept, Pack
 
@@ -51,6 +52,13 @@ def _labels(g: Graph, node: URIRef, predicate: URIRef) -> list[tuple[str, str]]:
         if isinstance(value, Literal):
             out.append((str(value).strip(), str(value.language or "")))
     return out
+
+
+def _pref_order(item: tuple[str, str]) -> tuple[int, str, str]:
+    """Which preferred label is the main one: English, then untagged, then by language."""
+
+    label, lang = item
+    return (0 if lang.lower().startswith("en") else 1 if not lang else 2, lang, label)
 
 
 def _first(g: Graph, node: URIRef, *predicates: URIRef) -> str:
@@ -107,10 +115,10 @@ def derive(
 
     policy = policy or tagging_policy(pack_dir)
     g = Graph()
-    for name in ("ontology.ttl", "taxonomy.ttl", "instances.ttl"):
-        file = pack_dir / name
-        if file.exists():
-            g.parse(file, format="turtle")
+    files = info.rdf or rdf_files(pack_dir)[0]
+    for stem in ("ontology", "taxonomy", "instances"):
+        if stem in files:
+            parse_rdf(g, files[stem])
 
     terms: dict[str, dict[str, Any]] = {}
     model_path = pack_dir / "model.yaml"
@@ -133,7 +141,15 @@ def derive(
                 pref = _labels(g, node, URIRef("http://purl.org/dc/terms/title"))
             if not pref:
                 pref = [(local_name(iri), "")]
+        pref = sorted(set(pref), key=_pref_order)
         label, lang = pref[0]
+        # further preferred labels (one per language in SKOS) tag text too, with their language
+        others = [{"label": v, "lang": lg} for v, lg in pref[1:] if v and v != label]
+        notation = sorted(str(v) for v in g.objects(node, SKOS.notation))
+        if others:
+            extra["pref_labels"] = others
+        if notation:
+            extra["notation"] = notation
         term = terms.get(iri, {})
         rows[iri] = {
             "iri": iri,
@@ -252,52 +268,11 @@ def derive(
     return list(rows.values())
 
 
-def run_cq_tests(pack_dir: Path, pack_id: str, version: str) -> dict[str, Any]:
-    """Execute the bundle's competency queries against the pack graph in Oxigraph."""
+def run_cq_tests(pack_dir: Path) -> dict[str, Any]:
+    """Run the bundle's competency queries, each over the files its manifest entry names
+    (fixture, ontology and taxonomy unless excluded, extra graphs), as the skill does."""
 
-    manifest = pack_dir / "queries" / "manifest.yaml"
-    if not manifest.exists():
-        return {"tests": 0, "passed": 0, "results": []}
-    spec = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
-    results: list[dict[str, Any]] = []
-    for entry in spec.get("queries") or []:
-        file = pack_dir / "queries" / str(entry.get("file"))
-        if not file.exists():
-            results.append({"cq_id": entry.get("cq_id"), "status": "missing"})
-            continue
-        if str(entry.get("entailment", "none")) != "none":
-            results.append({"cq_id": entry.get("cq_id"), "status": "skipped-reasoner"})
-            continue
-        sparql = file.read_text(encoding="utf-8")
-        try:
-            rows = store.query(sparql, pack_id=pack_id, version=version)
-        except Exception as exc:  # noqa: BLE001
-            results.append(
-                {"cq_id": entry.get("cq_id"), "status": "error", "message": str(exc)[:300]}
-            )
-            continue
-        expected = entry.get("expected") or {}
-        kind, value = expected.get("type"), expected.get("value")
-        ok = True
-        if kind == "row_count":
-            ok = len(rows) == int(value or 0)
-        elif kind == "min_rows":
-            ok = len(rows) >= int(value or 0)
-        elif kind == "max_rows":
-            ok = len(rows) <= int(value or 0)
-        elif kind == "ask_true":
-            ok = bool(rows and rows[0].get("ask") is True)
-        elif kind == "ask_false":
-            ok = bool(rows and rows[0].get("ask") is False)
-        elif kind == "contains_bindings":
-            wanted = [{k: str(v) for k, v in b.items()} for b in (value or [])]
-            have = [{k: str(v) for k, v in r.items()} for r in rows]
-            ok = all(any(all(r.get(k) == v for k, v in w.items()) for r in have) for w in wanted)
-        results.append(
-            {"cq_id": entry.get("cq_id"), "status": "pass" if ok else "fail", "rows": len(rows)}
-        )
-    passed = sum(1 for r in results if r["status"] == "pass")
-    return {"tests": len(results), "passed": passed, "results": results}
+    return run_competency_questions(pack_dir)
 
 
 @transaction.atomic
@@ -305,11 +280,13 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
     """Validate and import a bundle directory; returns the Pack row. Raises on structural errors.
 
     An unchanged bundle (same manifest hash) is skipped unless `force`, which
-    re-derives the vocabulary, for example after an importer change.
+    re-derives the vocabulary, for example after an importer change. `force`
+    also accepts files that differ from release-manifest.json (a warning, not
+    an error).
     """
 
     pack_dir = pack_dir.resolve()
-    info = load_pack(pack_dir)
+    info = load_pack(pack_dir, force=force)
     if not info.ok:
         errors = "; ".join(f.message for f in info.findings if f.severity == "error")
         raise ValueError(f"pack {pack_dir.name} is not valid: {errors}")
@@ -321,11 +298,13 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
     )
     if existing is not None and unchanged and not force:
         log.info("pack %s@%s unchanged; skipping import", info.id, info.version)
+        if activate and existing.status != Pack.Status.ACTIVE:
+            activate_pack(existing)
         return existing
 
-    triple_count = store.load_bundle(pack_dir, info.id, info.version)
+    triple_count = store.load_bundle(info.rdf, info.id, info.version)
     rows = derive(pack_dir, info)
-    cq = run_cq_tests(pack_dir, info.id, info.version)
+    cq = run_cq_tests(pack_dir)
     requirements = (
         yaml.safe_load((pack_dir / "requirements.yaml").read_text(encoding="utf-8")) or {}
     )
@@ -377,6 +356,18 @@ def activate_pack(pack: Pack) -> None:
     pack.save(update_fields=["status", "activated_at"])
 
 
+def remove_pack_version(pack: Pack) -> int:
+    """Delete a pack version that is not active: its named graph and its Concept rows.
+    Returns the number of concepts removed. The caller clears the Solr dictionary."""
+
+    if pack.status == Pack.Status.ACTIVE:
+        raise ValueError(f"{pack} is active; activate another version first")
+    store.drop_graph(pack.pack_id, pack.version)
+    count = pack.concepts.count()
+    pack.delete()
+    return count
+
+
 def active_packs() -> list[Pack]:
     return list(Pack.objects.filter(status=Pack.Status.ACTIVE))
 
@@ -386,32 +377,37 @@ def dictionary_entries(pack: Pack) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for concept in pack.concepts.filter(taggable=True).iterator():
-        for label_type, labels in (
-            ("pref", [concept.pref_label]),
-            ("alt", concept.alt_labels),
-            ("hidden", concept.hidden_labels),
-        ):
-            for label in labels:
-                label = str(label).strip()
-                if len(label) < 2:
-                    continue
-                out.append(
-                    {
-                        "id": f"{pack}|{concept.iri}|{label_type}|{slugify(label)}",
-                        "iri": concept.iri,
-                        "pack_id": pack.pack_id,
-                        "pack_version": pack.version,
-                        "label": label,
-                        "pref_label": concept.pref_label,
-                        "label_type": label_type,
-                        "lang": concept.lang or "und",
-                        "kind": concept.kind,
-                        "type_iri": concept.type_iri,
-                        "scheme": concept.scheme_slug,
-                        "path": concept.path,
-                        "case_sensitive": label.isupper() and len(label) <= 6,
-                    }
-                )
+        lang = concept.lang or "und"
+        labelled: list[tuple[str, str, str]] = [("pref", concept.pref_label, lang)]
+        labelled += [
+            ("pref", str(p.get("label") or ""), str(p.get("lang") or "und"))
+            for p in (concept.extra or {}).get("pref_labels") or []
+        ]
+        labelled += [("alt", a, lang) for a in concept.alt_labels]
+        labelled += [("hidden", h, lang) for h in concept.hidden_labels]
+        for label_type, label, label_lang in labelled:
+            label = str(label).strip()
+            if len(label) < 2:
+                continue
+            # slug plus a digest: labels in non-Latin scripts slugify alike
+            digest = hashlib.sha1(label.encode()).hexdigest()[:10]  # noqa: S324 - an id, not security
+            out.append(
+                {
+                    "id": f"{pack}|{concept.iri}|{label_type}|{slugify(label)}-{digest}",
+                    "iri": concept.iri,
+                    "pack_id": pack.pack_id,
+                    "pack_version": pack.version,
+                    "label": label,
+                    "pref_label": concept.pref_label,
+                    "label_type": label_type,
+                    "lang": label_lang,
+                    "kind": concept.kind,
+                    "type_iri": concept.type_iri,
+                    "scheme": concept.scheme_slug,
+                    "path": concept.path,
+                    "case_sensitive": label.isupper() and len(label) <= 6,
+                }
+            )
     return out
 
 

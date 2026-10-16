@@ -6,7 +6,7 @@
   "files": [
     {
       "path": "README.md",
-      "sha256": "59039915ae61adc742a187ae7558ffe02b7e73a7db91011cf49ece3879a8058d"
+      "sha256": "21cf281f38dbd995874288ebd715b1a5774b1b32c2632938d82940f8f58b8e65"
     },
     {
       "path": "decisions.yaml",
@@ -29,18 +29,6 @@
       "sha256": "3cad4e5d7c2f275b8a04bddcaa42cd1fe2fe78749f573baf311ccc16419bbc36"
     },
     {
-      "path": "packs/base/validation/cq-results.json",
-      "sha256": "96a7c6bb4fb92cd1bb538956bc455b7dc45185ad21400e7e8b384ab40801a7c5"
-    },
-    {
-      "path": "packs/base/validation/shacl-results.json",
-      "sha256": "dcc12a40da32d34504a8d79c009178d3d4124f796a6a3498d2aeb48136e9dfa2"
-    },
-    {
-      "path": "packs/base/validation/validation.json",
-      "sha256": "c30e4ba2a2626fc51af081651d9129a48376d3eca08cdf1c0367083019bd4631"
-    },
-    {
       "path": "queries/cq-001.rq",
       "sha256": "0abe78cde1d8072a77886e86f28bfc50357356b49087e3861a15ab52c2cbbb89"
     },
@@ -58,7 +46,7 @@
     },
     {
       "path": "requirements.yaml",
-      "sha256": "317a7b16ed826c48c858f67757dceca6db71cf95066d0711e91f48992ae98934"
+      "sha256": "8a9e801a5ba56af1209c41ae4a6b94dcf0486f07f322304e74169e454fbeb5d8"
     },
     {
       "path": "shapes.ttl",

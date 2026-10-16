@@ -12,10 +12,12 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from oss_core.config import get_settings
+from oss_core.pack import load_pack
 from oss_server.api.access import check, read_scope
 from oss_server.knowledge import store
-from oss_server.knowledge.importer import activate_pack, hierarchy, import_pack
+from oss_server.knowledge.importer import activate_pack, derive, hierarchy, import_pack
 from oss_server.knowledge.models import Concept, Pack, PackDelta
+from oss_server.knowledge.upgrade import collections_using, concept_row, upgrade_plan
 
 router = Router(tags=["knowledge"])
 
@@ -65,11 +67,35 @@ class ConceptOut(Schema):
     pack_version: str
 
 
+class ActivationOut(PackOut):
+    plan: dict[str, Any] | None = None
+
+
+class PlanRequiredOut(Schema):
+    detail: str
+    plan: dict[str, Any]
+
+
 class ImportIn(Schema):
     path: str
     activate: bool = True
     reindex: bool = True
     force: bool = False
+    confirm: bool = False
+
+
+class DiffIn(Schema):
+    path: str
+    force: bool = False
+
+
+class RemovedOut(Schema):
+    pack_id: str
+    version: str
+    concepts_removed: int
+    dictionary_entries_removed: bool
+    documents_still_tagged: int | None
+    note: str
 
 
 class SparqlIn(Schema):
@@ -127,20 +153,57 @@ def list_packs(request: HttpRequest, status: str | None = None) -> list[PackOut]
     return [_pack_out(p) for p in qs]
 
 
-@router.post("/packs/import", response={201: PackOut})
-def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, PackOut]:
-    """Import a bundle directory. The path must be under the import folder or the shipped packs."""
+def _import_path(raw: str) -> Path:
+    """A bundle path the server may read: under the import folder or the shipped packs."""
+
+    allowed = [Path("/import"), Path("/app/packs"), get_settings().semascope_data_dir / "packs"]
+    allowed += [Path(__file__).resolve().parents[4] / "packs"]
+    path = Path(raw).resolve()
+    if not any(path.is_relative_to(a.resolve()) for a in allowed if a.exists()):
+        raise HttpError(422, f"path must be under one of {[str(a) for a in allowed if a.exists()]}")
+    if not (path / "requirements.yaml").exists():
+        raise HttpError(422, "no requirements.yaml at that path")
+    return path
+
+
+def _candidate_plan(path: Path, force: bool) -> dict[str, Any]:
+    """Validate a bundle on disk and diff it against the active version of its pack."""
+
+    info = load_pack(path, force=force)
+    if not info.ok:
+        errors = "; ".join(f.message for f in info.findings if f.severity == "error")
+        raise HttpError(422, f"pack {path.name} is not valid: {errors}")
+    return upgrade_plan(info.id, info.version, derive(path, info), info.manifest_hash)
+
+
+def _plan_required(plan: dict[str, Any]) -> tuple[int, PlanRequiredOut]:
+    return 409, PlanRequiredOut(
+        detail=(
+            f"activating {plan['pack_id']}@{plan['candidate_version']} replaces the active "
+            f"version {plan['active_version']}; review the plan and repeat with confirm=true"
+        ),
+        plan=plan,
+    )
+
+
+@router.post("/packs/import", response={201: ActivationOut, 409: PlanRequiredOut})
+def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Any]:
+    """Import a bundle directory. The path must be under the import folder or the shipped packs.
+
+    When `activate` would replace an active version of the pack (a new version, or
+    changed content under the same version), the answer is 409 with the diff and
+    reindex plan unless `confirm` is true.
+    """
 
     from oss_server.services import sync_dictionary
 
     check(request, "editor")
-    allowed = [Path("/import"), Path("/app/packs"), get_settings().semascope_data_dir / "packs"]
-    allowed += [Path(__file__).resolve().parents[4] / "packs"]
-    path = Path(payload.path).resolve()
-    if not any(str(path).startswith(str(a.resolve())) for a in allowed if a.exists()):
-        raise HttpError(422, f"path must be under one of {[str(a) for a in allowed if a.exists()]}")
-    if not (path / "requirements.yaml").exists():
-        raise HttpError(422, "no requirements.yaml at that path")
+    path = _import_path(payload.path)
+    plan: dict[str, Any] | None = None
+    if payload.activate:
+        plan = _candidate_plan(path, payload.force)
+        if plan["requires_confirmation"] and not payload.confirm:
+            return _plan_required(plan)
     try:
         pack = import_pack(path, activate=payload.activate, force=payload.force)
     except ValueError as exc:
@@ -148,25 +211,23 @@ def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Pack
     sync_dictionary(pack.pack_id, pack.version)
     if payload.activate and payload.reindex:
         _reindex_collections_using(pack.pack_id)
-    return 201, _pack_out(pack)
+    return 201, ActivationOut(**_pack_out(pack).model_dump(), plan=plan)
+
+
+@router.post("/packs/diff", response=dict[str, Any])
+def diff_bundle(request: HttpRequest, payload: DiffIn) -> dict[str, Any]:
+    """The diff and reindex plan between the active version of a pack and a bundle on disk."""
+
+    check(request, "editor")
+    return _candidate_plan(_import_path(payload.path), payload.force)
 
 
 def _reindex_collections_using(pack_id: str) -> int:
     """Queue a reindex of every collection that tags with this pack (bound, or unbound = all)."""
 
-    from oss_server.catalogue.models import Collection
-    from oss_server.knowledge.models import PackBinding
     from oss_server.pipeline.tasks import reindex_collection
 
-    bound = set(
-        PackBinding.objects.filter(pack_id=pack_id, enabled=True).values_list(
-            "collection__slug", flat=True
-        )
-    )
-    unbound = set(
-        Collection.objects.exclude(pack_bindings__isnull=False).values_list("slug", flat=True)
-    )
-    slugs = sorted(bound | unbound)
+    slugs = collections_using(pack_id)
     for slug in slugs:
         reindex_collection.delay(slug)
     return len(slugs)
@@ -192,16 +253,74 @@ def get_pack(request: HttpRequest, pack_id: str, version: str | None = None) -> 
     )
 
 
-@router.post("/packs/{pack_id}/activate", response=PackOut)
-def activate(request: HttpRequest, pack_id: str, version: str) -> PackOut:
+@router.get("/packs/{pack_id}/diff", response=dict[str, Any])
+def diff_version(request: HttpRequest, pack_id: str, version: str) -> dict[str, Any]:
+    """The diff and reindex plan between the active version and another imported version."""
+
+    check(request, "editor")
+    p = get_object_or_404(Pack, pack_id=pack_id, version=version)
+    rows = [concept_row(c) for c in p.concepts.all()]
+    return upgrade_plan(p.pack_id, p.version, rows, p.manifest_hash)
+
+
+@router.post("/packs/{pack_id}/activate", response={200: ActivationOut, 409: PlanRequiredOut})
+def activate(
+    request: HttpRequest, pack_id: str, version: str, confirm: bool = False
+) -> tuple[int, Any]:
+    """Make an imported version the active one (upgrade or roll back), then re-sync the
+    dictionary and queue a reindex. Replacing another active version answers 409 with
+    the diff and reindex plan unless `confirm` is true."""
+
     from oss_server.services import sync_dictionary
 
     check(request, "editor")
     p = get_object_or_404(Pack, pack_id=pack_id, version=version)
+    plan = upgrade_plan(
+        p.pack_id, p.version, [concept_row(c) for c in p.concepts.all()], p.manifest_hash
+    )
+    if plan["requires_confirmation"] and not confirm:
+        return _plan_required(plan)
     activate_pack(p)
     sync_dictionary(p.pack_id, p.version)
     _reindex_collections_using(p.pack_id)
-    return _pack_out(p)
+    return 200, ActivationOut(**_pack_out(p).model_dump(), plan=plan)
+
+
+@router.delete("/packs/{pack_id}/versions/{version}", response=RemovedOut)
+def remove_version(request: HttpRequest, pack_id: str, version: str) -> RemovedOut:
+    """Remove an imported version that is not active (admin): its named graph, its
+    concepts and its dictionary entries. Documents tagged with it keep those tags,
+    and its `id@version` in pack_versions_ss, until they are reindexed."""
+
+    from oss_server.knowledge.importer import remove_pack_version
+    from oss_server.services import solr_client, solr_documents_collection, solr_entities_collection
+
+    check(request, "admin")
+    p = get_object_or_404(Pack, pack_id=pack_id, version=version)
+    if p.status == Pack.Status.ACTIVE:
+        raise HttpError(409, "the active version cannot be removed; activate another first")
+    concepts = remove_pack_version(p)
+    removed = True
+    still: int | None = None
+    try:
+        q = f'pack_id:"{pack_id}" AND pack_version:"{version}"'
+        solr_client().delete_by_query(solr_entities_collection(), q)
+        solr_client().commit(solr_entities_collection())
+    except Exception:  # noqa: BLE001 - the rows are gone; a re-sync of another version clears it
+        removed = False
+    try:
+        key = f"{pack_id}@{version}".replace('"', '\\"')
+        still = solr_client().count(solr_documents_collection(), f'pack_versions_ss:"{key}"')
+    except Exception:  # noqa: BLE001
+        still = None
+    return RemovedOut(
+        pack_id=pack_id,
+        version=version,
+        concepts_removed=concepts,
+        dictionary_entries_removed=removed,
+        documents_still_tagged=still,
+        note="documents tagged with this version keep their tags until they are reindexed",
+    )
 
 
 @router.get("/packs/{pack_id}/tree", response=list[dict[str, Any]])

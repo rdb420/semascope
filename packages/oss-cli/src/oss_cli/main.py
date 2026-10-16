@@ -18,7 +18,7 @@ from rich.table import Table
 from oss_cli.vectors import vector_report
 from oss_core import PACK_CONTRACT_VERSION, __version__
 from oss_core.config import get_settings
-from oss_core.pack import load_pack, write_manifest
+from oss_core.pack import load_pack, run_competency_questions, write_manifest
 
 app = typer.Typer(no_args_is_help=True, help="Semascope command line.")
 pack_app = typer.Typer(help="Knowledge-model packs (ontology-skill bundles).")
@@ -351,7 +351,8 @@ def demo(
         out = _check(
             api.post(
                 "/knowledge/packs/import",
-                json={"path": str(pack), "activate": True, "reindex": False},
+                # the demo seeds its own pack: no plan to review
+                json={"path": str(pack), "activate": True, "reindex": False, "confirm": True},
             )
         )
         console.print(f"pack {out['pack_id']}@{out['version']} {out['status']}")
@@ -437,24 +438,151 @@ def stats() -> None:
         console.print(_check(api.get("/stats")))
 
 
+def _print_plan(out: dict[str, Any]) -> None:
+    """A pack diff and its reindex plan, as `oss pack diff` and a refused activation show it."""
+
+    label = f"{out['pack_id']}@{out['candidate_version']}"
+    if out.get("active_version") is None:
+        console.print(f"{label}: no active version; activating it changes no existing tags")
+    else:
+        same = " (same content)" if out.get("same_content") else ""
+        console.print(f"{out['pack_id']}: active {out['active_version']} -> {label}{same}")
+    diff = out.get("diff") or {}
+    summary = diff.get("summary") or {}
+    table = Table("change", "count")
+    for key in ("added", "removed", "changed"):
+        kinds = summary.get(key) or {}
+        detail = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items())) or "0"
+        table.add_row(key, detail)
+    for key in ("labels_added", "labels_removed", "became_taggable", "no_longer_taggable"):
+        table.add_row(key.replace("_", " "), str(summary.get(key, 0)))
+    console.print(table)
+    for key, colour in (("removed", "red"), ("added", "green")):
+        for term in (diff.get(key) or [])[:20]:
+            console.print(f"  [{colour}]{key}[/{colour}] {term['kind']} {term['label']}")
+    for term in (diff.get("changed") or [])[:20]:
+        console.print(
+            f"  [yellow]changed[/yellow] {term['kind']} {term['label']}: "
+            + ", ".join(sorted(term["fields"]))
+        )
+    if diff.get("truncated"):
+        console.print("  (lists truncated; the API returns up to 200 of each)")
+    plan = out.get("plan") or {}
+    if plan.get("collections"):
+        rows = Table("collection", "reindex", "documents", "tagged by active", "affected")
+        for c in plan["collections"]:
+            rows.add_row(
+                c["collection"],
+                "yes" if c["reindex"] else "no",
+                str(c["documents"]),
+                str(c["tagged_documents"]),
+                str(c["affected_documents"]),
+            )
+        console.print(rows)
+    elif plan.get("counts_error"):
+        console.print(f"[yellow]document counts unavailable:[/yellow] {plan['counts_error']}")
+    if plan.get("reindex"):
+        console.print(f"activation reindexes: {', '.join(plan['reindex'])}")
+
+
+def _plan_or_exit(resp: httpx.Response) -> Any:
+    """Print the plan of a 409 (confirmation needed) and stop; otherwise check as usual."""
+
+    if resp.status_code == 409:
+        body = resp.json()
+        _print_plan(body.get("plan") or {})
+        console.print(f"[yellow]{body.get('detail', 'confirmation required')}[/yellow]")
+        console.print("rerun with --yes to proceed")
+        raise typer.Exit(code=1)
+    return _check(resp)
+
+
 @pack_app.command("import")
 def pack_import(
     path: Path = typer.Argument(..., exists=True, file_okay=False),
     activate: bool = typer.Option(True, help="Make this version the active one"),
     reindex: bool = typer.Option(True, help="Reindex the collections that use this pack"),
-    force: bool = typer.Option(False, help="Re-import even if the bundle is unchanged"),
+    force: bool = typer.Option(
+        False, help="Re-import an unchanged bundle; accept a release-manifest mismatch"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", help="Confirm replacing the active version (see `oss pack diff`)"
+    ),
 ) -> None:
-    """Import a bundle directory into the running Semascope (path as seen by the server)."""
+    """Import a bundle directory into the running Semascope (path as seen by the server).
 
-    body = {"path": str(path), "activate": activate, "reindex": reindex, "force": force}
+    Replacing an active version prints the diff and reindex plan and stops, unless --yes.
+    """
+
+    body = {
+        "path": str(path),
+        "activate": activate,
+        "reindex": reindex,
+        "force": force,
+        "confirm": yes,
+    }
     with _api() as api:
-        out = _check(api.post("/knowledge/packs/import", json=body))
+        out = _plan_or_exit(api.post("/knowledge/packs/import", json=body))
+    if out.get("plan") and out["plan"].get("requires_confirmation"):
+        _print_plan(out["plan"])
     terms = out["counts"].get("terms")
     label = f"{out['pack_id']}@{out['version']}"
     console.print(f"[green]imported[/green] {label} status={out['status']} terms={terms}")
     cq = out.get("cq_results") or {}
     if cq.get("tests"):
         console.print(f"competency tests: {cq.get('passed')}/{cq.get('tests')} passed")
+
+
+@pack_app.command("diff")
+def pack_diff(
+    path: Path = typer.Argument(..., help="Bundle directory as seen by the server"),
+    force: bool = typer.Option(False, help="Accept a release-manifest mismatch"),
+) -> None:
+    """Diff a bundle against the active version of its pack, with the reindex plan."""
+
+    with _api() as api:
+        out = _check(api.post("/knowledge/packs/diff", json={"path": str(path), "force": force}))
+    _print_plan(out)
+
+
+@pack_app.command("activate")
+def pack_activate(
+    pack_id: str = typer.Argument(..., help="Pack id"),
+    version: str = typer.Option(..., help="Imported version to activate"),
+    yes: bool = typer.Option(False, "--yes", help="Confirm replacing the active version"),
+) -> None:
+    """Activate an imported version (upgrade or roll back); shows the plan, needs --yes."""
+
+    with _api() as api:
+        out = _plan_or_exit(
+            api.post(
+                f"/knowledge/packs/{pack_id}/activate",
+                params={"version": version, "confirm": "true" if yes else "false"},
+            )
+        )
+    if out.get("plan") and out["plan"].get("requires_confirmation"):
+        _print_plan(out["plan"])
+    console.print(f"[green]activated[/green] {out['pack_id']}@{out['version']}")
+
+
+@pack_app.command("remove")
+def pack_remove(
+    pack_id: str = typer.Argument(..., help="Pack id"),
+    version: str = typer.Option(..., help="Version to remove (not the active one)"),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation"),
+) -> None:
+    """Remove an imported pack version (admin). Tagged documents keep their tags until reindex."""
+
+    if not yes and not typer.confirm(f"remove {pack_id}@{version}?", default=False):
+        raise typer.Exit(code=1)
+    with _api() as api:
+        out = _check(api.delete(f"/knowledge/packs/{pack_id}/versions/{version}"))
+    console.print(f"[green]removed[/green] {pack_id}@{version}: {out['concepts_removed']} concepts")
+    still = out.get("documents_still_tagged")
+    if still:
+        console.print(f"{still} documents keep tags from {pack_id}@{version} until reindexed")
+    if not out.get("dictionary_entries_removed"):
+        console.print("[yellow]the dictionary entries could not be removed from Solr[/yellow]")
 
 
 @pack_app.command("list")
@@ -479,11 +607,15 @@ def pack_list() -> None:
 @pack_app.command("validate")
 def pack_validate(
     path: Path = typer.Argument(..., exists=True, file_okay=False),
-    manifest: bool = typer.Option(False, help="Also write release-manifest.json"),
+    manifest: bool = typer.Option(
+        False, help="Write release-manifest.json (a stale one is then not an error)"
+    ),
+    force: bool = typer.Option(False, help="Report a release-manifest mismatch as a warning"),
 ) -> None:
-    """Validate a pack against the ontology-skill bundle contract."""
+    """Validate a pack against the ontology-skill bundle contract and run its competency
+    questions. Exits 1 on any error or failed question."""
 
-    info = load_pack(path)
+    info = load_pack(path, force=force or manifest)
     table = Table("item", "value")
     table.add_row("id", info.id)
     table.add_row("version", info.version)
@@ -494,8 +626,14 @@ def pack_validate(
     for finding in info.findings:
         colour = {"error": "red", "warning": "yellow"}.get(finding.severity, "white")
         console.print(f"[{colour}]{finding.severity}[/{colour}] {finding.code}: {finding.message}")
+    results: list[dict[str, Any]] = run_competency_questions(path)["results"] if info.ok else []
+    failed = [r for r in results if r["status"] not in ("pass", "skipped-reasoner")]
+    for r in results:
+        colour = "green" if r["status"] == "pass" else "yellow" if r in failed else "white"
+        message = f" {r['message']}" if r.get("message") else ""
+        console.print(f"[{colour}]{r['status']}[/{colour}] {r['cq_id']}{message}")
     if manifest and info.ok:
         console.print(f"wrote {write_manifest(info)}")
-    if not info.ok:
+    if not info.ok or failed:
         raise typer.Exit(code=1)
     console.print(f"[green]ok[/green] {info.id} {info.version} ({len(info.files)} files)")
