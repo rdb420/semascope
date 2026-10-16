@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from ninja import Schema
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from oss_pipeline.connectors.upload import COLLECTION_SLUG
+
+# Search paging: a page holds at most MAX_PAGE_SIZE hits, and no page starts beyond
+# MAX_PAGE * page_size (docs/search.md). Deeper result sets are exported instead.
+MAX_PAGE_SIZE = 100
+MAX_PAGE = 500
 
 
 class CollectionIn(Schema):
@@ -99,19 +104,45 @@ class DocumentTextOut(Schema):
     pages: list[str]
 
 
+class DateRange(Schema):
+    """Documents whose `field` falls in [start, end): ISO dates or date-times, either open."""
+
+    field: str = "modified_dt"
+    start: str | None = None
+    end: str | None = None
+
+    @field_validator("start", "end")
+    @classmethod
+    def _iso(cls, value: str | None) -> str | None:
+        if value in (None, ""):
+            return None
+        try:
+            stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("a date is YYYY-MM-DD or an ISO date-time") from exc
+        if stamp.tzinfo is not None:
+            stamp = stamp.astimezone(UTC).replace(tzinfo=None)
+        return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class SearchIn(Schema):
     q: str = "*:*"
     collection: str | None = None
-    filters: dict[str, list[str]] = {}
+    filters: dict[str, list[str]] = {}  # field -> values, any of them (OR)
+    exclude: dict[str, list[str]] = {}  # field -> values, none of them
     facets: list[str] = ["content_type_group_s", "language_s", "media_type_s", "source_id_s"]
-    facet_limit: int = 20
-    sort: str | None = None
-    page: int = 1
-    page_size: int = 10
+    facet_limit: int = Field(default=20, ge=1, le=100)
+    facet_more: list[str] = []  # facets to list up to 100 values of ("show more")
+    sort: str | None = None  # one of api.search.ALLOWED_SORTS; none: relevance, newest first
+    page: int = Field(default=1, ge=1, le=MAX_PAGE)
+    page_size: int = Field(default=10, ge=0, le=MAX_PAGE_SIZE)  # 0: count only
     highlight: bool = True
     mode: str = "keyword"  # keyword | semantic | hybrid
+    stemming: bool = True  # also match other word forms (the language fields); docs/search.md
+    operator: str | None = None  # None: most words; "all", "any" or "phrase" (docs/search.md)
     histogram: str | None = None  # a date field to bucket, e.g. modified_dt
     histogram_gap: str = "+1YEAR"  # Solr gap: +1DAY, +1MONTH, +1YEAR, +10YEARS
+    dates: DateRange | None = None  # a date filter, e.g. one bar of the histogram
 
 
 class FacetValue(Schema):
@@ -136,6 +167,8 @@ class SearchHit(Schema):
     preview_pages: int
     snippets: list[str]
     passages: list[str] = []  # best-matching chunks in semantic and hybrid modes
+    # a few of the document's entities and concepts per field (persons_ss, places_ss, ...)
+    entities: dict[str, list[str]] = {}
 
 
 class SearchOut(Schema):
