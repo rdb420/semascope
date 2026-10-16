@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import os
 import secrets
+import shutil
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -224,34 +225,37 @@ def test_an_archive_bomb_is_expanded_within_its_budget(api: httpx.Client) -> Non
     slug, tag = "it-retain-archive", secrets.token_hex(3)
     folder = import_dir() / f"archives-{tag}"
     folder.mkdir(parents=True)
-    inner = io.BytesIO()
-    with zipfile.ZipFile(inner, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("reports/kept.txt", f"A short report about the platypus{tag}.")
-        for n in range(20):  # 20 x 20 MB of zeros: 400 MB claimed in about 400 kB
-            with zf.open(f"zeros/{n}.bin", "w") as member:
-                for _ in range(20):
-                    member.write(b"\0" * 1_000_000)
-    with zipfile.ZipFile(folder / "bomb.zip", "w", compression=zipfile.ZIP_STORED) as zf:
-        zf.writestr("inner.zip", inner.getvalue())
-    ensure_collection(api, slug)
-    source = add_source(
-        api, slug, f"bomb-{tag}", "archive", {"path": f"/import/archives-{tag}"}, run=False
-    )
-    done = run(api, slug, source)
-    assert done["status"] == "idle", done
-    assert done["document_count"] == 1, done  # every zero member is over the ratio limit
-    uri = f"file:///import/archives-{tag}/bomb.zip!/inner.zip!/reports/kept.txt"
-    assert settled(api, slug, [uri])[uri]["status"] == "indexed"
-    body = {"q": "*:*", "collection": slug, "facets": ["folder_paths"]}
-    facets = wait_for(
-        lambda: api.post("/search", json=body).json()["facets"].get("folder_paths"),
-        timeout=60,
-        what="the folder facet",
-    )
-    values = {v["value"] for v in facets}
-    assert f"archives-{tag}/bomb.zip/inner.zip/reports" in values, values
-    worker = compose("ps", "--format", "{{.Service}} {{.State}}", "worker")
-    assert "running" in worker.stdout, worker.stdout
+    try:
+        inner = io.BytesIO()
+        with zipfile.ZipFile(inner, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("reports/kept.txt", f"A short report about the platypus{tag}.")
+            for n in range(20):  # 20 x 20 MB of zeros: 400 MB claimed in about 400 kB
+                with zf.open(f"zeros/{n}.bin", "w") as member:
+                    for _ in range(20):
+                        member.write(b"\0" * 1_000_000)
+        with zipfile.ZipFile(folder / "bomb.zip", "w", compression=zipfile.ZIP_STORED) as zf:
+            zf.writestr("inner.zip", inner.getvalue())
+        ensure_collection(api, slug)
+        source = add_source(
+            api, slug, f"bomb-{tag}", "archive", {"path": f"/import/archives-{tag}"}, run=False
+        )
+        done = run(api, slug, source)
+        assert done["status"] == "idle", done
+        assert done["document_count"] == 1, done  # every zero member is over the ratio limit
+        uri = f"file:///import/archives-{tag}/bomb.zip!/inner.zip!/reports/kept.txt"
+        assert settled(api, slug, [uri])[uri]["status"] == "indexed"
+        body = {"q": "*:*", "collection": slug, "facets": ["folder_paths"]}
+        facets = wait_for(
+            lambda: api.post("/search", json=body).json()["facets"].get("folder_paths"),
+            timeout=60,
+            what="the folder facet",
+        )
+        values = {v["value"] for v in facets}
+        assert f"archives-{tag}/bomb.zip/inner.zip/reports" in values, values
+        worker = compose("ps", "--format", "{{.Service}} {{.State}}", "worker")
+        assert "running" in worker.stdout, worker.stdout
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 # --- what a delete removes (SEMA-011) --------------------------------------------------------
