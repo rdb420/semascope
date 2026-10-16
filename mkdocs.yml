@@ -13,6 +13,7 @@ theme:
 nav:
   - Home: index.md
   - Concepts: concepts.md
+  - Searching: search.md
   - Development plan: plan.md
   - Quality numbers: quality.md
   - Security: security.md

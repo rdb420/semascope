@@ -422,6 +422,32 @@ Per query (nDCG@10):
 | q21 Pwyll and Rhiannon | 1.00 | 0.83 | 0.83 |
 | q22 Zeus, king of the gods | 0.85 | 0.81 | 0.84 |
 
+### Languages and synonyms (WS-4), 2026-10-17
+
+The same protocol after per-language analysis, stemmed fields in the query,
+query-time synonyms from the packs and the explicit-OR fix
+([Searching](search.md)): a throwaway stack (compose project `sem-ws4`,
+`--size small`, `--runtime cpu`, embeddings `BAAI/bge-small-en-v1.5`) built
+from branch `hardening/ws4-search` (image `sha256:c732d048…`), the sixteen demo
+texts loaded and indexed with the language fields, the demo pack active (137
+synonym rules), the same judgements (sha256 `4bebca20…`).
+
+| mode | P@10 | R@10 | nDCG@10 | MRR@10 | nDCG@10 before |
+|---|---|---|---|---|---|
+| keyword | 0.264 | 1.000 | 0.980 | 1.000 | 0.948 |
+| semantic | 0.255 | 0.985 | 0.966 | 1.000 | 0.965 |
+| hybrid | 0.259 | 0.994 | 0.980 | 1.000 | 0.973 |
+
+Keyword search gains most where the judged books use other words than the
+query, which the pack's labels and stemming now match: q01 "Odysseus" 0.77 →
+1.00 (the pack names him Ulysses too), q04 "the great flood" 0.77 → 1.00
+(Deluge, Flood, Great flood are one concept), q14 "fables of the fox" 0.60 →
+0.83 (Fable, Fables, Aesop), q22 "Zeus, king of the gods" 0.85 → 1.00
+(Jupiter, Jove). Two queries lose a little: q06 "the Buddha and Nirvana"
+0.97 → 0.94 and q20 "the gods on Mount Olympus" 1.00 → 0.91. The run did not
+separate the effect of synonyms from that of stemming. Semantic search is
+unchanged (it reads no keyword field); hybrid follows keyword.
+
 The integration stack loads four of the sixteen texts; there `oss eval`
 leaves out the judged books it does not hold and scores the queries that
 still have one (`tests/integration/test_extras.py`).
