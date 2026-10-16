@@ -3,10 +3,13 @@
 
 name: semascope
 
-# The image is pulled from GHCR (SEMASCOPE_IMAGE_TAG, default `main`) and built
-# locally only when `docker compose build` is run or the pull fails.
+# The image is pulled from GHCR and built locally only when `docker compose build` is
+# run or the pull fails. SEMASCOPE_IMAGE_TAG picks the release; the default is the
+# version of this checkout (a release commit bumps it with the package versions, and
+# CI checks that they agree), so a clone of a release tag runs that release's image.
+# `:main` is a development tag only (compose.dev.yaml builds it from the checkout).
 x-app: &app
-  image: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-main}
+  image: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-1.0.0-rc.2}
   build:
     context: .
     dockerfile: deploy/docker/Dockerfile

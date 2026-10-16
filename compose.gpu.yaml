@@ -5,15 +5,17 @@
 #
 #   ./oss up                                   # the shim adds this file when the runtime is gpu
 #   docker compose -f compose.yaml -f compose.gpu.yaml up -d
+#
+# The image tag default matches compose.yaml's (the version of this checkout).
 
 services:
   worker:
-    image: ghcr.io/rdb420/semascope-gpu:${SEMASCOPE_IMAGE_TAG:-main}
+    image: ghcr.io/rdb420/semascope-gpu:${SEMASCOPE_IMAGE_TAG:-1.0.0-rc.2}
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile.gpu
       args:
-        BASE_IMAGE: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-main}
+        BASE_IMAGE: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-1.0.0-rc.2}
     environment:
       SEMASCOPE_EMBED_PROVIDERS: ${SEMASCOPE_EMBED_PROVIDERS:-CUDAExecutionProvider,CPUExecutionProvider}
       SEMASCOPE_NER_PROVIDER: ${SEMASCOPE_NER_PROVIDER:-gliner}

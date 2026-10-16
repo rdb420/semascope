@@ -1,16 +1,29 @@
 # Development overlay: exposed service ports on loopback and source mounts.
-# Usage: docker compose -f compose.yaml -f compose.dev.yaml up --wait
+# Usage: docker compose -f compose.yaml -f compose.dev.yaml up --wait (or `just dev`)
+#
+# The app services always run an image built from this checkout, tagged `:main`
+# (never pulled: a released stack uses the version tag from compose.yaml).
+
+x-dev-image: &dev-image
+  image: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-main}
+  pull_policy: build
 
 services:
   server:
+    <<: *dev-image
     command: oss-server --reload
     volumes:
       - ./packages:/app/packages
     ports:
       - "127.0.0.1:8000:8000"
   worker:
+    <<: *dev-image
     volumes:
       - ./packages:/app/packages
+  beat:
+    <<: *dev-image
+  cli:
+    <<: *dev-image
   postgres:
     ports: ["127.0.0.1:5432:5432"]
   valkey:
