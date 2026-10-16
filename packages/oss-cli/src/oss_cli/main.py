@@ -15,7 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from oss_cli import evaluate, export
+from oss_cli import evaluate, export, health
 from oss_cli.vectors import vector_report
 from oss_core import PACK_CONTRACT_VERSION, __version__
 from oss_core.config import get_settings
@@ -36,7 +36,8 @@ def version() -> None:
     console.print(f"semascope {__version__} (pack contract {PACK_CONTRACT_VERSION})")
 
 
-# What `oss init` generates. `--force` writes new values for these and keeps the rest.
+# What `oss init` generates. `--force` writes new values for these and keeps the rest
+# (SEMASCOPE_PSEUDONYM_KEY too: a new one would rename every pseudonymised graph entity).
 SECRET_KEYS = frozenset(
     {
         "SEMASCOPE_SECRET_KEY",
@@ -49,6 +50,10 @@ SECRET_KEYS = frozenset(
         "GRAFANA_PASSWORD",
     }
 )
+# What `--secrets-dir` writes to files instead of the env file (compose.secrets.yaml mounts
+# them). GRAFANA_PASSWORD stays in the env file: the observability profile reads it there.
+FILE_SECRETS = (SECRET_KEYS - {"GRAFANA_PASSWORD"}) | {"SEMASCOPE_PSEUDONYM_KEY"}
+
 # The lines each init option writes: with --force they change only when the option is given.
 OPTION_KEYS: dict[str, tuple[str, ...]] = {
     "host": ("SEMASCOPE_HOST",),
@@ -137,18 +142,25 @@ def init(
     ner_url: str = typer.Option("", help="Base URL of the remote entity service (POST /entities)"),
     extract_url: str = typer.Option("", help="Base URL of the MinerU parse server"),
     remote_token: str = typer.Option("", help="Bearer token sent to every remote service"),
+    secrets_dir: str | None = typer.Option(
+        None,
+        help="Write each secret to a file in this folder (Docker secrets, compose.secrets.yaml) "
+        "instead of the env file; relative to the folder of compose.yaml",
+    ),
     force: bool = typer.Option(
         False,
         help="Rewrite an existing file: new secrets; every other setting kept unless an "
-        "option here changes it",
+        "option here changes it. For a stack that has run, use `./oss rotate` instead",
     ),
 ) -> None:
     """Write an environment file with generated secrets.
 
-    With --force on an existing file (the way to rotate secrets) the secrets are generated
-    again and every other setting is kept: the options given on this command line change
-    their lines, and settings `init` does not write (SEMASCOPE_DEFAULT_ROLE, single sign-on,
-    allowed hosts, ...) stay as they are.
+    With --force on an existing file the secrets are generated again and every other setting
+    is kept: the options given on this command line change their lines, and settings `init`
+    does not write (SEMASCOPE_DEFAULT_ROLE, single sign-on, allowed hosts, ...) stay as they
+    are. The stores keep their old passwords, so this suits a stack whose volumes are about
+    to be recreated; `./oss rotate` changes the secrets of a running stack in the stores and
+    the file together.
     """
 
     if env_file.exists() and not force:
@@ -172,6 +184,7 @@ def init(
         f"SEMASCOPE_HTTPS_PORT={https_port}",
         f"SEMASCOPE_SIZE={size}",
         f"SEMASCOPE_SECRET_KEY={secrets.token_urlsafe(48)}",
+        f"SEMASCOPE_PSEUDONYM_KEY={secrets.token_urlsafe(48)}",
         f"POSTGRES_PASSWORD={secrets.token_urlsafe(24)}",
         f"NEO4J_PASSWORD={secrets.token_urlsafe(24)}",
         f"SOLR_PASSWORD={secrets.token_urlsafe(24)}",
@@ -205,19 +218,64 @@ def init(
             for name in OPTION_KEYS
             if getattr(ctx.get_parameter_source(name), "name", "DEFAULT") != "DEFAULT"
         }
+        previous = dict(_env_lines(env_file))
         lines = merge_env(env_file, lines, given)
+        if "SEMASCOPE_PSEUDONYM_KEY" not in previous and "SEMASCOPE_SECRET_KEY" in previous:
+            # pseudonyms were keyed by the secret key until now: keep them as they are
+            old_key = previous["SEMASCOPE_SECRET_KEY"].partition("=")[2].strip()
+            lines = [
+                f"SEMASCOPE_PSEUDONYM_KEY={old_key}"
+                if line.startswith("SEMASCOPE_PSEUDONYM_KEY=")
+                else line
+                for line in lines
+            ]
         flags = ", ".join("--" + name.replace("_", "-") for name in sorted(given))
         console.print(
             "new secrets; every other setting kept" + (f" except what {flags} set" if flags else "")
         )
+    if secrets_dir:
+        lines = write_secret_files(env_file, secrets_dir, lines, force=force)
     env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     env_file.chmod(0o600)
     console.print(f"wrote {env_file} (secrets generated; keep it out of git)")
-    console.print("admin login: user 'admin', password SEMASCOPE_ADMIN_PASSWORD in that file")
+    where = (
+        f"{secrets_dir}/semascope_admin_password"
+        if secrets_dir
+        else "SEMASCOPE_ADMIN_PASSWORD in that file"
+    )
+    console.print(f"admin login: user 'admin', password {where}")
     console.print(
         f"runtime {runtime}: embed={providers['embed']} ner={providers['ner']} "
         f"extract={providers['extract']}"
     )
+
+
+def write_secret_files(env_file: Path, folder: str, lines: list[str], *, force: bool) -> list[str]:
+    """Move the FILE_SECRETS lines into one file each under `folder`; returns the other lines.
+
+    The folder (relative to the env file's folder) is 0700; the files are 0644, because
+    compose bind-mounts them into containers whose users differ from the owner's.
+    """
+
+    target = Path(folder) if Path(folder).is_absolute() else env_file.parent / folder
+    target.mkdir(parents=True, exist_ok=True)
+    target.chmod(0o700)
+    kept: list[str] = []
+    for line in lines:
+        key, _, value = line.partition("=")
+        if key not in FILE_SECRETS:
+            if key != "SEMASCOPE_SECRETS_DIR":
+                kept.append(line)
+            continue
+        path = target / key.lower()
+        if path.exists() and not force:
+            raise typer.BadParameter(f"{path} exists; pass --force to replace the secret files")
+        if key == "SEMASCOPE_PSEUDONYM_KEY" and path.exists():
+            continue  # never replaced: it would rename every pseudonymised graph entity
+        path.write_text(value, encoding="utf-8")
+        path.chmod(0o644)
+    console.print(f"secrets written to {target}/ (one file each; compose.secrets.yaml mounts them)")
+    return [*kept, f"SEMASCOPE_SECRETS_DIR={folder}"]
 
 
 # Worker processes and the worker's memory cap per size. Each pool process loads its own spaCy
@@ -261,44 +319,53 @@ def runtime_providers(runtime: str, **chosen: str | None) -> dict[str, str]:
 
 @app.command()
 def doctor() -> None:
-    """Check that every service answers and report versions."""
+    """Check every service and store, the Solr collections, versions and the base pack.
+
+    Exits 1 when any of them fails: a service that does not answer, PostgreSQL or Valkey
+    refusing the configured credentials, an unmigrated database, a missing Solr collection,
+    an embedding model the schema cannot hold, or (with an API token) no active base pack.
+    """
 
     settings = get_settings()
-    table = Table("service", "endpoint", "status")
-    checks: dict[str, tuple[str, dict[str, str] | None]] = {
-        "server": ("http://server:8000/healthz", None),
-        "solr": (f"{settings.solr_url}/admin/info/system?wt=json", _solr_auth(settings)),
-        "tika": (f"{settings.tika_url}/version", None),
-        "neo4j": (settings.neo4j_uri.replace("bolt://", "http://").replace(":7687", ":7474"), None),
-    }
-    checks.update(remote_checks(settings))
-    failures = 0
+    table = Table("check", "endpoint", "status")
+    rows: list[health.Row] = []
     with httpx.Client(timeout=5.0) as client:
-        for name, (url, headers) in checks.items():
+        server, notes = health.server_row(settings, client)
+        rows.append(server)
+        rows.append(health.postgres_row(settings))
+        rows.append(health.valkey_row(settings))
+        rows += health.solr_rows(settings, client)
+        rows.append(health.tika_row(settings, client))
+        rows.append(health.neo4j_row(settings, client))
+        for name, (url, headers) in remote_checks(settings).items():
             try:
                 resp = client.get(url, headers=headers or {})
-                status = f"{resp.status_code}"
-                if resp.status_code >= 400:
-                    failures += 1
+                rows.append(health.Row(name, url, f"{resp.status_code}", resp.status_code < 400))
             except httpx.HTTPError as exc:
-                status = f"unreachable ({type(exc).__name__})"
-                failures += 1
-            table.add_row(name, url, status)
-        vectors, vectors_ok, notes = vector_report(settings, client)
-        failures += not vectors_ok
-        table.add_row("vectors", settings.semascope_embed_model, vectors)
+                rows.append(health.Row(name, url, f"unreachable ({type(exc).__name__})", False))
+        vectors, vectors_ok, vector_notes = vector_report(settings, client)
+        rows.append(health.Row("vectors", settings.semascope_embed_model, vectors, vectors_ok))
+        notes += vector_notes
+        packs = health.packs_row(settings, client)
+        if packs:
+            rows.append(packs)
         documents, doc_notes = document_report(settings, client)
         if documents:
-            table.add_row("documents", "/api/stats", documents)
+            rows.append(health.Row("documents", "/api/stats", documents, True))
             notes += doc_notes
+    for row in rows:
+        table.add_row(row.name, row.endpoint, row.status if row.ok else f"[red]{row.status}[/red]")
     console.print(table)
     for note in notes:
         console.print(f"[yellow]{note}[/yellow]")
     console.print(
-        f"runtime {settings.semascope_runtime}: embed={settings.semascope_embedder} "
-        f"ner={settings.semascope_ner_provider} extract={settings.semascope_extract_provider}"
+        f"semascope {__version__}; runtime {settings.semascope_runtime}: "
+        f"embed={settings.semascope_embedder} ner={settings.semascope_ner_provider} "
+        f"extract={settings.semascope_extract_provider}"
     )
-    if failures:
+    failed = [row.name for row in rows if not row.ok]
+    if failed:
+        console.print(f"[red]failed: {', '.join(failed)}[/red]")
         raise typer.Exit(code=1)
 
 
@@ -328,16 +395,6 @@ def document_report(settings: Any, client: httpx.Client) -> tuple[str, list[str]
         f"held {stats.get('interrupted', 0)}"
     )
     return summary, notes
-
-
-def _solr_auth(settings: Any) -> dict[str, str]:
-    """The basic-auth header the stack's Solr expects (see deploy/solr/init-security.sh)."""
-
-    import base64
-
-    password = settings.solr_password.get_secret_value() if settings.solr_password else ""
-    token = base64.b64encode(f"{settings.solr_user}:{password}".encode()).decode()
-    return {"Authorization": f"Basic {token}"}
 
 
 def remote_checks(settings: Any) -> dict[str, tuple[str, dict[str, str] | None]]:

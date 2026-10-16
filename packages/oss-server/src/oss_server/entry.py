@@ -1,4 +1,5 @@
-"""Console scripts: oss-server, oss-worker, oss-beat, oss-manage."""
+"""Console scripts: oss-server, oss-worker, oss-beat, oss-manage; and the containers'
+health checks (`python -m oss_server.entry health worker|beat`)."""
 
 from __future__ import annotations
 
@@ -105,19 +106,21 @@ def prepare() -> None:
             )
         else:
             log.info("api token for the cli: %s", issue_token(admin, "cli"))
+    # Without its collections the server cannot answer a search, so it does not start: the
+    # container exits, compose restarts it, and its health check fails until Solr is ready.
     try:
         created = bootstrap_solr()
-        if created:
-            log.info("created Solr collections: %s", created)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("Solr bootstrap failed: %s", exc)
-        return
+        raise SystemExit(f"Solr bootstrap failed: {exc}") from exc
+    if created:
+        log.info("created Solr collections: %s", created)
     try:
         from oss_server.services import import_bundled_packs
 
         log.info("packs: %s", import_bundled_packs())
-    except Exception:  # noqa: BLE001
-        log.exception("bundled pack import failed")
+    except Exception:  # noqa: BLE001 - search works without it; `oss doctor` reports it
+        log.exception("bundled pack import failed; `oss doctor` shows the base pack missing")
 
 
 def prepare_in_child() -> None:
@@ -238,12 +241,17 @@ def worker() -> None:
     sys.exit(app.worker_main(argv))
 
 
+def beat_schedule_path() -> Path:
+    from oss_core.config import get_settings
+
+    return get_settings().semascope_data_dir / "celerybeat-schedule"
+
+
 def beat() -> None:
     _django()
-    from oss_core.config import get_settings
     from oss_server.celery import app
 
-    schedule = get_settings().semascope_data_dir / "celerybeat-schedule"
+    schedule = beat_schedule_path()
     schedule.parent.mkdir(parents=True, exist_ok=True)
     sys.exit(app.start(["beat", "--loglevel=INFO", "--schedule", str(schedule)]))
 
@@ -253,3 +261,47 @@ def manage() -> None:
     from django.core.management import execute_from_command_line
 
     execute_from_command_line(sys.argv)
+
+
+# Beat writes its schedule file after every task it sends: `tick` every 60 s, `recover` every
+# 120 s (oss_server.celery). Five minutes without a write means it is stuck.
+BEAT_STALE_S = 300
+
+
+def health(role: str) -> int:
+    """Health check of a worker or beat container; 0 when healthy (Docker's convention).
+
+    worker: this container's Celery node answers a ping over the broker within 10 s, which
+    needs the main process alive and connected to Valkey. beat: the schedule file was
+    written in the last five minutes.
+    """
+
+    import socket
+    import time
+
+    if role == "beat":
+        schedule = beat_schedule_path()
+        # the dbm module may add a suffix (.db, .dat) to the shelve's file name
+        written = [f.stat().st_mtime for f in schedule.parent.glob(f"{schedule.name}*")]
+        if not written:
+            print(f"no beat schedule at {schedule} yet")
+            return 1
+        age = time.time() - max(written)
+        print(f"schedule written {age:.0f} s ago")
+        return 0 if age < BEAT_STALE_S else 1
+    if role == "worker":
+        from oss_server.celery import app
+
+        node = f"celery@{socket.gethostname()}"
+        replies = app.control.ping(destination=[node], timeout=10.0)
+        ok = any(node in reply for reply in replies or [])
+        print(f"{node}: {'pong' if ok else 'no answer'}")
+        return 0 if ok else 1
+    print(f"unknown role {role!r} (worker or beat)")
+    return 2
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "health":
+        sys.exit(health(sys.argv[2]))
+    sys.exit("usage: python -m oss_server.entry health worker|beat")
