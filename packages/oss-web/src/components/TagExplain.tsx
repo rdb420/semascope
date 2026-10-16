@@ -157,17 +157,17 @@ export function TagExplain({
             <>
               {n} occurrence{n === 1 ? "" : "s"}
               {pages.length > 0 && <span className="text-zinc-500"> · page{pages.length === 1 ? "" : "s"} {pages.join(", ")}</span>}
-              <span className="mt-1 flex items-center gap-1">
+              <span className="mt-1 flex flex-wrap items-center gap-1">
                 <button onClick={() => onOccurrence((occurrence - 1 + n) % n)} className="rounded bg-zinc-100 px-1.5 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700" title="previous occurrence">
                   ‹
                 </button>
-                <span className="tabular-nums text-zinc-500">
+                <span className="whitespace-nowrap tabular-nums text-zinc-500">
                   {occurrence + 1} / {n}
                 </span>
                 <button onClick={() => onOccurrence((occurrence + 1) % n)} className="rounded bg-zinc-100 px-1.5 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700" title="next occurrence">
                   ›
                 </button>
-                {tag.spans[occurrence]?.matched && <span className="truncate text-zinc-500">matched “{tag.spans[occurrence].matched}”</span>}
+                {tag.spans[occurrence]?.matched && <span className="basis-full text-zinc-500">this one matched “{tag.spans[occurrence].matched}”</span>}
               </span>
             </>
           )}

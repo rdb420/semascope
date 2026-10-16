@@ -1,6 +1,6 @@
 import { useParams, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, type TagSpan } from "../api";
 import { useUser } from "../components/Shell";
 import { Highlighted, TagExplain } from "../components/TagExplain";
@@ -36,7 +36,11 @@ export function DocumentPage() {
   });
   const [selected, setSelected] = useState<string | null>(null);
   const [occurrence, setOccurrence] = useState(0);
-  const tag = selected ? tags.data?.find((t) => t.iri === selected) : undefined;
+  const tag = useMemo(() => {
+    const found = selected ? tags.data?.find((t) => t.iri === selected) : undefined;
+    // occurrences in reading order (spans merged by the link stage come after the dictionary's)
+    return found ? { ...found, spans: [...found.spans].sort((a, b) => a.start - b.start) } : undefined;
+  }, [selected, tags.data]);
   const spans: TagSpan[] = tag?.spans ?? [];
   function select(iri: string) {
     setSelected(iri === selected ? null : iri);
@@ -44,7 +48,7 @@ export function DocumentPage() {
   }
   useEffect(() => {
     if (tag) document.getElementById("tag-occurrence")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [selected, occurrence]);
+  }, [tag, occurrence]);
   const [note, setNote] = useState("");
   const addNote = useMutation({
     mutationFn: () => api.addAnnotation(id, { text: note }),

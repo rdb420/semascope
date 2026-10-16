@@ -183,7 +183,9 @@ def test_tags_explain_themselves(api: httpx.Client) -> None:
     for t in dictionary:
         assert t["matched_label"] and t["label_type"] in ("pref", "alt", "hidden", "draft"), t
         assert t["pack_id"] and t["pack_version"], t
-        assert all(s["matched"] for s in t["spans"]), t
+        # NER occurrences the link stage merged into a dictionary tag have no matched label
+        matched = [s for s in t["spans"] if s["matched"]]
+        assert matched if t["linked_from"] else len(matched) == len(t["spans"]), t
     ner = [t for t in doc_tags(api, link["document_id"]).values() if t["stage"] == "ner"]
     assert ner and all(t["model"] for t in ner), ner
     concept = next(t for t in dictionary if t["kind"] == "concept")
