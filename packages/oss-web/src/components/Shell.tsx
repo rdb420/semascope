@@ -39,6 +39,9 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Link to="/list" className="hover:underline">
                   Lists
                 </Link>
+                <Link to="/analytics" className="hover:underline">
+                  Overview
+                </Link>
                 <Link to="/map" className="hover:underline">
                   Map
                 </Link>

@@ -184,6 +184,7 @@ def run(page: Page) -> None:
 
     search_views(page)
     alerts_and_feeds(page)
+    extras_pages(page)
 
 
 def document_views(page: Page) -> None:
@@ -272,6 +273,26 @@ def alerts_and_feeds(page: Page) -> None:
     body = feed.text()
     if feed.status != 200 or "<entry>" not in body:
         raise AssertionError(f"atom feed: {feed.status} {body[:300]}")
+
+
+def extras_pages(page: Page) -> None:
+    """ADR-0012: similar documents and export links on a document page, the overview page."""
+
+    page.goto(BASE + "/?q=Ulysses&collection=" + COLLECTION, wait_until="networkidle")
+    page.click("ol li a >> nth=0")
+    panel = page.locator("[data-testid=similar-panel]")
+    expect(panel.locator("li a").first).to_be_visible(timeout=30000)
+    page.click("[data-testid=similar-panel] button:has-text('Words')")
+    expect(panel.locator("li a").first).to_be_visible(timeout=30000)
+    expect(page.locator("a:has-text('RDF (Turtle)')")).to_be_visible()
+    shot(page, "17-similar.png")
+    page.click("header >> text=Overview")
+    expect(page.locator("h1", has_text="Overview")).to_be_visible(timeout=20000)
+    expect(page.locator("section:has(h2:has-text('Concepts')) li a").first).to_be_visible(
+        timeout=20000
+    )
+    expect(page.locator("link[rel=search]")).to_have_attribute("href", "/api/opensearch.xml")
+    shot(page, "18-overview.png", full_page=True)
 
 
 def main() -> int:

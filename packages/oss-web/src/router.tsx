@@ -20,6 +20,7 @@ import { EntitiesPage } from "./pages/EntitiesPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { SearchGraphPage } from "./pages/GraphPage";
 import { viewSearchSchema } from "./viewParams";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -73,6 +74,8 @@ const mapRoute = createRoute({ getParentRoute: () => rootRoute, path: "/map", co
 
 const listRoute = createRoute({ getParentRoute: () => rootRoute, path: "/list", component: ListSearchPage });
 
+const analyticsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/analytics", component: AnalyticsPage });
+
 // views of a search (table, entities, co-occurrence graph) and the alert list
 const tableRoute = createRoute({ getParentRoute: () => rootRoute, path: "/table", validateSearch: viewSearchSchema, component: TablePage });
 const entitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/entities", validateSearch: viewSearchSchema, component: EntitiesPage });
@@ -80,7 +83,7 @@ const searchGraphRoute = createRoute({ getParentRoute: () => rootRoute, path: "/
 const alertsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/alerts", component: AlertsPage });
 const viewRoutes = [tableRoute, entitiesRoute, searchGraphRoute, alertsRoute];
 
-const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute, ...viewRoutes]);
+const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute, ...viewRoutes, analyticsRoute]);
 
 export const router = createRouter({ routeTree });
 

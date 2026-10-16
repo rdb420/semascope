@@ -58,12 +58,14 @@ up() {
   if [ "${SEMASCOPE_IT_BUILD:-1}" = 1 ]; then
     docker compose build server
   fi
+  # before any `compose run`: Docker would create the bind-mounted folder as root, and the
+  # host's pytest then cannot create data/static beside it
+  mkdir -p "$(env_value SEMASCOPE_IMPORT_DIR || echo ./data/import)"
   # the image must carry the demo corpus (fetched at build time); fail here, not later
   for slug in $SEMASCOPE_DEMO_ONLY; do
     docker compose run --rm --no-deps -T cli test -s "/app/packs/demo/corpus/$slug.txt" \
       || { echo "the image has no demo text $slug; the corpus fetch failed at build time" >&2; exit 1; }
   done
-  mkdir -p "$(env_value SEMASCOPE_IMPORT_DIR || echo ./data/import)"
   docker compose up --detach --wait --wait-timeout 600
   ./oss doctor
 }

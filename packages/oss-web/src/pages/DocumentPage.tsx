@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { originalUrl, previewUrl, views, type TagSpan } from "../api";
 import { useUser } from "../components/Shell";
 import { Highlighted, TagExplain } from "../components/TagExplain";
+import { DocumentExtras } from "../components/DocumentExtras";
 
 const PAGE_SEPARATOR = "\n\n"; // the structure stage joins pages with a blank line
 
@@ -289,6 +290,7 @@ export function DocumentPage() {
             access.data && <p className="text-xs text-zinc-500">Deciding tags and adding notes needs the curator role on {access.data.collection}.</p>
           )}
         </div>
+        <DocumentExtras docId={id} />
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Pipeline</h2>
           <ul className="space-y-1">

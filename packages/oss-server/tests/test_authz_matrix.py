@@ -187,6 +187,20 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("GET", "/api/feeds/saved/{saved_id}"): Rule("auth", 200),
     ("GET", "/api/feeds/search"): Rule(("reader", "a"), 200, query="q=x&collection=a"),
     ("GET", "/api/feeds/alerts"): Rule("auth", 200),
+    # ADR-0012 capabilities (api/extras.py)
+    ("GET", "/api/documents/{doc_id}/similar"): Rule(("reader", "a"), 200, query="mode=text"),
+    ("GET", "/api/export/documents/{doc_id}"): Rule(("reader", "a"), 200),
+    ("POST", "/api/export/search"): Rule(
+        ("reader", "a"), 200, query="format=jsonld", json={"q": "x", "collection": "a"}
+    ),
+    ("GET", "/api/annotations/w3c"): Rule(("reader", "a"), 200, query="collection=a"),
+    ("POST", "/api/annotations/w3c/import"): Rule(
+        ("curator", "a"), 200, query="collection=a", json={"type": "AnnotationPage", "items": []}
+    ),
+    # the description holds no data and browsers fetch it without cookies; searching needs a session
+    ("GET", "/api/opensearch.xml"): Rule("public", 200),
+    ("GET", "/api/opensearch/suggest"): Rule("auth", 200, query="q=x"),
+    ("GET", "/api/analytics/overview"): Rule(("reader", "a"), 200, query="collection=a"),
 }
 
 

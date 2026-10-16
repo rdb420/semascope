@@ -203,6 +203,35 @@ export type TagHistory = {
   }[];
 };
 export type Annotation = { id: number; document_id: string; author: string | null; text: string; tags: string[]; span: Record<string, number> | null; created_at: string };
+export type SimilarHit = {
+  id: string;
+  title: string;
+  uri: string;
+  collection: string;
+  media_type: string | null;
+  content_type_group: string | null;
+  language: string | null;
+  modified_at: string | null;
+  score: number;
+  text_rank: number | null;
+  vector_rank: number | null;
+};
+export type SimilarOut = {
+  document_id: string;
+  mode: string;
+  hits: SimilarHit[];
+  text_error: string | null;
+  vector_error: string | null;
+};
+export type Overview = {
+  documents: number;
+  breakdown: Record<string, FacetValue[]>;
+  top: Record<string, FacetValue[]>;
+  modified: FacetValue[];
+  modified_gap: string;
+  indexed: FacetValue[];
+  per_collection: { collection: string; documents: number; concepts: FacetValue[]; entities: FacetValue[] }[];
+};
 
 export class ApiError extends Error {
   status: number;
@@ -320,6 +349,12 @@ export const api = {
   conceptDocuments: (iri: string) =>
     request<{ total: number; docs: { id: string; title_txt?: string; uri_s: string }[] }>(
       `/api/knowledge/concepts/documents?iri=${encodeURIComponent(iri)}`,
+    ),
+  similar: (id: string, mode: "hybrid" | "text" | "vector" = "hybrid", rows = 8) =>
+    request<SimilarOut>(`/api/documents/${encodeURIComponent(id)}/similar?mode=${mode}&rows=${rows}`),
+  analyticsOverview: (collection?: string, gap = "+1YEAR", top = 10) =>
+    request<Overview>(
+      `/api/analytics/overview?gap=${encodeURIComponent(gap)}&top=${top}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`,
     ),
 };
 
