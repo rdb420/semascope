@@ -19,6 +19,7 @@ from oss_server.api.access import check, read_scope
 from oss_server.knowledge import store
 from oss_server.knowledge.importer import activate_pack, derive, hierarchy, import_pack
 from oss_server.knowledge.models import Concept, Pack, PackDelta
+from oss_server.knowledge.synonyms import sync_synonyms
 from oss_server.knowledge.upgrade import collections_using, concept_row, upgrade_plan
 
 router = Router(tags=["knowledge"])
@@ -211,6 +212,7 @@ def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Any]
     except ValueError as exc:
         raise HttpError(422, str(exc)) from exc
     sync_dictionary(pack.pack_id, pack.version)
+    sync_synonyms()  # query-time synonyms from the active packs (WS-4)
     if payload.activate and payload.reindex:
         _reindex_collections_using(pack.pack_id)
     return 201, ActivationOut(**_pack_out(pack).model_dump(), plan=plan)
@@ -284,6 +286,7 @@ def activate(
         return _plan_required(plan)
     activate_pack(p)
     sync_dictionary(p.pack_id, p.version)
+    sync_synonyms()  # query-time synonyms from the active packs (WS-4)
     _reindex_collections_using(p.pack_id)
     return 200, ActivationOut(**_pack_out(p).model_dump(), plan=plan)
 
