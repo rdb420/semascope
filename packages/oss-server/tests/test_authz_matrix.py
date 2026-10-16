@@ -165,6 +165,14 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("DELETE", "/api/curation/webhooks/{webhook_id}"): Rule("staff", 204),
     # ADR-0012 capabilities (api/extras.py)
     ("GET", "/api/documents/{doc_id}/similar"): Rule(("reader", "a"), 200, query="mode=text"),
+    ("GET", "/api/export/documents/{doc_id}"): Rule(("reader", "a"), 200),
+    ("POST", "/api/export/search"): Rule(
+        ("reader", "a"), 200, query="format=jsonld", json={"q": "x", "collection": "a"}
+    ),
+    ("GET", "/api/annotations/w3c"): Rule(("reader", "a"), 200, query="collection=a"),
+    ("POST", "/api/annotations/w3c/import"): Rule(
+        ("curator", "a"), 200, query="collection=a", json={"type": "AnnotationPage", "items": []}
+    ),
 }
 
 

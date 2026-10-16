@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from ninja import Router
 
-from oss_server.api import similar
+from oss_server.api import annotations_w3c, exports, similar
 
 router = Router()
-for _module in (similar,):
+for _module in (similar, exports, annotations_w3c):
     _module.mount(router)
