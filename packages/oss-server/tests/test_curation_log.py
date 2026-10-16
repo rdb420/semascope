@@ -94,7 +94,9 @@ def test_accept_reject_accept_ends_accepted(stores: tuple[FakeSolr, FakeGraph]) 
     r = _decide(doc, Proposal.Kind.REJECT_TAG)
     doc.refresh_from_db()
     assert doc.fields["curated"][FLOOD]["decision"] == "reject"
-    assert all(t["iri"] != FLOOD for t in doc.tags)
+    assert any(t["iri"] == FLOOD for t in doc.tags), "the machine's tag stays, flagged"
+    solr, _ = stores
+    assert FLOOD not in solr.updates[-1]["concept_iris_ss"]["set"], "but leaves the index"
     b = _decide(doc, Proposal.Kind.ACCEPT_TAG)
     assert len({a.pk, r.pk, b.pk}) == 3, "every decision is a new row"
     assert len({a.external_ref, r.external_ref, b.external_ref}) == 3
@@ -210,8 +212,10 @@ def test_direct_tag_decisions_flip_back_and_forth(
     doc.refresh_from_db()
     assert doc.fields["curated"][FLOOD]["decision"] == "accept"
     assert any(t["iri"] == FLOOD for t in doc.tags)
+    # a rejected machine tag stays on the document (flagged), so accepting it again is an
+    # accept_tag, not an add_tag
     assert list(Proposal.objects.order_by("pk").values_list("kind", flat=True)) == [
         "accept_tag",
         "reject_tag",
-        "add_tag",
+        "accept_tag",
     ]

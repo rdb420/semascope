@@ -43,10 +43,10 @@ def doc_tags(api: httpx.Client, doc_id: str) -> dict[str, dict[str, Any]]:
 
 
 def is_rejected(api: httpx.Client, doc_id: str, iri: str) -> bool:
-    """A rejected tag is gone from the document or kept with the decision on it."""
+    """A rejected machine tag is kept on the document as evidence, flagged by the decision."""
 
     tag = doc_tags(api, doc_id).get(iri)
-    return tag is None or (tag["curated"] or {}).get("decision") == "reject"
+    return bool(tag and tag["rejected"] and (tag["curated"] or {}).get("decision") == "reject")
 
 
 def curated_filter(api: httpx.Client, value: str) -> set[str]:
@@ -162,3 +162,67 @@ def test_reindex_keeps_the_decision(api: httpx.Client) -> None:
     decided_items = {(tag["document_id"], tag["target"]), (link["document_id"], link["target"])}
     again = [r for r in reopened if (r["document_id"], r["target"]) in decided_items]
     assert not again, f"decided reviews were reopened: {again}"
+
+
+def test_tags_explain_themselves(api: httpx.Client) -> None:
+    """Every tag says where (spans with pages), how (stage, version, matched label or model),
+    how sure, and from which pack version it came; the graph edge carries the versions."""
+
+    if not decided:
+        pytest.skip("no decision was made")
+    tag, link = decided["tag"], decided["link"]
+    tags = doc_tags(api, tag["document_id"])
+    machine = [t for t in tags.values() if t["stage"] in ("tag", "ner", "patterns")]
+    assert machine, tags
+    for t in machine:
+        assert t["stage_version"], t
+        assert t["spans"] and t["span_count"] == len(t["spans"]), t
+        assert all(s["page"] and s["page"] >= 1 for s in t["spans"]), t
+    dictionary = [t for t in machine if t["stage"] == "tag"]
+    assert dictionary, "the demo pack tags the demo texts"
+    for t in dictionary:
+        assert t["matched_label"] and t["label_type"] in ("pref", "alt", "hidden", "draft"), t
+        assert t["pack_id"] and t["pack_version"], t
+        assert all(s["matched"] for s in t["spans"]), t
+    ner = [t for t in doc_tags(api, link["document_id"]).values() if t["stage"] == "ner"]
+    assert ner and all(t["model"] for t in ner), ner
+    concept = next(t for t in dictionary if t["kind"] == "concept")
+    params = {"id": f"Document:{tag['document_id']}", "kinds": "Concept", "limit": 1000}
+    edges = api.get("/graph/neighbours", params=params).json()["edges"]
+    tagged = [
+        e for e in edges if e["type"] == "TAGGED" and e["target"] == f"Concept:{concept['iri']}"
+    ]
+    assert tagged, edges
+    assert tagged[0]["properties"]["stage_version"] == concept["stage_version"]
+    assert tagged[0]["properties"]["pack_version"] == concept["pack_version"]
+
+
+def test_the_decision_history_is_kept(api: httpx.Client) -> None:
+    if not decided:
+        pytest.skip("no decision was made")
+    tag, link = decided["tag"], decided["link"]
+    history = (
+        api.get(
+            f"/curation/documents/{tag['document_id']}/tags/history", params={"iri": tag["target"]}
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert history["curated"]["decision"] == "accept"
+    accepted = [p for p in history["proposals"] if p["kind"] == "accept_tag"]
+    assert accepted and accepted[0]["pack_id"] and accepted[0]["pack_version"], history
+    (review,) = [r for r in history["reviews"] if r["id"] == tag["id"]]
+    assert [(d["decision"], d["note"]) for d in review["decisions"]] == [("accept", NOTE)]
+    assert review["decisions"][0]["proposal_id"] == accepted[0]["id"]
+    rejected = (
+        api.get(
+            f"/curation/documents/{link['document_id']}/tags/history",
+            params={"iri": link["target"]},
+        )
+        .raise_for_status()
+        .json()
+    )
+    (proposal,) = [p for p in rejected["proposals"] if p["kind"] == "reject_tag"]
+    evidence = proposal["params"]["tag"]
+    assert evidence["stage"] == "ner" and evidence["model"], evidence
+    assert evidence["span_count"] >= 1 and evidence["spans"], evidence

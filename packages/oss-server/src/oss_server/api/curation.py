@@ -11,9 +11,17 @@ from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
+from oss_pipeline.provenance import curated_tags
 from oss_server.api.access import check, read_scope, role_for
 from oss_server.catalogue.models import Collection, Document
-from oss_server.curation.models import Annotation, Event, Proposal, Review, Webhook
+from oss_server.curation.models import (
+    Annotation,
+    Event,
+    Proposal,
+    Review,
+    ReviewDecision,
+    Webhook,
+)
 from oss_server.curation.services import propose
 
 router = Router(tags=["curation"])
@@ -55,6 +63,33 @@ class ProposalOut(Schema):
     decided_at: datetime
     external_ref: str
     applied: bool
+
+
+class ReviewDecisionOut(Schema):
+    decision: str
+    note: str
+    decided_by: str | None
+    decided_at: datetime
+    proposal_id: int | None
+
+
+class ReviewHistoryOut(Schema):
+    id: int
+    kind: str
+    target: str
+    status: str
+    confidence: float | None
+    created_at: datetime
+    decisions: list[ReviewDecisionOut]
+
+
+class TagHistoryOut(Schema):
+    """Every decision on one link of a document, oldest first; the last proposal is in force."""
+
+    iri: str
+    curated: dict[str, Any] | None
+    proposals: list[ProposalOut]
+    reviews: list[ReviewHistoryOut]
 
 
 class AnnotationIn(Schema):
@@ -188,6 +223,7 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
     """Accept, reject or defer a review item. Accept and reject become proposals.
 
     An open or deferred item can be decided; an accepted or rejected one answers 409.
+    Every decision, a deferral included, is kept in the review's history.
     """
 
     r = get_object_or_404(Review.objects.select_related("collection", "document"), pk=review_id)
@@ -196,6 +232,7 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
         raise HttpError(409, f"review {r.pk} is already {r.status}")
     if payload.decision not in ("accept", "reject", "defer"):
         raise HttpError(422, "decision must be accept, reject or defer")
+    proposal: Proposal | None = None
     if payload.decision == "defer":
         r.status = Review.Status.DEFERRED
     else:
@@ -205,7 +242,7 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
         if r.document is not None:
             if r.kind == Review.Kind.VIOLATION:
                 if payload.decision == "accept":
-                    propose(
+                    proposal = propose(
                         r.collection,
                         Proposal.Kind.DISMISS_VIOLATION,
                         r.target,
@@ -218,7 +255,7 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
                     raise HttpError(
                         422, "link_to (an individual's IRI) is required to accept a link review"
                     )
-                propose(
+                proposal = propose(
                     r.collection,
                     Proposal.Kind.LINK_ENTITY,
                     r.target,
@@ -233,7 +270,7 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
                     if payload.decision == "accept"
                     else Proposal.Kind.REJECT_TAG
                 )
-                propose(
+                proposal = propose(
                     r.collection,
                     kind,
                     r.target,
@@ -253,6 +290,13 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
     r.decided_by = _user_or_none(request)
     r.decided_at = timezone.now()
     r.save()
+    ReviewDecision.objects.create(
+        review=r,
+        decision=payload.decision,
+        note=payload.note,
+        decided_by=r.decided_by,
+        proposal=proposal,
+    )
     return _review_out(r)
 
 
@@ -261,19 +305,84 @@ def decide(request: HttpRequest, review_id: int, payload: DecisionIn) -> ReviewO
 
 @router.get("/documents/{doc_id}/tags", response=list[dict[str, Any]])
 def document_tags(request: HttpRequest, doc_id: str) -> list[dict[str, Any]]:
+    """The document's tags with their provenance and the decision in force.
+
+    Each tag has its spans (`start`, `end`, `page`, and for dictionary matches the
+    `matched` label), `stage`, `stage_version`, `confidence`, `matched_label`,
+    `label_type`, `lang`, `model`, `pack_id`, `pack_version` and `linked_from`.
+    `curated` is the decision in force; a tag people rejected is listed with
+    `rejected: true` (it is kept as the machine's evidence, but Solr and the graph
+    leave it out). Accepted additions and links are applied, as in search.
+    """
+
     d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
     check(request, "reader", d.collection.slug)
     curated = d.fields.get("curated") or {}
     out = []
-    for t in d.tags:
+    for tag in curated_tags(d.tags, curated, keep_rejected=True):
+        decision = curated.get(tag.iri)
         out.append(
             {
-                **{k: v for k, v in t.items() if k != "spans"},
-                "span_count": len(t.get("spans") or []),
-                "curated": curated.get(t.get("iri")),
+                **tag.model_dump(mode="json"),
+                "span_count": len(tag.spans),
+                "curated": decision,
+                "rejected": bool(decision and decision.get("decision") == "reject"),
             }
         )
     return out
+
+
+@router.get("/documents/{doc_id}/tags/history", response=TagHistoryOut)
+def tag_history(request: HttpRequest, doc_id: str, iri: str) -> TagHistoryOut:
+    """What people decided about one link of a document: every proposal (accept, reject,
+    link, oldest first, the last in force) and every review item with its decisions."""
+
+    d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
+    check(request, "reader", d.collection.slug)
+    # a link decision is recorded on the NER entity; find it from the individual too
+    linked_from = {
+        str(p.target)
+        for p in Proposal.objects.filter(
+            document=d, kind=Proposal.Kind.LINK_ENTITY, params__iri=iri
+        ).only("target")
+    }
+    targets = {iri, *linked_from}
+    proposals = (
+        Proposal.objects.filter(document=d, target__in=targets)
+        .select_related("collection", "decided_by")
+        .order_by("pk")
+    )
+    reviews = (
+        Review.objects.filter(document=d, target__in=targets)
+        .prefetch_related("decisions__decided_by")
+        .order_by("pk")
+    )
+    return TagHistoryOut(
+        iri=iri,
+        curated=(d.fields.get("curated") or {}).get(iri),
+        proposals=[_proposal_out(p) for p in proposals],
+        reviews=[
+            ReviewHistoryOut(
+                id=r.id,
+                kind=r.kind,
+                target=r.target,
+                status=r.status,
+                confidence=r.confidence,
+                created_at=r.created_at,
+                decisions=[
+                    ReviewDecisionOut(
+                        decision=x.decision,
+                        note=x.note,
+                        decided_by=getattr(x.decided_by, "username", None),
+                        decided_at=x.decided_at,
+                        proposal_id=x.proposal_id,
+                    )
+                    for x in r.decisions.all()
+                ],
+            )
+            for r in reviews
+        ],
+    )
 
 
 @router.post("/documents/{doc_id}/tags", response=ProposalOut)
@@ -298,10 +407,19 @@ def decide_tag(request: HttpRequest, doc_id: str, payload: TagDecisionIn) -> Pro
         document=d,
         user=request.user,
     )
-    Review.objects.filter(document=d, target=payload.iri, status=Review.Status.OPEN).update(
-        status=Review.Status.ACCEPTED if payload.decision == "accept" else Review.Status.REJECTED,
-        decided_at=timezone.now(),
-    )
+    # review items on this tag are settled by the decision; each keeps it in its history
+    user = _user_or_none(request)
+    status = Review.Status.ACCEPTED if payload.decision == "accept" else Review.Status.REJECTED
+    for r in Review.objects.filter(
+        document=d,
+        target=payload.iri,
+        status__in=(Review.Status.OPEN, Review.Status.DEFERRED),
+    ):
+        r.status, r.decided_by, r.decided_at, r.note = status, user, timezone.now(), payload.reason
+        r.save(update_fields=["status", "decided_by", "decided_at", "note"])
+        ReviewDecision.objects.create(
+            review=r, decision=payload.decision, note=payload.reason, decided_by=user, proposal=p
+        )
     return _proposal_out(p)
 
 
