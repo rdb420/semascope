@@ -2,8 +2,8 @@
 
 The table below holds one rule per route. A route without a rule fails
 `test_every_route_has_a_rule`, so a new endpoint cannot ship without someone
-deciding who may call it. The deployment runs with SEMASCOPE_DEFAULT_ROLE=none
-here, so collection roles alone decide who reads what.
+deciding who may call it. The deployment runs with the default
+SEMASCOPE_DEFAULT_ROLE (none), so collection roles alone decide who reads what.
 
 Users: anonymous; `other` (reader on collection b only); `reader`, `curator` and
 `editor` on collection a; `admin` (staff). Requirements:
@@ -284,7 +284,7 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    monkeypatch.setenv("SEMASCOPE_DEFAULT_ROLE", "none")
+    monkeypatch.delenv("SEMASCOPE_DEFAULT_ROLE", raising=False)  # the default: none
     monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path / "data"))
     imports = tmp_path / "import"
     imports.mkdir()

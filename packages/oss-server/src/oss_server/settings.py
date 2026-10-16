@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import django_stubs_ext
+from django.core.exceptions import ImproperlyConfigured
 
 from oss_core.config import get_settings
 
@@ -14,8 +15,17 @@ _settings = get_settings()
 OIDC_ENABLED = bool(_settings.semascope_oidc_server_url and _settings.semascope_oidc_client_id)
 BASE_DIR = Path(__file__).resolve().parent
 
-SECRET_KEY = _settings.semascope_secret_key.get_secret_value()
 DEBUG = _settings.semascope_debug
+# Outside debug mode (settings_test turns it on) the server, worker and beat refuse to start
+# with an empty or placeholder secret, rather than run with one anyone can read in the repo.
+if not DEBUG and (_weak := _settings.insecure_secrets()):
+    raise ImproperlyConfigured(
+        f"refusing to start: {', '.join(_weak)} "
+        f"{'is' if len(_weak) == 1 else 'are'} empty or a placeholder such as 'change-me'. "
+        "Run `oss init` for a new install, or put generated values in .env and restart "
+        "(see docs/operations.md#secrets)."
+    )
+SECRET_KEY = _settings.semascope_secret_key.get_secret_value()
 ALLOWED_HOSTS = [_settings.semascope_host, "server", "localhost", "127.0.0.1"]
 
 
@@ -69,6 +79,10 @@ if OIDC_ENABLED:
             ]
         }
     }
+    # local sign-up is closed; a first single sign-on creates the account only when
+    # SEMASCOPE_OIDC_AUTO_SIGNUP is true, with SEMASCOPE_OIDC_DEFAULT_ROLE (oss_server.signup)
+    ACCOUNT_ADAPTER = "oss_server.signup.ClosedSignupAccountAdapter"
+    SOCIALACCOUNT_ADAPTER = "oss_server.signup.SignOnAccountAdapter"
     SOCIALACCOUNT_AUTO_SIGNUP = True
     SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
     ACCOUNT_EMAIL_VERIFICATION = "none"

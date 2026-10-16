@@ -4,6 +4,9 @@ from datetime import datetime
 from typing import Any
 
 from ninja import Schema
+from pydantic import field_validator
+
+from oss_pipeline.connectors.upload import COLLECTION_SLUG
 
 
 class CollectionIn(Schema):
@@ -12,6 +15,26 @@ class CollectionIn(Schema):
     description: str = ""
     profile: str = "default"
     settings: dict[str, Any] = {}
+
+    @field_validator("slug")
+    @classmethod
+    def _slug(cls, value: str) -> str:
+        if not COLLECTION_SLUG.fullmatch(value):
+            raise ValueError("a collection slug is 1 to 64 letters, digits, hyphens or underscores")
+        return value
+
+    @field_validator("settings")
+    @classmethod
+    def _tuning_only(cls, value: dict[str, Any]) -> dict[str, Any]:
+        from oss_server.pipeline.overrides import refused_overrides
+
+        refused = refused_overrides(value)
+        if refused:
+            raise ValueError(
+                "settings.pipeline may set only tuning keys (see docs/operations.md); "
+                f"not allowed: {', '.join(refused)}"
+            )
+        return value
 
 
 class CollectionOut(Schema):

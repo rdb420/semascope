@@ -7,6 +7,9 @@ empty = every subject with a label) and `max_bytes` (the response cap). Each
 subject is rendered as readable "predicate: value" lines with its label as
 title, so Tika and the pattern and tag stages see text, and its IRI is kept in
 `x_subject_s`.
+
+JSON-LD files must carry their context inline: a remote `@context` (or
+`@import`) is refused, never fetched, as for packs (`oss_core.pack`).
 """
 
 from __future__ import annotations
@@ -18,8 +21,11 @@ from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_core.pack import remote_contexts
 from oss_pipeline.connectors.guard import (
     DEFAULT_MAX_BYTES,
+    SourceNotAllowed,
+    byte_cap,
     confine_path,
     confined_files,
     get_capped,
@@ -78,6 +84,26 @@ def _subjects_from_graph(
         yield str(s), label or _local(str(s)), rows
 
 
+def _parse(g: Any, file: Path) -> None:
+    """Parse one RDF file into `g`; a JSON-LD file with a remote context is refused."""
+
+    import json
+
+    fmt = FORMATS[file.suffix.lower()]
+    if fmt == "json-ld":
+        try:
+            doc = json.loads(file.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{file.name}: {exc}") from exc
+        remote = remote_contexts(doc)
+        if remote:
+            raise SourceNotAllowed(
+                f"{file.name}: remote JSON-LD contexts are not fetched ({remote[0]}); "
+                "inline the context"
+            )
+    g.parse(str(file), format=fmt)
+
+
 def _subjects_from_endpoint(
     endpoint: str, graph: str | None, types: list[str], limit: int, max_bytes: int
 ) -> Iterator[tuple[str, str, list[tuple[str, str]]]]:
@@ -124,7 +150,7 @@ class RdfConnector:
                 settings.get("graph"),
                 types,
                 int(settings.get("limit", 100000)),
-                int(settings.get("max_bytes", 4 * DEFAULT_MAX_BYTES)),
+                byte_cap(settings, 4 * DEFAULT_MAX_BYTES),
             )
         else:
             from rdflib import Graph
@@ -139,7 +165,7 @@ class RdfConnector:
             files = list(confined_files(files, roots))
             g = Graph()
             for file in files:
-                g.parse(str(file), format=FORMATS[file.suffix.lower()])
+                _parse(g, file)
             subjects = _subjects_from_graph(g, types)
         for iri, label, rows in subjects:
             text = f"{label}\n\n" + "\n".join(f"{p}: {v}" for p, v in rows) + f"\n\nIRI: {iri}\n"

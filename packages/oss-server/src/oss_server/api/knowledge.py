@@ -14,6 +14,7 @@ from ninja.errors import HttpError
 
 from oss_core.config import get_settings
 from oss_core.pack import load_pack
+from oss_pipeline.clients.solr import quote_term
 from oss_server.api.access import check, read_scope
 from oss_server.knowledge import store
 from oss_server.knowledge.importer import activate_pack, derive, hierarchy, import_pack
@@ -304,14 +305,14 @@ def remove_version(request: HttpRequest, pack_id: str, version: str) -> RemovedO
     removed = True
     still: int | None = None
     try:
-        q = f'pack_id:"{pack_id}" AND pack_version:"{version}"'
+        q = f"pack_id:{quote_term(pack_id)} AND pack_version:{quote_term(version)}"
         solr_client().delete_by_query(solr_entities_collection(), q)
         solr_client().commit(solr_entities_collection())
     except Exception:  # noqa: BLE001 - the rows are gone; a re-sync of another version clears it
         removed = False
     try:
-        key = f"{pack_id}@{version}".replace('"', '\\"')
-        still = solr_client().count(solr_documents_collection(), f'pack_versions_ss:"{key}"')
+        key = quote_term(f"{pack_id}@{version}")
+        still = solr_client().count(solr_documents_collection(), f"pack_versions_ss:{key}")
     except Exception:  # noqa: BLE001
         still = None
     return RemovedOut(
@@ -375,9 +376,10 @@ def concept_documents(
     from oss_server.services import solr_client, solr_documents_collection
 
     allowed = read_scope(request, collection)
-    fq = [f'concept_iris_ss:"{iri}" OR entity_iris_ss:"{iri}"', *collection_filter(allowed)]
+    term = quote_term(iri)
+    fq = [f"concept_iris_ss:{term} OR entity_iris_ss:{term}", *collection_filter(allowed)]
     if collection:
-        fq.append(f'collection_s:"{collection}"')
+        fq.append(f"collection_s:{quote_term(collection)}")
     body = solr_client().select(
         solr_documents_collection(), q="*:*", fq=fq, rows=min(rows, 100), fl=HIT_FIELDS, hl=False
     )
@@ -404,7 +406,7 @@ def places(request: HttpRequest, collection: str | None = None) -> list[dict[str
         return []
     fq = collection_filter(allowed)
     if collection:
-        fq.append(f'collection_s:"{collection}"')
+        fq.append(f"collection_s:{quote_term(collection)}")
     body = solr_client().select(
         solr_documents_collection(),
         q="*:*",

@@ -45,9 +45,11 @@ def dictionary_fq(pack_versions: Mapping[str, str], collection: str) -> str:
     """Filter for the entries a collection tags with: its pack versions, minus other
     collections' draft labels."""
 
+    from oss_pipeline.clients.solr import quote_term
+
     packs = " OR ".join(
-        f'(pack_id:"{pid}" AND pack_version:"{ver}")' for pid, ver in pack_versions.items()
+        f"(pack_id:{quote_term(pid)} AND pack_version:{quote_term(ver)})"
+        for pid, ver in pack_versions.items()
     )
-    slug = collection.replace("\\", "\\\\").replace('"', '\\"')
-    scope = f'((*:* -collection_scope:[* TO *]) OR collection_scope:"{slug}")'
+    scope = f"((*:* -collection_scope:[* TO *]) OR collection_scope:{quote_term(collection)})"
     return f"({packs}) AND {scope}"

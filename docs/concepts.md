@@ -104,7 +104,9 @@ kept in the item's history. Proposals are applied at once to Semascope's stores
 (Postgres, the Solr facets, a `CURATED` edge in the graph) and written to
 the **outbox** (`/api/curation/events`, read by cursor) so an external
 system of record can mirror, reject or audit them. Webhooks deliver outbox
-events with an HMAC signature. A reindex never undoes a decision. A rejected
+events with an HMAC signature to an http(s) URL; like URL sources, they
+reach a receiver on a private address only when it is listed in
+`SEMASCOPE_ALLOWED_PRIVATE_HOSTS`, and a redirect is reported, not followed. A reindex never undoes a decision. A rejected
 tag stays on the document, flagged, as the machine's evidence; search and
 the graph leave it out. See the [explainability model](assess/explainability.md).
 
@@ -204,16 +206,29 @@ they hold no role on:
 
 | Value | Effect |
 |---|---|
-| `reader` (default) | every signed-in user reads every collection; roles add the right to change things. |
-| `none` | per-collection reading: a user sees only the collections they have a role on, or all of them with a global role |
+| `none` (default) | per-collection reading: a user sees only the collections they have a role on, or all of them with a global role |
+| `reader` | every signed-in user reads every collection; roles add the right to change things |
 | `curator`, `editor`, `admin` | that role on every collection, for small single-team installs |
 
 An unknown value counts as `none`. Up to 1.0.0-rc.2 every signed-in user
-could read every collection whatever this setting said. Packs, concepts and
+could read every collection whatever this setting said; up to 1.0.0-rc.3 the
+default was `reader`. An install that relied on open reading sets
+`SEMASCOPE_DEFAULT_ROLE=reader` in `.env` explicitly (`oss init` writes
+`none` for new installs). Packs, concepts and
 the Reconciliation API are not collection data and are readable by every
-signed-in user (the Reconciliation API also anonymously, for OpenRefine). Local accounts always
-work; set the `SEMASCOPE_OIDC_*` variables to add single sign-on through
-OpenID Connect. Users who sign in that way get roles the same way.
+signed-in user (the Reconciliation API also anonymously, for OpenRefine).
+
+Nobody signs themselves up. Local accounts are created by an administrator
+(the Django admin or `oss-manage createsuperuser`) and always work; set the
+`SEMASCOPE_OIDC_*` variables to add single sign-on through OpenID Connect.
+Single sign-on creates an account on a user's first sign-in while
+`SEMASCOPE_OIDC_AUTO_SIGNUP` is true (the default); with `false`, only
+accounts an administrator created can sign in that way, matched by e-mail
+address. `SEMASCOPE_OIDC_DEFAULT_ROLE` is the global role those new
+accounts get: `none` (the default) gives them no role row, so they read what
+`SEMASCOPE_DEFAULT_ROLE` allows; `reader`, `curator`, `editor` or `admin`
+gives every new sign-on account that role on every collection. Roles are
+changed afterwards the same way as for any user.
 
 ## Backup and restore
 
@@ -222,11 +237,18 @@ volume (originals, previews, uploads, the pack store) into
 `data/backups/<stamp>`; `--with-graph` also dumps Neo4j (which otherwise
 `./oss reindex` rebuilds). `./oss restore <dir>` loads a backup back. Keep
 `.env` with the backup: it holds the secrets the data was written with.
+Both stop with a non-zero exit and a message at the first step that fails.
+A restore first checks every file of the backup, then loads Postgres and
+each Solr collection beside the live data (a `semascope_restore` database,
+`<collection>_restoring` collections); only when all of them loaded does it
+switch over. A backup that cannot be read leaves the existing data as it was
+and the application running.
 
 ## Operations profiles
 
 `compose.observe.yaml` adds an OpenTelemetry collector, Prometheus and
-Grafana (on `127.0.0.1:3000`); the server, the workers and beat export
+Grafana (on `127.0.0.1:3000`, user `admin`, password `GRAFANA_PASSWORD`
+from `.env`, which `oss init` generates; add one to an older `.env`); the server, the workers and beat export
 traces and metrics over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 The bundled collector logs traces (debug exporter) and sends metrics to
 Prometheus: request and HTTP client durations from the instrumentation,

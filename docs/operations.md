@@ -91,6 +91,15 @@ under `settings.pipeline`: `stage_retries`, `stage_retry_backoff_s`,
 nothing falls back to the CPU model, because a mixed index is worse than
 a late one.
 
+`settings.pipeline` holds tuning only. A collection may set `chunk_words`,
+`chunk_overlap`, `ocr`, `detect_language`, `patterns`, `preview_pages`,
+`preview_width`, `ner_max_chars`, `ner_min_length`, `ner_window_chars`,
+`embed`, `embed_max_chunks`, `pseudonymise` and the four retry settings
+above. Service addresses, credentials, Solr collection names, paths and
+secrets come from `.env` only: the API refuses a collection that sets any
+other key (422), and the workers ignore other keys in collections saved
+before 1.0.0-rc.4 or edited in the admin, with a warning in the worker log.
+
 ## Crashes and recovery
 
 Tasks are delivered at least once: a worker acknowledges a task when it
@@ -142,7 +151,8 @@ git pull                   # or: edit SEMASCOPE_IMAGE_TAG in .env to the new ver
 ./oss doctor
 ```
 
-What `./oss up` does on start: Django migrations, static files, the Solr
+What `./oss up` does on start: adds a generated `VALKEY_PASSWORD` to
+`.env` when it has none ([Secrets](#secrets)), then Django migrations, static files, the Solr
 configsets uploaded and the collections reloaded (created when missing),
 the bundled base pack imported when its content hash changed. A schema
 change that needs the index rebuilt is announced in the changelog; run
@@ -152,16 +162,56 @@ enrichment and indexing from the stored text without touching the originals.
 The graph is a projection: `./oss reindex` rebuilds it after a Neo4j
 upgrade or a projection change.
 
+Upgrading to 1.0.0-rc.4: `SEMASCOPE_DEFAULT_ROLE` now defaults to `none`,
+so a user reads only the collections they hold a role on; put
+`SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to keep open reading. `./oss up`
+adds a `VALKEY_PASSWORD`, and the application refuses to start while any
+required secret is empty or a placeholder ([Secrets](#secrets)).
+
 ## Backup and restore
 
 `./oss backup [dir] [--with-graph]` and `./oss restore <dir>` are described
 in [Concepts](concepts.md#backup-and-restore). Keep `.env` with the backup.
 
+A backup fails (non-zero exit, a message naming the step) when any part
+cannot be written or read back: the Postgres dump, a Solr backup that Solr
+reports as failed or that wrote nothing, the data archive or the Neo4j
+dump; the directory is then incomplete and should not be kept. A restore
+checks the backup's files first (gzip and tar integrity, one Solr archive
+per collection); then it stops the server, worker and beat, restores each
+Solr collection under a staging name and Postgres into a staging database.
+If any of that fails, the staging copies are removed, the application
+starts again on the existing data, and the command exits non-zero. Only
+then does it switch: the old database is renamed and dropped at the end,
+each Solr collection is replaced from the verified backup, the data
+volume is unpacked and, with a dump, Neo4j is loaded. A failure after the
+switch names what is restored and where the staged copy is. The staging
+needs free disk for a second copy of the Solr collections and the
+database while the restore runs.
+
 ## Secrets
 
-`.env` holds every secret. To rotate: `oss init --force --import-dir <same>`
-writes new ones; PostgreSQL, Neo4j and Solr then need their passwords
-changed to match (or recreate their volumes on a fresh install). Solr's
+`.env` holds every secret. The server, workers and beat refuse to start
+when `SEMASCOPE_SECRET_KEY`, `POSTGRES_PASSWORD`, `NEO4J_PASSWORD`,
+`SOLR_PASSWORD`, `VALKEY_PASSWORD` or `SEMASCOPE_ADMIN_PASSWORD` is empty
+or a placeholder such as `change-me` (the values in `.env.example`); the
+error names each one. Only debug mode (`SEMASCOPE_DEBUG=true`, for
+development) skips the check. `oss init` generates all of them.
+
+Valkey requires `VALKEY_PASSWORD` (from 1.0.0-rc.4); the workers and the
+server reach it through `VALKEY_URL`, which compose builds with the
+password. An install whose `.env` predates this gets a generated
+`VALKEY_PASSWORD` added by the next `./oss up`; Valkey reads it when it
+starts, so no data changes. Starting with plain `docker compose up`
+instead, Valkey and the application stop with a message naming the
+missing value.
+
+To rotate: `oss init --force` writes new secrets and keeps every other
+setting in `.env` (host, size, runtime, roles, single sign-on, allowed hosts
+and any line `init` does not write); an option given with it, such as
+`--size`, changes only its own lines; PostgreSQL, Neo4j and Solr then need their passwords
+changed to match (or recreate their volumes on a fresh install); Valkey and
+the secret key take the new value at the next start. Solr's
 basic authentication is set up from `SOLR_PASSWORD` on first start; the
 [Solr notes](https://github.com/rdb420/semascope/blob/main/deploy/solr/README.md)
 show how to change it. The API

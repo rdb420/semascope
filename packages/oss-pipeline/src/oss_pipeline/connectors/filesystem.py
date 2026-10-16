@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
-from oss_pipeline.connectors.guard import confine_path, source_roots, within
+from oss_pipeline.connectors.guard import byte_cap, confine_path, source_roots, within
 
 DEFAULT_EXCLUDES = (".*", "*~", "*.tmp", "*.part", "Thumbs.db", "node_modules", ".git", ".venv")
 
@@ -41,7 +41,7 @@ class FilesystemConnector:
         include = list(source.settings.get("include") or ["*"])
         exclude = list(source.settings.get("exclude") or []) + list(DEFAULT_EXCLUDES)
         follow = bool(source.settings.get("follow_symlinks", False))
-        max_bytes = int(source.settings.get("max_bytes", 512 * 1024 * 1024))
+        max_bytes = byte_cap(source.settings, 512 * 1024 * 1024)
         since_ts = since.issued_at.timestamp() if since else None
 
         for dirpath, dirnames, filenames in os.walk(root, followlinks=follow):

@@ -30,6 +30,7 @@ from oss_pipeline.connectors.guard import (
     DEFAULT_MAX_BYTES,
     SourceNotAllowed,
     TooLarge,
+    byte_cap,
     get_capped,
     guarded_client,
     refuse_private,
@@ -74,7 +75,7 @@ class WebConnector:
         exclude = [re.compile(p) for p in settings.get("exclude") or []]
         delay = float(settings.get("delay_seconds", 0.5))
         agent = str(settings.get("user_agent") or USER_AGENT)
-        max_bytes = int(settings.get("max_bytes", DEFAULT_MAX_BYTES))
+        max_bytes = byte_cap(settings, DEFAULT_MAX_BYTES)
 
         with guarded_client(
             timeout=30.0, follow_redirects=True, headers={"User-Agent": agent}

@@ -173,7 +173,9 @@ def collections_using(pack_id: str) -> list[str]:
 
 
 def _quote(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    from oss_pipeline.clients.solr import quote_term
+
+    return quote_term(value)
 
 
 def _facet_collections(fq: list[str], **extra: Any) -> dict[str, int]:

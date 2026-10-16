@@ -9,11 +9,34 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 MAX_RETRY_COUNTDOWN_S = 600  # a document task never waits longer than this for its retry
+
+
+# Values that are not secrets: the .env.example placeholders and their usual cousins.
+# Compared case-insensitively; anything starting with "change-me" counts too.
+PLACEHOLDER_SECRETS = frozenset(
+    {"", "change-me", "changeme", "change_me", "changeit", "secret", "password", "example"}
+    | {"placeholder", "xxx", "todo", "none", "null", "default", "admin", "semascope"}
+)
+
+
+def is_placeholder(value: str | None) -> bool:
+    """True when a secret is empty or a known placeholder."""
+
+    text = (value or "").strip().lower()
+    return text in PLACEHOLDER_SECRETS or text.startswith(("change-me", "changeme"))
+
+
+def _url_password(url: str) -> str:
+    try:
+        return unquote(urlsplit(url).password or "")
+    except ValueError:
+        return ""
 
 
 class Settings(BaseSettings):
@@ -24,14 +47,16 @@ class Settings(BaseSettings):
     semascope_https_port: int = 8443  # host port Caddy listens on (oss init --https-port)
     semascope_size: Literal["small", "medium", "large"] = "small"
     semascope_data_dir: Path = Path("./data")
-    semascope_secret_key: SecretStr = Field(default=SecretStr("change-me"))
+    # secrets have no usable default: empty until .env sets them (oss init generates them),
+    # and the server refuses to start without them outside debug mode
+    semascope_secret_key: SecretStr = Field(default=SecretStr(""))
     semascope_debug: bool = False
     semascope_admin_password: SecretStr | None = None
     semascope_api_token: SecretStr | None = None
     semascope_api_url: str = "http://server:8000"
-    # role of a signed-in user on a collection they have no role on: reader (open reading)
-    # or none (each collection readable only by the users given a role on it)
-    semascope_default_role: str = "reader"
+    # role of a signed-in user on a collection they have no role on: none (the default: each
+    # collection readable only by the users given a role on it) or reader (open reading)
+    semascope_default_role: str = "none"
     # where file-reading sources may read (comma-separated paths inside the containers):
     # the import mount and the demo corpus shipped in the image
     semascope_source_roots: str = "/import,/app/packs/demo/corpus"
@@ -43,17 +68,25 @@ class Settings(BaseSettings):
     semascope_oidc_server_url: str = ""  # issuer, e.g. https://login.example.com/realms/x
     semascope_oidc_client_id: str = ""
     semascope_oidc_client_secret: SecretStr | None = None
-    semascope_oidc_default_role: str = "reader"
+    # a first sign-in through the provider creates the account (false: only accounts an
+    # administrator made can sign in that way); local sign-up is always closed
+    semascope_oidc_auto_signup: bool = True
+    # global role given to accounts created by single sign-on: none (the default: they get
+    # SEMASCOPE_DEFAULT_ROLE like everyone else), reader, curator, editor or admin
+    semascope_oidc_default_role: str = "none"
 
     # Stores
-    database_url: str = "postgresql://semascope:change-me@localhost:5432/semascope"
+    database_url: str = "postgresql://semascope@localhost:5432/semascope"
+    postgres_password: SecretStr | None = None  # compose builds DATABASE_URL from it
     valkey_url: str = "redis://localhost:6379/0"
+    # Valkey's requirepass; added to VALKEY_URL when that URL carries no password
+    valkey_password: SecretStr | None = None
     solr_url: str = "http://localhost:8983/solr"
     solr_user: str = "semascope"
-    solr_password: SecretStr = Field(default=SecretStr("change-me"))
+    solr_password: SecretStr = Field(default=SecretStr(""))
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: SecretStr = Field(default=SecretStr("change-me"))
+    neo4j_password: SecretStr = Field(default=SecretStr(""))
     tika_url: str = "http://localhost:9998"
 
     # Runtime: which models run where. `cpu` is the bundled default, `gpu` the same models on
@@ -102,6 +135,39 @@ class Settings(BaseSettings):
     semascope_llm_base_url: str | None = None
     semascope_llm_api_key: SecretStr | None = None
     semascope_llm_model: str | None = None
+
+    @model_validator(mode="after")
+    def _valkey_auth(self) -> Settings:
+        """Put VALKEY_PASSWORD into VALKEY_URL when the URL has none of its own."""
+
+        password = self.valkey_password.get_secret_value() if self.valkey_password else ""
+        if password and not _url_password(self.valkey_url):
+            parts = urlsplit(self.valkey_url)
+            host = parts.netloc.rpartition("@")[2]
+            netloc = f":{quote(password, safe='')}@{host}"
+            self.valkey_url = urlunsplit(parts._replace(netloc=netloc))
+        return self
+
+    def insecure_secrets(self) -> list[str]:
+        """The required secrets that are empty or a known placeholder (environment names).
+
+        The server, worker and beat refuse to start with any of these outside debug mode
+        (`oss_server.settings`). Each is checked where the process reads it: the Postgres
+        and Valkey passwords also count when given only inside DATABASE_URL or VALKEY_URL.
+        """
+
+        def value(secret: SecretStr | None) -> str:
+            return secret.get_secret_value() if secret else ""
+
+        checks = {
+            "SEMASCOPE_SECRET_KEY": value(self.semascope_secret_key),
+            "POSTGRES_PASSWORD": value(self.postgres_password) or _url_password(self.database_url),
+            "NEO4J_PASSWORD": value(self.neo4j_password),
+            "SOLR_PASSWORD": value(self.solr_password),
+            "VALKEY_PASSWORD": value(self.valkey_password) or _url_password(self.valkey_url),
+            "SEMASCOPE_ADMIN_PASSWORD": value(self.semascope_admin_password),
+        }
+        return [name for name, secret in checks.items() if is_placeholder(secret)]
 
     @property
     def llm_enabled(self) -> bool:

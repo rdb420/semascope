@@ -126,8 +126,9 @@ def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
     from oss_server.services import solr_chunks_collection
 
     c = get_object_or_404(Collection, slug=slug)
-    solr_client().delete_by_query(solr_documents_collection(), f'collection_s:"{slug}"')
-    solr_client().delete_by_query(solr_chunks_collection(), f'collection_s:"{slug}"')
+    term = search_mod._escape(slug)
+    solr_client().delete_by_query(solr_documents_collection(), f"collection_s:{term}")
+    solr_client().delete_by_query(solr_chunks_collection(), f"collection_s:{term}")
     c.delete()
     return 204, None
 
@@ -136,29 +137,33 @@ def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
 
 
 SECRET_SETTING_WORDS = ("secret", "password", "token", "api_key", "apikey", "credential")
+# account identifiers (an S3 access key id, a user name): shown to editors, who manage sources
+IDENTIFIER_SETTING_WORDS = ("access_key", "accesskey", "username", "user_name", "login")
 
 
-def redact_settings(settings: dict[str, Any]) -> dict[str, Any]:
-    """Source settings with credential values masked: they are written, never read back."""
+def redact_settings(settings: dict[str, Any], *, editor: bool = False) -> dict[str, Any]:
+    """Source settings with credential values masked: they are written, never read back.
+    Account identifiers are masked too unless the caller is an editor of the collection."""
 
+    masked = SECRET_SETTING_WORDS + (() if editor else IDENTIFIER_SETTING_WORDS)
     out: dict[str, Any] = {}
     for key, value in settings.items():
-        if any(word in key.lower() for word in SECRET_SETTING_WORDS) and value:
+        if any(word in key.lower() for word in masked) and value:
             out[key] = "********"
         elif isinstance(value, dict):
-            out[key] = redact_settings(value)
+            out[key] = redact_settings(value, editor=editor)
         else:
             out[key] = value
     return out
 
 
-def _source_out(s: Source) -> SourceOut:
+def _source_out(s: Source, *, editor: bool = False) -> SourceOut:
     return SourceOut(
         id=s.id,
         collection=s.collection.slug,
         name=s.name,
         connector=s.connector,
-        settings=redact_settings(s.settings),
+        settings=redact_settings(s.settings, editor=editor),
         enabled=s.enabled,
         schedule=s.schedule,
         status=s.status,
@@ -170,10 +175,14 @@ def _source_out(s: Source) -> SourceOut:
 
 @api.get("/collections/{slug}/sources", response=list[SourceOut], tags=["sources"])
 def list_sources(request: HttpRequest, slug: str) -> list[SourceOut]:
+    from oss_server.api.access import ROLES, role_for
+
     c = get_object_or_404(Collection, slug=slug)
     check(request, "reader", slug)
+    role = role_for(getattr(request, "user", None), slug)
+    editor = bool(role) and ROLES.index(role) >= ROLES.index("editor")
     return [
-        _source_out(s)
+        _source_out(s, editor=editor)
         for s in c.sources.select_related("collection").annotate(document_count=Count("documents"))
     ]
 
@@ -206,7 +215,7 @@ def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[i
     )
     if not created:
         raise HttpError(409, f"source {payload.name} exists in {slug}")
-    return 201, _source_out(s)
+    return 201, _source_out(s, editor=True)
 
 
 @api.post("/sources/{source_id}/run", response={202: RunOut}, tags=["sources"])
@@ -225,7 +234,9 @@ def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
     check(request, "editor", s.collection.slug)
     from oss_server.services import solr_chunks_collection
 
-    solr_client().delete_by_query(solr_documents_collection(), f"source_id_s:{s.id}")
+    solr_client().delete_by_query(
+        solr_documents_collection(), f"source_id_s:{search_mod._escape(str(s.id))}"
+    )
     ids = list(s.documents.values_list("id", flat=True))
     for i in range(0, len(ids), 500):
         terms = "{!terms f=document_id}" + ",".join(ids[i : i + 500])
@@ -241,6 +252,7 @@ def upload(
     """Upload one or more files into the collection's `uploads` source and queue them."""
 
     from oss_core.config import get_settings
+    from oss_pipeline.connectors.guard import SourceNotAllowed
     from oss_pipeline.connectors.upload import store_upload, upload_root
     from oss_server.catalogue.models import document_id
     from oss_server.pipeline.tasks import process_document
@@ -248,10 +260,14 @@ def upload(
     c = get_object_or_404(Collection, slug=slug)
     check(request, "editor", slug)
     data_dir = get_settings().semascope_data_dir
+    try:
+        root = upload_root(data_dir, slug)
+    except SourceNotAllowed as exc:  # a slug saved before slugs were checked
+        raise HttpError(400, f"uploads refused: {exc}") from exc
     source, _ = Source.objects.get_or_create(
         collection=c,
         name="uploads",
-        defaults={"connector": "upload", "settings": {"path": str(upload_root(data_dir, slug))}},
+        defaults={"connector": "upload", "settings": {"path": str(root)}},
     )
     out: list[DocumentOut] = []
     for f in files:

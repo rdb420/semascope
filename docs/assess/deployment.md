@@ -24,7 +24,7 @@ runs on one host.
 | caddy | `caddy:2-alpine` | TLS and reverse proxy; the only published port (`SEMASCOPE_HTTPS_PORT`, default 8443) |
 | server, worker, beat | `ghcr.io/rdb420/semascope:<tag>` (about 1.4 GB) | API and UI, pipeline workers, scheduler |
 | postgres | `postgres:17-alpine` | collections, documents and extracted text, packs, reviews, proposals, events |
-| valkey | `valkey/valkey:8-alpine` | task queue (append-only file on) |
+| valkey | `valkey/valkey:8-alpine` | task queue (append-only file on, password from `VALKEY_PASSWORD`) |
 | solr | `solr:10.0.0` | `documents`, `entities` (tagging dictionary) and `chunks` (vectors) |
 | neo4j | `neo4j:5.26-community` | the document-entity graph; no plugins needed |
 | tika | `apache/tika:3.3.0.0-full` | text extraction and OCR (Tesseract, English) |
@@ -82,20 +82,27 @@ with `scripts/bench_size.py` on a sample of your own documents.
 
 ## Authentication and access
 
-- **Local accounts.** `oss init` asks for the `admin` password. Passwords
-  are at least 12 characters.
+- **Local accounts.** `oss init` generates the `admin` password. Passwords
+  are at least 12 characters. There is no self-service sign-up: an
+  administrator creates local accounts (in the admin or with `oss-manage`).
 - **API tokens.** Bearer tokens (`oss_…`), stored hashed, created in the
   admin. `SEMASCOPE_API_TOKEN` in `.env` is the CLI's token.
 - **Single sign-on.** OpenID Connect when `SEMASCOPE_OIDC_SERVER_URL`,
   `SEMASCOPE_OIDC_CLIENT_ID` and `SEMASCOPE_OIDC_CLIENT_SECRET` are set.
-  New users get `SEMASCOPE_DEFAULT_ROLE`.
+  A first sign-in creates the account when `SEMASCOPE_OIDC_AUTO_SIGNUP` is
+  true (the default; set it to `false` to admit only accounts an
+  administrator created, matched by e-mail address). Accounts created that
+  way get `SEMASCOPE_OIDC_DEFAULT_ROLE` as a global role; the default `none`
+  writes no role, so they get `SEMASCOPE_DEFAULT_ROLE` like everyone else.
 - **Roles.** `reader`, `curator`, `editor`, `admin`, global or per
   collection, for reading and writing. With the default
-  `SEMASCOPE_DEFAULT_ROLE=reader` every signed-in user can read every
-  collection; set it to `none` to keep collections apart, so that each user
-  reads only the collections they hold a role on (see
-  [Roles](../concepts.md#roles)). Releases up to 1.0.0-rc.2 did not restrict
-  reading per collection.
+  `SEMASCOPE_DEFAULT_ROLE=none` collections are kept apart: each user reads
+  only the collections they hold a role on (or all of them with a global
+  role); set it to `reader` to let every signed-in user read every
+  collection (see [Roles](../concepts.md#roles)). Releases up to 1.0.0-rc.2
+  did not restrict reading per collection, and up to 1.0.0-rc.3 the default
+  was `reader`: on upgrade, set `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to
+  keep open reading, or give users their roles.
 
 There is no anonymous access to the UI or the search API. The
 Reconciliation API (`/api/reconcile`) is public by design, so that
@@ -122,8 +129,11 @@ browsers will not trust. For a server:
 `./oss backup [dir] [--with-graph]` writes a PostgreSQL dump, Solr backups
 of the three collections and an archive of the data volume to
 `data/backups/<stamp>`; `--with-graph` also dumps Neo4j (stopping it
-briefly). `./oss restore <dir>` stops the application, restores all of
-them and starts it again. Keep `.env` with every backup: it holds the
+briefly); any step that fails stops the backup with a non-zero exit.
+`./oss restore <dir>` checks the backup, stops the application, loads the
+backup beside the live data (needs disk for a second copy of Postgres and
+Solr while it runs), switches over only when every part loaded, and starts
+the application again; a backup that cannot be read changes nothing. Keep `.env` with every backup: it holds the
 secrets the data was written with. Copy backups off the host; Semascope does
 not.
 
@@ -135,6 +145,12 @@ not.
 ./oss up       # pulls, migrates, reloads the Solr configsets, re-imports changed bundled packs
 ./oss doctor
 ```
+
+From 1.0.0-rc.4 `SEMASCOPE_DEFAULT_ROLE` defaults to `none`: users without
+a role on a collection no longer read it. Set `SEMASCOPE_DEFAULT_ROLE=reader`
+in `.env` before upgrading to keep open reading. Valkey requires a password: `./oss up` adds a generated
+`VALKEY_PASSWORD` to an older `.env`, and the application refuses to start
+with an empty or placeholder secret (see [Secrets](../operations.md#secrets)).
 
 A release whose index layout changes says so in the changelog; then run
 `./oss reindex --collection <slug>` for each collection. Reindexing replays
@@ -176,9 +192,12 @@ What still needs a network:
 
 - [ ] A release tag in `SEMASCOPE_IMAGE_TAG`
 - [ ] A real host name and a trusted certificate
-- [ ] `.env` backed up somewhere safe, outside the host
+- [ ] `.env` written by `oss init` (the application will not start with the
+      placeholder secrets of `.env.example`) and backed up somewhere safe,
+      outside the host
 - [ ] A scheduled `./oss backup` copied off the host, and one restore tried
-- [ ] Roles assigned; `SEMASCOPE_DEFAULT_ROLE` chosen deliberately (`none`
-      when collections must be kept apart)
+- [ ] Roles assigned; `SEMASCOPE_DEFAULT_ROLE` chosen deliberately (the
+      default `none` keeps collections apart; `reader` opens reading to every
+      signed-in user)
 - [ ] The `remote` runtime pointed only at services you control, because
       document text is sent to them

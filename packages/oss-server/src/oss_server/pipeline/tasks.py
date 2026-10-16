@@ -38,10 +38,13 @@ from oss_core.contracts import (
     Tag,
     WorkingDocument,
 )
+from oss_pipeline.clients.solr import quote_term
 from oss_pipeline.registry import connectors, profile
 from oss_pipeline.retry import backoff, is_transient
 from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile, run_stage
+from oss_pipeline.stages.index import custom_fields
 from oss_server.catalogue.models import Collection, Document, Source, document_id
+from oss_server.pipeline.overrides import pipeline_overrides
 from oss_server.services import solr_client, solr_documents_collection
 
 log = logging.getLogger(__name__)
@@ -103,7 +106,7 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "ocr": True,
     }
     base["shapes_ttl"] = active_shapes()
-    base.update(collection.settings.get("pipeline", {}))
+    base.update(pipeline_overrides(collection.settings))  # tuning only, never addresses
     return base
 
 
@@ -114,11 +117,10 @@ def pseudonymise_secret(collection: Collection) -> str | None:
     override included), so other writers, such as curation, key entities the same way.
     """
 
-    pipeline = collection.settings.get("pipeline", {}) or {}
+    pipeline = pipeline_overrides(collection.settings)
     if not pipeline.get("pseudonymise", collection.settings.get("pseudonymise", False)):
         return None
-    secret = pipeline.get("pseudonymise_secret") or get_settings().semascope_secret_key
-    return str(secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret)
+    return get_settings().semascope_secret_key.get_secret_value()
 
 
 BASE_PACK_ID = "semascope-base"  # its classes are the product's own model, not things to find
@@ -284,7 +286,7 @@ DOCUMENT_TASKS = ("semascope.process_document", "semascope.reindex_document")
 
 
 def _retry_policy(collection: Collection) -> tuple[int, float]:
-    pipeline = collection.settings.get("pipeline", {}) or {}
+    pipeline = pipeline_overrides(collection.settings)
     return (
         max(0, int(pipeline.get("task_retries", TASK_RETRIES))),
         float(pipeline.get("task_retry_backoff_s", TASK_BACKOFF_S)),
@@ -439,7 +441,7 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: boo
         return str(Document.Status.FAILED)
     meta = fetched.item.metadata
     fields: dict[str, Any] = {"local_path": fetched.path} if fetched.path else {}
-    fields.update({k: v for k, v in (meta.get("fields") or {}).items() if str(k).startswith("x_")})
+    fields.update(custom_fields(meta.get("fields") or {}))  # x_ keys, never index fields
     if meta.get("parent_uri"):
         fields["x_parent_uri_s"] = str(meta["parent_uri"])
     for keep in ("curated", "dismissed_violations"):
@@ -824,7 +826,7 @@ def delete_document(self: Any, doc_id: str) -> None:
 
     try:
         solr_client().delete_by_id(solr_documents_collection(), [doc_id])
-        solr_client().delete_by_query(solr_chunks_collection(), f'document_id:"{doc_id}"')
+        solr_client().delete_by_query(solr_chunks_collection(), f"document_id:{quote_term(doc_id)}")
     except Exception as exc:
         if is_transient(exc) and self.request.retries < TASK_RETRIES:
             raise self.retry(
@@ -947,7 +949,11 @@ def _jsonable(value: Any) -> Any:
 
 @shared_task(name="semascope.deliver_webhooks", queue="io")
 def deliver_webhooks() -> int:
-    """Send outbox events to every enabled webhook, in order, with an HMAC signature."""
+    """Send outbox events to every enabled webhook, in order, with an HMAC signature.
+
+    Delivery goes through the outbound guard (oss_pipeline.connectors.guard): a receiver on
+    a private address needs SEMASCOPE_ALLOWED_PRIVATE_HOSTS, and redirects are not followed.
+    """
 
     import hashlib
     import hmac
@@ -955,6 +961,7 @@ def deliver_webhooks() -> int:
 
     import httpx
 
+    from oss_pipeline.connectors.guard import SourceNotAllowed, guarded_client
     from oss_server.curation.models import Event, Webhook
 
     sent = 0
@@ -981,13 +988,20 @@ def deliver_webhooks() -> int:
                     "sha256=" + hmac.new(hook.secret.encode(), body, hashlib.sha256).hexdigest()
                 )
             try:
-                resp = httpx.post(hook.url, content=body, headers=headers, timeout=15.0)
+                with guarded_client(timeout=15.0, follow_redirects=False) as client:
+                    resp = client.post(hook.url, content=body, headers=headers)
+                if resp.is_redirect:
+                    hook.last_error = f"{resp.status_code} on event {event.pk} (not followed)"
+                    break
                 if resp.status_code >= 400:
                     hook.last_error = f"{resp.status_code} on event {event.pk}"
                     break
                 hook.last_event_id = event.pk
                 hook.last_error = ""
                 sent += 1
+            except SourceNotAllowed as exc:
+                hook.last_error = f"refused on event {event.pk}: {exc}"[:2000]
+                break
             except httpx.HTTPError as exc:
                 hook.last_error = f"{type(exc).__name__} on event {event.pk}"
                 break

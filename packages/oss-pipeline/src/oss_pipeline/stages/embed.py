@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from oss_core.contracts import StageContext, WorkingDocument
 from oss_core.vectors import vector_field
-from oss_pipeline.clients.solr import SolrClient
+from oss_pipeline.clients.solr import SolrClient, quote_term
 from oss_pipeline.embedders import get_embedder
 from oss_pipeline.stages.base import SkipStageError
 
@@ -57,7 +57,7 @@ class EmbedStage:
         field = vector_field(len(vectors[0])) if vectors else "vector"
         collection = str(ctx.settings.get("solr_chunks", "chunks"))
         client = self._client(ctx)
-        client.delete_by_query(collection, f'document_id:"{doc.id}"')
+        client.delete_by_query(collection, f"document_id:{quote_term(doc.id)}")
         rows = [
             {
                 "id": f"{doc.id}:{i}",

@@ -68,4 +68,26 @@ def test_sign_in_through_the_provider(browser: httpx.Client) -> None:
     assert me.status_code == 200, me.text
     user = me.json()
     assert user["username"] and not user["is_staff"] and not user["is_superuser"], user
-    assert user["role"] == "reader", user
+    # SEMASCOPE_OIDC_DEFAULT_ROLE=curator on the integration stack
+    assert user["role"] == "curator", user
+
+
+def test_local_sign_up_is_closed(browser: httpx.Client) -> None:
+    if not browser.get("/api/auth/providers").raise_for_status().json()["oidc"]:
+        pytest.skip("this stack has no OpenID Connect provider configured")
+    page = browser.get("/accounts/signup/")
+    assert page.status_code == 200, page.status_code
+    assert "closed" in page.text.lower(), page.text[:500]
+    token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
+    form = {"username": "visitor", "email": "visitor@example.test"}
+    form |= {"password1": "Tq7#it-signup-probe-2026", "password2": "Tq7#it-signup-probe-2026"}
+    if token:
+        form["csrfmiddlewaretoken"] = token.group(1)
+    sent = browser.post(
+        "/accounts/signup/", data=form, headers={"Referer": base_url() + "/accounts/signup/"}
+    )
+    assert sent.status_code in (200, 403), sent.status_code  # the closed page, or CSRF refusal
+    signed_in = browser.post(
+        "/api/auth/login", json={"username": "visitor", "password": form["password1"]}
+    )
+    assert signed_in.status_code == 401, signed_in.text

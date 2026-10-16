@@ -158,3 +158,51 @@ def test_s3_endpoint_on_a_private_address_is_refused() -> None:
 
     with pytest.raises(SourceNotAllowed):
         s3.S3Connector()._for({"endpoint_url": "http://127.0.0.1:9000"})
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://100.64.0.1/",  # carrier-grade NAT
+        "http://100.127.255.254/",
+        "http://192.0.2.10/",  # documentation
+        "http://198.18.0.1/",  # benchmarking
+        "http://[64:ff9b::7f00:1]/",  # NAT64 of 127.0.0.1
+        "http://[64:ff9b::a00:1]/",  # NAT64 of 10.0.0.1
+        "http://[2002:7f00:1::]/",  # 6to4 of 127.0.0.1
+        "http://[2002:a9fe:a9fe::]/",  # 6to4 of 169.254.169.254
+        "http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/",  # Teredo
+        "http://[::ffff:10.0.0.1]/",  # IPv4-mapped private
+        "http://[::ffff:169.254.169.254]/",
+        "http://[fd00::1]/",  # unique local
+        "http://[fe80::1]/",  # link-local
+        "http://[2001:db8::1]/",  # documentation
+        "http://224.0.0.1/",  # multicast
+        "http://233.252.0.1/",  # global-scope multicast
+    ],
+)
+def test_only_globally_routable_addresses_are_reached(url: str) -> None:
+    with pytest.raises(SourceNotAllowed):
+        guard.refuse_private(url)
+
+
+@pytest.mark.parametrize("address", ["8.8.8.8", "2001:4860:4860::8888", "64:ff9b::808:808"])
+def test_global_addresses_and_their_ipv6_forms_pass(address: str) -> None:
+    import ipaddress
+
+    assert guard._is_public(ipaddress.ip_address(address))
+    if "." in address:
+        assert guard._is_public(ipaddress.ip_address(f"::ffff:{address}"))
+
+
+def test_max_bytes_has_a_ceiling() -> None:
+    ceiling = guard.MAX_BYTES_CEILING
+    assert guard.byte_cap({}, 1000) == 1000
+    assert guard.byte_cap({"max_bytes": 5}, 1000) == 5
+    assert guard.byte_cap({"max_bytes": ceiling * 50}, 1000) == ceiling  # clamped at run time
+    for bad in (0, -1, "lots", None, True):
+        with pytest.raises(SourceNotAllowed):
+            guard.byte_cap({"max_bytes": bad}, 1000)
+    with pytest.raises(SourceNotAllowed, match="ceiling"):
+        guard.check_source("web", {"urls": ["https://example.org/"], "max_bytes": ceiling + 1}, "c")
+    guard.check_source("web", {"urls": ["https://example.org/"], "max_bytes": ceiling}, "c")

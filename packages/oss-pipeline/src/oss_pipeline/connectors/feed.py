@@ -25,6 +25,7 @@ from oss_pipeline.connectors.guard import (
     DEFAULT_MAX_BYTES,
     SourceNotAllowed,
     TooLarge,
+    byte_cap,
     get_capped,
     guarded_client,
     refuse_private,
@@ -41,7 +42,7 @@ class FeedConnector:
             raise ValueError("feed connector needs settings.urls")
         max_entries = int(source.settings.get("max_entries", 200))
         fetch_links = bool(source.settings.get("fetch_links", False))
-        max_bytes = int(source.settings.get("max_bytes", DEFAULT_MAX_BYTES))
+        max_bytes = byte_cap(source.settings, DEFAULT_MAX_BYTES)
         tmp = Path(tempfile.gettempdir()) / "semascope-feed"
         tmp.mkdir(parents=True, exist_ok=True)
         with guarded_client(

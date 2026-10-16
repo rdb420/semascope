@@ -15,6 +15,14 @@ from urllib.parse import urlencode
 import httpx
 
 
+def quote_term(value: object) -> str:
+    """A value as one quoted Solr term: only backslash and the double quote are special
+    inside quotes, so nothing in `value` can end the term or start another clause."""
+
+    text = str(value)
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 class SolrError(RuntimeError):
     def __init__(self, message: str, status: int | None = None) -> None:
         super().__init__(message)

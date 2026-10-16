@@ -57,7 +57,7 @@ module = ["kombu.*", "gunicorn.*"]
 ignore_missing_imports = true
 
 [tool.django-stubs]
-django_settings_module = "oss_server.settings"
+django_settings_module = "oss_server.settings_test"  # debug on: the type check needs no secrets
 
 [tool.pytest.ini_options]
 testpaths = ["packages", "scripts/tests"]

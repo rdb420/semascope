@@ -8,7 +8,11 @@ from oss_server.api.searchplus import _stopwords
 
 @pytest.mark.django_db
 def test_saved_searches_round_trip(client: Client) -> None:
+    from oss_server.catalogue.models import Collection, CollectionRole
+
     user = User.objects.create_user("ss", password="q" * 16)
+    demo = Collection.objects.create(slug="demo", name="demo")
+    CollectionRole.objects.create(user=user, collection=demo, role="reader")
     auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
     r = client.post(
         "/api/search/saved",

@@ -45,7 +45,11 @@ def test_suggest_query_escapes_and_prefixes_the_last_word() -> None:
 def test_suggest_is_routed(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     solr = FakeSolr()
     monkeypatch.setattr(root, "solr_client", lambda: solr)
+    from oss_server.catalogue.models import Collection, CollectionRole
+
     user = User.objects.create_user("sug", password="v" * 16)
+    texts = Collection.objects.create(slug="texts", name="texts")
+    CollectionRole.objects.create(user=user, collection=texts, role="reader")
     auth = {"Authorization": f"Bearer {issue_token(user, 't')}"}
     assert client.get("/api/suggest?q=odys").status_code == 401
     r = client.get("/api/suggest?q=odys&collection=texts", headers=auth)

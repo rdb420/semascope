@@ -123,3 +123,76 @@ def test_rdf_subjects_become_documents(tmp_path: Path) -> None:
         )
         == 2
     )
+
+
+class _ContextServer:
+    """A local HTTP server that serves a JSON-LD context and counts the requests it gets."""
+
+    def __init__(self) -> None:
+        import http.server
+        import json
+        import threading
+
+        hits: list[str] = []
+        body = json.dumps({"@context": {"name": "http://www.w3.org/2000/01/rdf-schema#label"}})
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - the http.server API
+                hits.append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/ld+json")
+                self.end_headers()
+                self.wfile.write(body.encode())
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self.hits = hits
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/context.jsonld"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+
+def test_rdf_jsonld_files_never_fetch_a_remote_context(tmp_path: Path) -> None:
+    import json
+
+    import pytest
+
+    from oss_pipeline.connectors.guard import SourceNotAllowed
+    from oss_pipeline.connectors.rdf import RdfConnector
+
+    server = _ContextServer()
+    try:
+        for n, context in enumerate(
+            [server.url, [server.url], {"@import": server.url, "x": "https://e/x"}]
+        ):
+            folder = tmp_path / f"case{n}"
+            folder.mkdir()
+            (folder / "data.jsonld").write_text(
+                json.dumps({"@context": context, "@id": "https://e/troy", "name": "Troy"}),
+                encoding="utf-8",
+            )
+            src = SourceConfig(
+                id="s", collection="c", connector="rdf", settings={"path": str(folder)}
+            )
+            with pytest.raises(SourceNotAllowed, match="remote JSON-LD contexts"):
+                list(RdfConnector().discover(src, None))
+        assert server.hits == []
+    finally:
+        server.server.shutdown()
+
+    inline = tmp_path / "inline"
+    inline.mkdir()
+    (inline / "data.jsonld").write_text(
+        json.dumps(
+            {
+                "@context": {"name": "http://www.w3.org/2000/01/rdf-schema#label"},
+                "@id": "https://e/troy",
+                "name": "Troy",
+            }
+        ),
+        encoding="utf-8",
+    )
+    src = SourceConfig(id="s", collection="c", connector="rdf", settings={"path": str(inline)})
+    (item,) = list(RdfConnector().discover(src, None))
+    assert item.metadata["title"] == "Troy"
