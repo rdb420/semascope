@@ -25,6 +25,8 @@ app.conf.beat_schedule = {
         "schedule": 300.0,
         "options": {"queue": "io"},
     },
+    # blobs and previews no document uses, stale work files (pipeline.retention.gc)
+    "gc": {"task": "semascope.gc", "schedule": 86400.0, "options": {"queue": "io"}},
 }
 
 __all__ = ["app"]

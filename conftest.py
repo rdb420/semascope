@@ -10,4 +10,6 @@ def _source_roots(
     """Sources in the tests read from pytest's temporary folders (the stack uses /import)."""
 
     monkeypatch.setenv("SEMASCOPE_SOURCE_ROOTS", str(tmp_path_factory.getbasetemp()))
+    # connectors write their work files under the data folder: never the checkout's ./data
+    monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path_factory.mktemp("data")))
     yield

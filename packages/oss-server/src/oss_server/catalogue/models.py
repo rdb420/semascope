@@ -49,6 +49,11 @@ class Source(models.Model):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.IDLE)
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
+    # The run that holds the source while it is `running`: one run at a time, and a run that
+    # lost the source (released by `recover`, then started again) never deletes anything
+    # (docs/adr/0013-deletion-and-retention.md).
+    run_id = models.CharField(max_length=32, blank=True, help_text="the run holding the source")
+    run_started_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -133,6 +138,19 @@ class Document(models.Model):
 
     def __str__(self) -> str:
         return f"{self.collection.slug}:{self.uri}"
+
+
+class Lease(models.Model):
+    """A named lock with an expiry, held by one task at a time (a webhook's deliveries, the
+    alert check). Taken and released with `oss_server.pipeline.runs.lease`; an expired lease
+    is free, so a task killed while holding one blocks the others only until it expires."""
+
+    name = models.CharField(max_length=200, unique=True)
+    holder = models.CharField(max_length=32)
+    expires_at = models.DateTimeField()
+
+    def __str__(self) -> str:
+        return f"{self.name} until {self.expires_at:%Y-%m-%d %H:%M:%S}"
 
 
 class ApiToken(models.Model):

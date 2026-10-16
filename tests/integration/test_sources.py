@@ -378,6 +378,8 @@ def test_deleted_objects_are_detected_on_the_next_run(api: httpx.Client) -> None
         region_name="us-east-1",
     )
     s3.put_object(Bucket=BUCKET, Key=key, Body=b"A fairy-wren on the balcony rail.")
+    # an object that stays: a run that sees nothing at all never deletes everything
+    s3.put_object(Bucket=BUCKET, Key="churn/anchor.txt", Body=b"A magpie stays on the lawn.")
     ensure_collection(api, slug)
     settings = {
         "bucket": BUCKET,

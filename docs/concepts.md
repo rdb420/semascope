@@ -13,17 +13,46 @@ feed, a mailbox, a bucket, an RDF endpoint, or the collection's upload area.
 A source runs on demand (`POST /sources/{id}/run`, `oss index`) or on a
 schedule (`every 15m`, `every 2h`, or a cron expression). Each run
 re-discovers the source, re-queues only new or changed items (by content
-hash), and marks items the source no longer yields as deleted.
+hash; a folder's unchanged files, same size and time, are not read again),
+and marks items the source no longer yields as deleted. One run of a source
+runs at a time: a run request while one is in progress is refused (`409`),
+and a scheduled run that finds its source running skips its turn. A failed
+run is retried at the source's next scheduled time.
+
+Deletion by absence is careful ([ADR-0013](adr/0013-deletion-and-retention.md)):
+a run deletes only when it read everything it tried, did not stop at a
+limit (`max_pages`, a SPARQL `limit`), and saw at least half of the
+documents the source had (`min_yield`, 0.5, for sources of ten documents or
+more; a run that sees nothing never deletes). Otherwise nothing is deleted
+and the source's `last_error` says why; a run that could read nothing at
+all (a site that is down, a missing feed) fails. Feeds never delete by
+absence, because entries roll off a feed while the articles still exist; a
+source's `delete_missing` (true or false) overrides its connector. A
+document deleted by an earlier run comes back when its source has it again.
 
 Connectors: `filesystem` (a folder under the import directory, include and
 exclude globs), `web` (pages, a sitemap, or a bounded same-host crawl that
 respects robots.txt and refuses private addresses), `upload` (files sent
 through the API or `oss upload`), `feed` (RSS and Atom), `mail` (mbox and
-eml, attachments as child documents), `archive` (zip and tar with member,
-size, ratio and depth limits), `table` (CSV, TSV and XLSX rows as documents),
-`s3` (objects in an S3-compatible bucket, AWS, MinIO or Ceph, with change
-detection by ETag), `rdf` (one document per subject, from RDF files or a
-SPARQL endpoint).
+eml, attachments as child documents; a message is `mail:<Message-ID>#<hash>`,
+so two messages sharing a Message-ID stay two documents), `archive` (zip and
+tar; members are streamed to disk, never held in memory, within a per-member
+size limit, `max_member_bytes`, 256 MiB, a byte budget for everything
+expanded from one archive, nested archives included, of `max_ratio` (100)
+times its size and at most `max_total_bytes` (4 GiB), `max_members` (10,000)
+across all levels, and `max_depth` (2) nesting levels; a member whose zip
+header claims a higher ratio is skipped), `table` (CSV, TSV and XLSX rows as
+documents), `s3` (objects in an S3-compatible bucket, AWS, MinIO or Ceph,
+with change detection by ETag), `rdf` (one document per subject, from RDF
+files or a SPARQL endpoint, read in a stable order).
+
+Items from folders, archives, buckets and web sources carry their folder as
+a hierarchical `folder_paths` field (the source folder's name, a bucket or a
+host, then the folders below it) and their file extension as `extension_s`,
+for a folder facet and a file-type filter. Connectors that download or
+unpack what they find write it to a work area on the shared data volume
+(`<data>/work/<collection>/<source>/`), which the document task clears once
+the original is in the blob store.
 
 ## Pack
 
@@ -95,10 +124,12 @@ One step of the pipeline, declared with the fields it reads and writes.
 A document's whole profile runs in one task in one worker process
 ([ADR-0010](adr/0010-one-task-per-document.md)). Stages are plugins
 registered through entry points.
-Stages: `fetch` (store the original under its content hash), `extract`
-(Tika text and metadata, OCR for images and scanned PDFs, language
-detection; with a MinerU server, PDF, OOXML Office and raster image files
-are parsed by MinerU instead), `structure` (pages and chunks), `patterns` (email addresses,
+Stages: `fetch` (store the original under the SHA-256 of the bytes it
+read), `extract` (Tika text and metadata, OCR for images and scanned PDFs in
+the collection's `ocr_languages`, language detection, and the text of
+embedded items such as attachments and the files of a zip, within limits;
+with a MinerU server, PDF, OOXML Office and raster image files are parsed by
+MinerU instead, and Tika keeps OCR for everything else), `structure` (pages and chunks), `patterns` (email addresses,
 links, phone numbers, amounts, hashtags), `tag` (dictionary tagging against
 the active packs through Solr's Tagger, with a hierarchical facet per
 scheme), `ner` (named entities: spaCy, GLiNER2 or a remote service, see
@@ -199,8 +230,11 @@ stemming, synonyms or semantic search may show no highlight.
 ### Alerts and feeds
 
 The **Alerts** page lists your saved searches with their newest documents;
-switching a search's alert on also sends its new matches to the event outbox
-and its webhooks. Every saved search, any keyword search
+switching a search's alert on also puts an `alert.saved_search` event in the
+outbox, and so to its webhooks, when the search has new matches. Every reader
+of the collection can read the outbox, so the event carries only the saved
+search's id and how many matches it has: never its owner, its name or the
+documents, which only the owner reads on the Alerts page. Every saved search, any keyword search
 (`/api/feeds/search?q=…&collection=…&filter=field:value`) and all your
 alerting searches together (`/api/feeds/alerts`) are Atom feeds, or RSS with
 `format=rss`, newest documents first. Feed readers cannot sign in, so a feed

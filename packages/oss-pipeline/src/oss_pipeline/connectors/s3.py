@@ -3,8 +3,9 @@
 Settings: `bucket` (required), `prefix`, `endpoint_url` (for MinIO and
 friends), `region`, `access_key`, `secret_key` (prefer the environment:
 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), `include` / `exclude` globs on
-the key, `max_bytes`. Change detection by ETag; objects are downloaded to a
-temporary file on fetch. Credentials stay in the source settings (or the
+the key, `max_bytes`. Change detection by ETag; objects are downloaded to the
+source's work area on fetch, and the blob store keys them by the SHA-256 of
+what was downloaded, never by the ETag. Credentials stay in the source settings (or the
 environment) and are read from there when an object is fetched; they never
 travel with the queued item. An `endpoint_url` must be a public address
 unless the operator allows the host (see `guard`).
@@ -14,13 +15,12 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
-import tempfile
 from collections.abc import Iterable
 from datetime import UTC
-from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.base import RunReport, path_fields, work_dir, work_root
 from oss_pipeline.connectors.guard import byte_cap, refuse_private
 
 CONNECTION_KEYS = ("endpoint_url", "region")  # what an item may carry; never credentials
@@ -44,9 +44,11 @@ def _client(settings: dict[str, Any]) -> Any:
 
 class S3Connector:
     name = "s3"
+    deletes_missing = True  # a listing error raises, so a run sees every object or fails
 
     def __init__(self) -> None:
         self._clients: dict[str, Any] = {}
+        self.report = RunReport()
 
     def _for(self, settings: dict[str, Any]) -> Any:
         if settings.get("endpoint_url"):
@@ -61,6 +63,7 @@ class S3Connector:
         return self._clients[key]
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
+        self.report = RunReport()
         settings = source.settings
         bucket = str(settings["bucket"])
         prefix = str(settings.get("prefix") or "")
@@ -92,6 +95,7 @@ class S3Connector:
                         "bucket": bucket,
                         "key": key,
                         **{k: settings.get(k) for k in CONNECTION_KEYS},
+                        "fields": path_fields([bucket, *key.split("/")[:-1]], name),
                     },
                 )
 
@@ -105,11 +109,17 @@ class S3Connector:
             else {k: meta.get(k) for k in CONNECTION_KEYS}
         )
         client = self._for(settings)
-        tmp = Path(tempfile.gettempdir()) / "semascope-s3"
-        tmp.mkdir(parents=True, exist_ok=True)
-        dest = tmp / f"{item.content_hash or 'obj'}-{str(meta['key']).rsplit('/', 1)[-1]}"
-        if not dest.exists():
-            client.download_file(str(meta["bucket"]), str(meta["key"]), str(dest))
+        if source is not None:
+            tmp = work_dir(source, "s3")
+        else:
+            tmp = work_root() / "_s3"
+            tmp.mkdir(parents=True, exist_ok=True)
+        name = str(meta["key"]).rsplit("/", 1)[-1]
+        tag = hashlib.sha256(f"{meta['bucket']}/{meta['key']}".encode()).hexdigest()[:16]
+        dest = tmp / f"{tag}-{name}"
+        part = tmp / f".part-{tag}-{name}"
+        client.download_file(str(meta["bucket"]), str(meta["key"]), str(part))
+        part.replace(dest)  # the document task removes it once the blob is stored
         return FetchedItem(item=item, path=str(dest))
 
     def deleted(self, source: SourceConfig, since: Cursor) -> Iterable[str]:

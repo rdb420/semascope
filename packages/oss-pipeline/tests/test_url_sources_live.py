@@ -161,7 +161,14 @@ def test_atom_entries_with_linked_pages(site: str) -> None:
 
 def test_feed_max_entries_and_an_unreachable_feed(site: str) -> None:
     assert len(_feed(urls=[f"{site}/feeds/rss.xml"], max_entries=1)) == 1
-    assert _feed(urls=[f"{site}/feeds/missing.xml"]) == []
+    # an unreachable feed fails the run, so nothing is mistaken for gone (SEMA-010); the
+    # source's other feeds are still read first
+    connector = FeedConnector()
+    found: list[SourceItem] = []
+    urls = [f"{site}/feeds/missing.xml", f"{site}/feeds/rss.xml"]
+    with pytest.raises(ConnectionError, match="1 of 2 feeds could not be read"):
+        found.extend(connector.discover(_src("feed", urls=urls), None))
+    assert len(found) == 2
 
 
 # --- SPARQL --------------------------------------------------------------------------------

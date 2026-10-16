@@ -23,7 +23,10 @@ PIPELINE_OVERRIDES = frozenset(
         "chunk_overlap",
         # extract
         "ocr",
+        "ocr_languages",  # Tesseract codes, e.g. "eng+deu" (checked: `refused_overrides`)
         "detect_language",
+        "embedded_max_items",
+        "embedded_max_chars",
         # patterns
         "patterns",
         # preview
@@ -50,12 +53,19 @@ PIPELINE_OVERRIDES = frozenset(
 def refused_overrides(settings: dict[str, Any] | None) -> list[str]:
     """The keys of a collection's `settings.pipeline` that a collection may not set."""
 
+    from oss_pipeline.clients.tika import valid_ocr_languages
+
     pipeline = (settings or {}).get("pipeline")
     if pipeline is None:
         return []
     if not isinstance(pipeline, dict):
         return ["pipeline"]
-    return sorted(str(k) for k in pipeline if k not in PIPELINE_OVERRIDES)
+    refused = [str(k) for k in pipeline if k not in PIPELINE_OVERRIDES]
+    if pipeline.get("ocr_languages") is not None and not valid_ocr_languages(
+        pipeline["ocr_languages"]
+    ):
+        refused.append("ocr_languages")  # Tesseract codes only: it becomes a request header
+    return sorted(refused)
 
 
 def pipeline_overrides(settings: dict[str, Any] | None) -> dict[str, Any]:

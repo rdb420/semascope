@@ -78,3 +78,12 @@ def test_the_workers_ignore_service_settings_already_stored(db: None) -> None:
     assert out["neo4j_password"] == s.neo4j_password.get_secret_value()
     assert out["pseudonymise_secret"] == s.semascope_secret_key.get_secret_value()
     assert pseudonymise_secret(c) == s.semascope_secret_key.get_secret_value()
+
+
+def test_ocr_languages_must_be_tesseract_codes() -> None:
+    from oss_server.pipeline.overrides import refused_overrides
+
+    assert refused_overrides({"pipeline": {"ocr_languages": "eng+deu"}}) == []
+    assert refused_overrides({"pipeline": {"ocr_languages": ["fra", "chi_sim"]}}) == []
+    for bad in ("eng\r\nX-Evil: 1", "../../etc", "english", 7):
+        assert refused_overrides({"pipeline": {"ocr_languages": bad}}) == ["ocr_languages"]

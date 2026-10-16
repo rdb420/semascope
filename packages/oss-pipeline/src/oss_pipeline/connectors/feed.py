@@ -6,21 +6,26 @@ Settings: `urls` (list), `max_entries` (200 per feed), `fetch_links`
 request and redirect (see `guard`).
 Entries are deduplicated by id or link; the entry's published date becomes
 the document's modified time.
+
+A feed shows only its latest entries, so an entry that rolls off is not
+deleted: feed sources never delete by absence (unless the source sets
+`delete_missing: true`). A feed that cannot be read fails the run (after the
+source's other feeds were read); a linked page that cannot be read now is
+reported and tried again on the next run.
 """
 
 from __future__ import annotations
 
 import hashlib
-import tempfile
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from pathlib import Path
 from time import mktime
 
 import feedparser
 import httpx
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.base import RunReport, work_dir
 from oss_pipeline.connectors.guard import (
     DEFAULT_MAX_BYTES,
     SourceNotAllowed,
@@ -35,27 +40,37 @@ from oss_pipeline.connectors.web import USER_AGENT
 
 class FeedConnector:
     name = "feed"
+    deletes_missing = False  # entries roll off a feed while their articles still exist
+
+    def __init__(self) -> None:
+        self.report = RunReport()
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
+        self.report = report = RunReport()
         urls = [str(u) for u in source.settings.get("urls") or []]
         if not urls:
             raise ValueError("feed connector needs settings.urls")
         max_entries = int(source.settings.get("max_entries", 200))
         fetch_links = bool(source.settings.get("fetch_links", False))
         max_bytes = byte_cap(source.settings, DEFAULT_MAX_BYTES)
-        tmp = Path(tempfile.gettempdir()) / "semascope-feed"
-        tmp.mkdir(parents=True, exist_ok=True)
+        for url in urls:
+            refuse_private(url)  # a feed on a private address is a refused source
+        tmp = work_dir(source, "feed")
+        failed: list[str] = []
         with guarded_client(
             timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
         ) as client:
             for url in urls:
-                refuse_private(url)
                 try:
                     resp, feed_body = get_capped(client, url, max_bytes)
                     resp.raise_for_status()
-                except (httpx.HTTPError, TooLarge, SourceNotAllowed):
+                except (httpx.HTTPError, TooLarge, SourceNotAllowed) as exc:
+                    failed.append(f"{url}: {type(exc).__name__}: {exc}")
                     continue
                 parsed = feedparser.parse(feed_body)
+                if parsed.bozo and not parsed.entries:
+                    failed.append(f"{url}: not a feed ({parsed.get('bozo_exception')})")
+                    continue
                 for entry in parsed.entries[:max_entries]:
                     link = str(entry.get("link") or "")
                     entry_id = str(entry.get("id") or link)
@@ -72,7 +87,10 @@ class FeedConnector:
                             media_type = (
                                 page.headers.get("content-type", "text/html").split(";")[0].strip()
                             )
-                        except (httpx.HTTPError, ValueError):  # TooLarge, SourceNotAllowed
+                        except (TooLarge, SourceNotAllowed):
+                            continue  # over the cap, or on a private address: not indexed
+                        except httpx.HTTPError as exc:
+                            report.skip(link, f"{type(exc).__name__}: {exc}")
                             continue
                     else:
                         body = ""
@@ -84,8 +102,9 @@ class FeedConnector:
                         content = f"{head}<body><h1>{title}</h1>{body}</body></html>".encode()
                         media_type = "text/html"
                     digest = hashlib.sha256(content).hexdigest()
-                    path = tmp / f"{hashlib.sha256(entry_id.encode()).hexdigest()}.html"
-                    path.write_bytes(content)
+                    path = tmp / f"{digest}.html"
+                    if not path.exists():
+                        path.write_bytes(content)
                     yield SourceItem(
                         uri=link or entry_id,
                         content_hash=digest,
@@ -98,6 +117,9 @@ class FeedConnector:
                             "title": str(entry.get("title") or ""),
                         },
                     )
+        if failed:
+            count = f"{len(failed)} of {len(urls)} feeds"
+            raise ConnectionError(f"{count} could not be read: {failed[0]}")
 
     def fetch(self, item: SourceItem) -> FetchedItem:
         return FetchedItem(

@@ -77,6 +77,7 @@ def build_context(collection: Collection) -> StageContext:
 
 def stage_settings(collection: Collection) -> dict[str, Any]:
     s = get_settings()
+    packs = list(pack_versions_for(collection))  # the collection's bindings, or every active pack
     base: dict[str, Any] = {
         "blob_dir": str(s.semascope_data_dir / "blobs"),
         "tika_url": s.tika_url,
@@ -94,7 +95,7 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "ner_model": s.semascope_ner_model,
         "ner_base_url": s.semascope_ner_base_url,
         "ner_api_key": s.remote_key("ner"),
-        "ner_labels": active_entity_labels(),
+        "ner_labels": active_entity_labels(packs),
         "extract_provider": s.semascope_extract_provider,
         "extract_base_url": s.semascope_extract_base_url,
         "extract_api_key": s.remote_key("extract"),
@@ -105,7 +106,7 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "pseudonymise_secret": s.semascope_secret_key.get_secret_value(),
         "ocr": True,
     }
-    base["shapes_ttl"] = active_shapes()
+    base["shapes_ttl"] = active_shapes(packs)
     base.update(pipeline_overrides(collection.settings))  # tuning only, never addresses
     return base
 
@@ -126,8 +127,11 @@ def pseudonymise_secret(collection: Collection) -> str | None:
 BASE_PACK_ID = "semascope-base"  # its classes are the product's own model, not things to find
 
 
-def active_entity_labels() -> dict[str, dict[str, str]]:
+def active_entity_labels(pack_ids: list[str] | None = None) -> dict[str, dict[str, str]]:
     """Zero-shot entity labels from the active packs' classes: label -> class and description.
+
+    `pack_ids` limits them to those packs (a collection's bindings); None means every active
+    pack (the search page's facets, which span collections).
 
     Only the spaCy provider ignores these; GLiNER (local or remote) asks for every class a
     pack declares, so a mythology pack finds deities and a property pack finds easements.
@@ -139,6 +143,8 @@ def active_entity_labels() -> dict[str, dict[str, str]]:
 
     out: dict[str, dict[str, str]] = {}
     packs = Pack.objects.filter(status=Pack.Status.ACTIVE).exclude(pack_id=BASE_PACK_ID)
+    if pack_ids is not None:
+        packs = packs.filter(pack_id__in=pack_ids)
     rows = Concept.objects.filter(pack__in=packs, kind=Concept.Kind.CLASS).values_list(
         "pack__requirements", "iri", "pref_label", "definition"
     )
@@ -157,40 +163,83 @@ def active_entity_labels() -> dict[str, dict[str, str]]:
     return out
 
 
-def active_shapes() -> str:
-    """Every active pack's shapes.ttl, concatenated; rdflib tolerates repeated prefixes."""
+def active_shapes(pack_ids: list[str] | None = None) -> str:
+    """The active packs' shapes.ttl (only `pack_ids`, a collection's bindings, when given),
+    concatenated; rdflib tolerates repeated prefixes."""
 
     from pathlib import Path
 
     from oss_server.knowledge.models import Pack
 
     parts: list[str] = []
-    for pack in Pack.objects.filter(status=Pack.Status.ACTIVE):
+    active = Pack.objects.filter(status=Pack.Status.ACTIVE)
+    if pack_ids is not None:
+        active = active.filter(pack_id__in=pack_ids)
+    for pack in active:
         file = Path(pack.source_path) / "shapes.ttl"
         if file.exists():
             parts.append(file.read_text(encoding="utf-8"))
     return "\n".join(parts)
 
 
+QUEUED_TTL_S = 6 * 3600  # a document queued this recently has its task waiting: not queued again
+MIN_YIELD = 0.5  # a run that sees less than this share of a source's documents deletes nothing
+MIN_YIELD_FLOOR = 10  # ... once the source has at least this many
+HOLD_CHECK_EVERY = 500  # items between checks that the run still holds its source
+
+
+class RunLost(Exception):  # noqa: N818
+    """`recover` released the source while this run was slow; a newer run may hold it."""
+
+
+def _known(source: Source) -> Any:
+    """What the last runs recorded per URI, for connectors that skip re-reading unchanged files."""
+
+    rows = Document.objects.filter(source=source).values_list(
+        "uri", "size", "modified_at", "content_hash"
+    )
+    known = {uri: (size, modified, digest) for uri, size, modified, digest in rows}
+    return known.get
+
+
 @shared_task(name="semascope.discover_source", queue="io")
 def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
+    """One run of a source: queue what is new or changed, then delete what is gone.
+
+    One run per source at a time (`runs.claim_run`): a second run finds the source `running`
+    and returns at once. A document deleted earlier comes back when the source yields it
+    again. What a full run did not see is deleted only when the connector deletes by absence
+    (feeds do not), the run could read everything it tried (`RunReport`), it did not stop
+    at a limit, and it saw at least `min_yield` (0.5) of the documents the source had; else
+    nothing is deleted and the source says why (docs/adr/0013-deletion-and-retention.md).
+    """
+
+    from oss_pipeline.connectors.base import remove_work_file
+    from oss_pipeline.connectors.guard import SourceNotAllowed, check_source
+    from oss_server.pipeline.runs import claim_run, finish_run, holds
+
     source = Source.objects.select_related("collection").get(pk=source_id)
+    now = timezone.now()
     connector = connectors().get(source.connector)
     if connector is None:
         Source.objects.filter(pk=source_id).update(
-            status=Source.Status.FAILED, last_error=f"unknown connector {source.connector}"
+            status=Source.Status.FAILED,
+            last_error=f"unknown connector {source.connector}",
+            last_run_at=now,
         )
         return {"error": 1}
-    from oss_pipeline.connectors.guard import SourceNotAllowed, check_source
-
     try:
         check_source(source.connector, source.settings, source.collection.slug)
     except SourceNotAllowed as exc:
         Source.objects.filter(pk=source_id).update(
-            status=Source.Status.FAILED, last_error=f"refused: {exc}"[:2000]
+            status=Source.Status.FAILED, last_error=f"refused: {exc}"[:2000], last_run_at=now
         )
         return {"error": 1}
-    Source.objects.filter(pk=source_id).update(status=Source.Status.RUNNING, last_error="")
+    started = timezone.now()
+    run_id = claim_run(source_id, started)
+    if run_id is None:
+        log.info("discover_source %s: a run of this source is in progress; not started", source_id)
+        return {"busy": 1}
     config = SourceConfig(
         id=str(source.id),
         collection=source.collection.slug,
@@ -198,12 +247,18 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
         settings=source.settings,
     )
     since = None if full or not source.cursor else Cursor.model_validate(source.cursor)
-    started = timezone.now()
     held_after = max(1, get_settings().semascope_max_attempts)
-    counts = {"seen": 0, "queued": 0, "unchanged": 0, "deleted": 0}
+    queued_since = started - timedelta(seconds=QUEUED_TTL_S)
+    live_before = Document.objects.filter(source=source).exclude(status=Document.Status.DELETED)
+    counts = {"seen": 0, "queued": 0, "unchanged": 0, "deleted": 0, "before": live_before.count()}
+    kwargs: dict[str, Any] = {}
+    if "known" in inspect.signature(connector.discover).parameters:
+        kwargs["known"] = _known(source)
     try:
-        for item in connector.discover(config, since):
+        for item in connector.discover(config, since, **kwargs):
             counts["seen"] += 1
+            if counts["seen"] % HOLD_CHECK_EVERY == 0 and not holds(source_id, run_id):
+                raise RunLost
             doc_id = document_id(source.collection.slug, item.uri)
             with transaction.atomic():
                 doc, created = Document.objects.select_for_update().get_or_create(
@@ -219,19 +274,24 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
                     },
                 )
                 new_content = doc.content_hash != (item.content_hash or "")
-                # a document whose runs kept killing the worker is held until it changes or
-                # is reindexed; one left `processing` by a dead worker is retried
+                # a document deleted by an earlier run is back; one whose runs kept killing
+                # the worker is held until it changes or is reindexed; one queued a moment ago
+                # has its task waiting; one left `processing` by a dead worker is retried
                 changed = (
                     created
                     or new_content
+                    or doc.status == Document.Status.DELETED
+                    or (doc.status == Document.Status.FAILED and doc.attempts < held_after)
                     or (
-                        doc.status in (Document.Status.FAILED, Document.Status.QUEUED)
+                        doc.status == Document.Status.QUEUED
                         and doc.attempts < held_after
+                        and doc.updated_at < queued_since
                     )
                     or is_stale(doc, started)
                 )
+                pending = doc.status in (Document.Status.QUEUED, Document.Status.PROCESSING)
                 doc.seen_at = started
-                if new_content:
+                if new_content or doc.status == Document.Status.DELETED:
                     doc.attempts = 0
                 if changed:
                     doc.content_hash = item.content_hash or ""
@@ -245,27 +305,80 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
                 process_document.delay(doc_id, item.model_dump(mode="json"))
             else:
                 counts["unchanged"] += 1
+                if not pending:  # nothing will read what the connector wrote for it
+                    remove_work_file(item.metadata.get("path"))
+        note = ""
         if full:
-            gone = (
-                Document.objects.filter(source=source)
-                .exclude(seen_at=started)
-                .exclude(status=Document.Status.DELETED)
-            )
-            for doc in gone:
-                delete_document.delay(doc.id)
-                counts["deleted"] += 1
-        Source.objects.filter(pk=source_id).update(
+            note = _delete_missing(source, connector, started, counts, run_id)
+        finish_run(
+            source_id,
+            run_id,
             status=Source.Status.IDLE,
             last_run_at=started,
+            last_error=note[:2000],
             cursor=Cursor(value="full", issued_at=started).model_dump(mode="json"),
         )
+    except RunLost:
+        log.warning("discover_source %s: released during the run by `recover`; stopped", source_id)
+        return counts
     except Exception as exc:  # noqa: BLE001
         log.exception("discover_source %s failed", source_id)
-        Source.objects.filter(pk=source_id).update(
-            status=Source.Status.FAILED, last_error=f"{type(exc).__name__}: {exc}"[:2000]
+        finish_run(
+            source_id,
+            run_id,
+            status=Source.Status.FAILED,
+            last_run_at=started,  # a failing scheduled source waits for its next turn
+            last_error=f"{type(exc).__name__}: {exc}"[:2000],
         )
         raise
     return counts
+
+
+def _delete_missing(
+    source: Source, connector: Any, started: datetime, counts: dict[str, int], run_id: str
+) -> str:
+    """Delete what a complete full run did not see; the reason when nothing is deleted."""
+
+    from oss_pipeline.connectors.base import deletes_missing, report_of
+    from oss_server.pipeline.runs import holds
+
+    report = report_of(connector)
+    if report is not None and report.unchecked:
+        return (
+            f"{len(report.unchecked)} item(s) could not be read on this run, so nothing was "
+            f"deleted; the first: {report.unchecked[0]}"
+        )
+    if report is not None and report.truncated:
+        return ""  # stopped at a limit: what lies past it was not looked at, not deleted
+    if not deletes_missing(connector, source.settings):
+        return ""
+    # not seen by this run, and not touched since it started (an upload, a newer run)
+    gone = (
+        Document.objects.filter(source=source)
+        .exclude(status=Document.Status.DELETED)
+        .filter(Q(seen_at__lt=started) | Q(seen_at__isnull=True))
+        .filter(updated_at__lt=started)
+    )
+    ids = list(gone.values_list("id", flat=True))
+    if not ids:
+        return ""
+    try:
+        min_yield = float(source.settings.get("min_yield", MIN_YIELD))
+    except (TypeError, ValueError):
+        min_yield = MIN_YIELD
+    before, seen = counts["before"], counts["seen"]
+    if min_yield > 0 and (seen == 0 or (before >= MIN_YIELD_FLOOR and seen < min_yield * before)):
+        return (
+            f"this run saw {seen} of the {before} documents the source had, so the {len(ids)} "
+            "it did not see were kept; if they are really gone, set the source's min_yield to "
+            "0 and run it again"
+        )
+    if not holds(source.pk, run_id):
+        raise RunLost
+    for doc_id in ids:
+        delete_document.delay(doc_id, seen_before=started.isoformat())
+        counts["deleted"] += 1
+    return ""
 
 
 TASK_RETRIES = 3  # re-runs of a document task after transient failures (settings: task_retries)
@@ -413,10 +526,18 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: boo
     fp = fingerprint(doc_row.content_hash, ctx, stages)
     if not force and already_done(doc_row, item, fp):
         log.info("document %s is indexed with the same content and settings; skipped", doc_id)
+        _drop_work_file(item)
         return "unchanged"
+    connector = connectors().get(doc_row.source.connector)
+    if connector is None:  # a connector plugin that was removed: fail it, never strand it
+        Document.objects.filter(pk=doc_id).update(
+            status=Document.Status.FAILED,
+            error=f"unknown connector {doc_row.source.connector}",
+            processing_since=None,
+        )
+        return str(Document.Status.FAILED)
     if not begin(doc_row, item):
         return str(Document.Status.FAILED)
-    connector = connectors()[doc_row.source.connector]
     try:
         fetched = _fetch(
             connector, SourceItem.model_validate(item), doc_row.source, doc_row.collection.slug
@@ -444,6 +565,8 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: boo
     fields.update(custom_fields(meta.get("fields") or {}))  # x_ keys, never index fields
     if meta.get("parent_uri"):
         fields["x_parent_uri_s"] = str(meta["parent_uri"])
+    if meta.get("children_expanded"):  # its attachments are documents of their own
+        fields["children_expanded"] = True
     for keep in ("curated", "dismissed_violations"):
         if doc_row.fields.get(keep):
             fields[keep] = doc_row.fields[keep]
@@ -461,10 +584,31 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: boo
         },
         fields=fields,
     )
-    work = _run(stages, work, ctx)
-    _store(doc_row, work, fingerprint=fp)
+    try:
+        work = _run(stages, work, ctx)
+        _store(doc_row, work, fingerprint=fp)
+    except Exception as exc:  # noqa: BLE001 - a bug or a store failure: say so on the document
+        log.exception("document %s failed outside its stages", doc_id)
+        Document.objects.filter(pk=doc_id).update(
+            status=Document.Status.FAILED,
+            error=f"{type(exc).__name__}: {exc}"[:2000],
+            processing_since=None,
+            attempts=0,
+        )
+        return str(Document.Status.FAILED)
+    if doc_row.status == Document.Status.INDEXED and doc_row.blob_path:
+        _drop_work_file(item)  # the original is in the blob store now
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
+
+
+def _drop_work_file(item: dict[str, Any]) -> None:
+    """Remove what the connector wrote to its work area for this item (nothing else)."""
+
+    from oss_pipeline.connectors.base import remove_work_file
+
+    path = (item.get("metadata") or {}).get("path") if isinstance(item, dict) else None
+    remove_work_file(path)
 
 
 def _fetch(connector: Any, item: SourceItem, source: Source, collection: str) -> Any:
@@ -820,10 +964,42 @@ def tick() -> dict[str, int]:
     return {"started": started}
 
 
+KEEP_ON_DELETE = ("curated", "dismissed_violations")  # curator decisions, for a revival
+
+# The document's machine edges go, its curator decisions (CURATED) stay with a bare node;
+# then the entities only it mentioned (an NER name is personal data).
+GRAPH_DELETE = (
+    "MATCH (d:Document {id: $id}) OPTIONAL MATCH (d)-[r]-() WHERE type(r) <> 'CURATED' "
+    "DELETE r WITH DISTINCT d "
+    "REMOVE d.title, d.source_uri, d.content_hash, d.language, d.media_type, d.indexed_at "
+    "WITH d WHERE NOT (d)--() DELETE d"
+)
+GRAPH_MENTIONED = (
+    "MATCH (d:Document {id: $id})-[:MENTIONS]->(e:Entity) RETURN collect(DISTINCT e.key) AS keys"
+)
+GRAPH_ORPHANS = "UNWIND $keys AS k MATCH (e:Entity {key: k}) WHERE NOT (e)--() DELETE e"
+
+
 @shared_task(bind=True, name="semascope.delete_document", queue="io")
-def delete_document(self: Any, doc_id: str) -> None:
+def delete_document(self: Any, doc_id: str, seen_before: str | None = None) -> str:
+    """Delete a document a source no longer has, everywhere: Solr (document and passages),
+    the graph (its curator decisions excepted), its blob and previews when no other document
+    uses them, and its work file; the Postgres row stays as a tombstone with its content
+    cleared, so a later run that sees it again brings it back.
+
+    `seen_before` (the deleting run's start) makes the delete a no-op for a document a
+    newer run has seen since.
+    """
+
+    from oss_pipeline.connectors.base import remove_work_file
+    from oss_server.pipeline.retention import remove_files, tombstone
     from oss_server.services import solr_chunks_collection
 
+    row = Document.objects.filter(pk=doc_id).first()
+    if row is None:
+        return "missing"
+    if seen_before and row.seen_at and row.seen_at >= datetime.fromisoformat(seen_before):
+        return "seen again"
     try:
         solr_client().delete_by_id(solr_documents_collection(), [doc_id])
         solr_client().delete_by_query(solr_chunks_collection(), f"document_id:{quote_term(doc_id)}")
@@ -836,16 +1012,62 @@ def delete_document(self: Any, doc_id: str) -> None:
     try:
         from oss_server.services import graph_client
 
-        graph_client().execute(
-            "MATCH (d:Document {id: $id}) OPTIONAL MATCH (d)-[r]-() WHERE type(r) <> 'CURATED' "
-            "DELETE r WITH d WHERE NOT (d)--() DELETE d",
-            id=doc_id,
-        )
+        graph = graph_client()
+        found = graph.run(GRAPH_MENTIONED, id=doc_id)
+        keys = list(found[0]["keys"]) if found else []
+        graph.execute(GRAPH_DELETE, id=doc_id)
+        if keys:
+            graph.execute(GRAPH_ORPHANS, keys=keys)
     except Exception:  # noqa: BLE001 - the graph is a projection; Solr and Postgres are the record
         log.exception("graph delete failed for %s", doc_id)
-    Document.objects.filter(pk=doc_id).update(
-        status=Document.Status.DELETED, text="", pages=[], indexed_at=None
-    )
+    kept = {k: row.fields[k] for k in KEEP_ON_DELETE if row.fields.get(k)}
+    path = (row.item.get("metadata") or {}).get("path") if isinstance(row.item, dict) else None
+    Document.objects.filter(pk=doc_id).update(**{**tombstone(), "fields": kept})
+    remove_files([(row.blob_path, row.content_hash)])
+    remove_work_file(path)
+    return str(Document.Status.DELETED)
+
+
+@shared_task(bind=True, name="semascope.purge_documents", queue="io")
+def purge_documents(self: Any, ids: list[str], files: list[Any]) -> int:
+    """After a source or collection was deleted: its documents' files and graph nodes.
+
+    Solr was purged when the source or collection was deleted. The graph purge is retried
+    while Neo4j is away, like a document's graph stage."""
+
+    from oss_server.pipeline.retention import purge_graph, remove_files
+
+    removed = remove_files((str(b), str(h)) for b, h in files)
+    try:
+        purge_graph(ids)
+    except Exception as exc:
+        if is_transient(exc) and self.request.retries < TASK_RETRIES:
+            raise self.retry(
+                exc=exc, countdown=_countdown(self.request.retries + 1, TASK_BACKOFF_S)
+            ) from exc
+        log.exception("graph purge failed for %d documents", len(ids))
+    return removed
+
+
+@shared_task(name="semascope.purge_area", queue="io")
+def purge_area(collection: str, source_id: str | None, *, uploads: bool = False) -> None:
+    """A deleted source's (or collection's) work area, and its uploaded files when asked."""
+
+    from oss_server.pipeline.retention import remove_area
+
+    remove_area(collection, source_id, uploads=uploads)
+
+
+@shared_task(name="semascope.gc", queue="io")
+def gc() -> dict[str, int]:
+    """Once a day: blobs and previews no document uses, stale work files, expired leases."""
+
+    from oss_server.pipeline.retention import gc as sweep
+    from oss_server.pipeline.runs import expired_leases
+
+    out = sweep()
+    out["leases"] = expired_leases()
+    return out
 
 
 def _graph_status(work: WorkingDocument, previous: str) -> str:
@@ -867,6 +1089,9 @@ def _store(row: Document, work: WorkingDocument, *, fingerprint: str = "") -> No
     failed = [r for r in work.stage_runs if r.outcome == "failed"]
     indexed = bool(work.fields.get("indexed"))
     _record_metrics(row, work, indexed)
+    # the fetch stage hashes what it read: a file that changed after discovery is indexed as
+    # what was read, under that hash
+    row.content_hash = work.content_hash or row.content_hash
     row.media_type = work.media_type or ""
     row.language = work.language or ""
     row.title = work.title or ""
@@ -947,17 +1172,52 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+WEBHOOK_BATCH = 100  # events per hook per run
+WEBHOOK_TIMEOUT_S = 15.0
+# a hook's lease covers a whole batch of slow deliveries; an expired one is free again
+WEBHOOK_LEASE_S = WEBHOOK_BATCH * WEBHOOK_TIMEOUT_S + 60
+ALERTS_LEASE_S = 600.0
+
+
 @shared_task(name="semascope.deliver_webhooks", queue="io")
 def deliver_webhooks() -> int:
     """Send outbox events to every enabled webhook, in order, with an HMAC signature.
 
     Delivery goes through the outbound guard (oss_pipeline.connectors.guard): a receiver on
     a private address needs SEMASCOPE_ALLOWED_PRIVATE_HOSTS, and redirects are not followed.
+    Each hook is delivered by one run at a time (a lease, `runs.lease`): the tick starts a
+    run every minute, and a slow receiver can make one run last longer than that. The
+    hook's cursor moves after each delivered event, never backwards, so an event is sent
+    once even when a run is killed half way.
     """
 
-    import hashlib
+    from oss_server.curation.models import Webhook
+    from oss_server.pipeline.runs import lease
+
+    sent = 0
+    for hook_id in Webhook.objects.filter(enabled=True).values_list("pk", flat=True):
+        with lease(f"webhook:{hook_id}", WEBHOOK_LEASE_S) as held:
+            if held is None:
+                continue  # another run is delivering to this hook
+            sent += _deliver(Webhook.objects.get(pk=hook_id))
+    return sent
+
+
+def _advance(hook: Any, event_id: int, error: str = "") -> None:
+    """Move a hook's cursor forward to `event_id` (never back) and record the outcome."""
+
+    from oss_server.curation.models import Webhook
+
+    Webhook.objects.filter(pk=hook.pk, last_event_id__lt=event_id).update(
+        last_event_id=event_id, last_error=error
+    )
+    hook.last_event_id = max(hook.last_event_id, event_id)
+
+
+def _deliver(hook: Any) -> int:
+    """Deliver a hook's next batch of events, in order, stopping at the first failure."""
+
     import hmac
-    import json
 
     import httpx
 
@@ -965,89 +1225,95 @@ def deliver_webhooks() -> int:
     from oss_server.curation.models import Event, Webhook
 
     sent = 0
-    for hook in Webhook.objects.filter(enabled=True):
-        events = Event.objects.filter(pk__gt=hook.last_event_id).order_by("pk")[:100]
-        for event in events:
-            if hook.kinds and not any(event.kind.startswith(k) for k in hook.kinds):
-                hook.last_event_id = event.pk
-                continue
-            body = json.dumps(
-                {
-                    "id": event.pk,
-                    "kind": event.kind,
-                    "collection": event.collection,
-                    "subject": event.subject,
-                    "payload": event.payload,
-                    "created_at": event.created_at.isoformat(),
-                },
-                default=str,
-            ).encode()
-            headers = {"Content-Type": "application/json", "X-Semascope-Event": event.kind}
-            if hook.secret:
-                headers["X-Semascope-Signature"] = (
-                    "sha256=" + hmac.new(hook.secret.encode(), body, hashlib.sha256).hexdigest()
-                )
-            try:
-                with guarded_client(timeout=15.0, follow_redirects=False) as client:
-                    resp = client.post(hook.url, content=body, headers=headers)
-                if resp.is_redirect:
-                    hook.last_error = f"{resp.status_code} on event {event.pk} (not followed)"
-                    break
-                if resp.status_code >= 400:
-                    hook.last_error = f"{resp.status_code} on event {event.pk}"
-                    break
-                hook.last_event_id = event.pk
-                hook.last_error = ""
-                sent += 1
-            except SourceNotAllowed as exc:
-                hook.last_error = f"refused on event {event.pk}: {exc}"[:2000]
-                break
-            except httpx.HTTPError as exc:
-                hook.last_error = f"{type(exc).__name__} on event {event.pk}"
-                break
-        hook.save(update_fields=["last_event_id", "last_error"])
+    events = Event.objects.filter(pk__gt=hook.last_event_id).order_by("pk")[:WEBHOOK_BATCH]
+    for event in events:
+        if hook.kinds and not any(event.kind.startswith(k) for k in hook.kinds):
+            _advance(hook, event.pk)
+            continue
+        body = json.dumps(
+            {
+                "id": event.pk,
+                "kind": event.kind,
+                "collection": event.collection,
+                "subject": event.subject,
+                "payload": event.payload,
+                "created_at": event.created_at.isoformat(),
+            },
+            default=str,
+        ).encode()
+        headers = {"Content-Type": "application/json", "X-Semascope-Event": event.kind}
+        if hook.secret:
+            headers["X-Semascope-Signature"] = (
+                "sha256=" + hmac.new(hook.secret.encode(), body, hashlib.sha256).hexdigest()
+            )
+        error = ""
+        try:
+            with guarded_client(timeout=WEBHOOK_TIMEOUT_S, follow_redirects=False) as client:
+                resp = client.post(hook.url, content=body, headers=headers)
+            if resp.is_redirect:
+                error = f"{resp.status_code} on event {event.pk} (not followed)"
+            elif resp.status_code >= 400:
+                error = f"{resp.status_code} on event {event.pk}"
+        except SourceNotAllowed as exc:
+            error = f"refused on event {event.pk}: {exc}"[:2000]
+        except httpx.HTTPError as exc:
+            error = f"{type(exc).__name__} on event {event.pk}"
+        if error:
+            Webhook.objects.filter(pk=hook.pk).update(last_error=error)
+            break
+        _advance(hook, event.pk)
+        sent += 1
     return sent
 
 
 @shared_task(name="semascope.check_alerts", queue="io")
 def check_alerts() -> int:
-    """Run every saved search with an alert; emit an event when its total grew."""
+    """Run every saved search with an alert; emit an event when its total grew.
+
+    The event is in the shared outbox, which every reader of the collection and every
+    webhook sees, so it says only that saved search `<id>` of collection `<c>` has `new`
+    more matches: never its owner, its name, its query or its hits. The owner reads those in
+    the in-app alert list (`/api/views/alerts`). One check runs at a time (a lease).
+    """
 
     from oss_server.api import search as search_mod
     from oss_server.api.access import can_read, readable_collections
     from oss_server.api.schemas import SearchIn
     from oss_server.catalogue.models import SavedSearch
     from oss_server.curation.services import emit
+    from oss_server.pipeline.runs import lease
 
     fired = 0
-    for saved in SavedSearch.objects.filter(alert=True).select_related("user"):
-        try:
-            req = SearchIn(**saved.query).model_copy(
-                update={"page": 1, "page_size": 5, "facets": []}
-            )
-            # an alert sees what its owner may read now, not what they could when saving it
-            if req.collection and not can_read(saved.user, req.collection):
+    with lease("check_alerts", ALERTS_LEASE_S) as held:
+        if held is None:
+            return 0  # the previous check is still running
+        for saved in SavedSearch.objects.filter(alert=True).select_related("user"):
+            try:
+                req = SearchIn(**saved.query).model_copy(
+                    update={"page": 1, "page_size": 5, "facets": []}
+                )
+                # an alert sees what its owner may read now, not what they could when saving it
+                if req.collection and not can_read(saved.user, req.collection):
+                    continue
+                readable = readable_collections(saved.user)
+                allowed = None if readable is None else sorted(readable)
+                res = search_mod.search(solr_client(), solr_documents_collection(), req, allowed)
+            except Exception:  # noqa: BLE001
+                log.exception("alert %s failed", saved.pk)
                 continue
-            readable = readable_collections(saved.user)
-            allowed = None if readable is None else sorted(readable)
-            res = search_mod.search(solr_client(), solr_documents_collection(), req, allowed)
-        except Exception:  # noqa: BLE001
-            log.exception("alert %s failed", saved.pk)
-            continue
-        if saved.last_checked_at is not None and res.total > saved.last_total:
-            emit(
-                "alert.saved_search",
-                collection=str(saved.query.get("collection") or ""),
-                subject=saved.name,
-                payload={
-                    "user": saved.user.username,
-                    "new": res.total - saved.last_total,
-                    "total": res.total,
-                    "hits": [h.model_dump() for h in res.hits],
-                },
-            )
-            fired += 1
-        saved.last_total = res.total
-        saved.last_checked_at = timezone.now()
-        saved.save(update_fields=["last_total", "last_checked_at"])
+            if saved.last_checked_at is not None and res.total > saved.last_total:
+                emit(
+                    "alert.saved_search",
+                    collection=str(saved.query.get("collection") or ""),
+                    subject=f"saved-search:{saved.pk}",
+                    payload={
+                        "saved_search": saved.pk,
+                        "new": res.total - saved.last_total,
+                        "total": res.total,
+                    },
+                )
+                fired += 1
+            saved.last_total = res.total
+            saved.last_checked_at = timezone.now()
+            saved.save(update_fields=["last_total", "last_checked_at"])
     return fired

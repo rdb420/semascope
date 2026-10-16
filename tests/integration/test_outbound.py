@@ -147,8 +147,9 @@ def test_saved_search_alert_fires_when_the_total_grows(api: httpx.Client) -> Non
             what="the first alert check",
         )
         assert first["last_total"] == 1, first
+        subject = f"saved-search:{alert_id}"
         fired = api.get("/curation/events", params={"since_id": cursor, "kind": "alert."}).json()
-        assert not [e for e in fired if e["subject"] == f"alert {word}"], fired
+        assert not [e for e in fired if e["subject"] == subject], fired
 
         uri = upload(api, slug, f"{word}-2.txt", f"Another {word} in the culvert.")
         wait_for(lambda: searchable(api, slug, word, 2), timeout=300, what="the second upload")
@@ -158,18 +159,22 @@ def test_saved_search_alert_fires_when_the_total_grows(api: httpx.Client) -> Non
             events = api.get(
                 "/curation/events", params={"since_id": cursor, "kind": "alert.saved_search"}
             ).json()
-            return next((e for e in events if e["subject"] == f"alert {word}"), None)
+            return next((e for e in events if e["subject"] == subject), None)
 
         event = wait_for(alert_event, timeout=120, every=1.0, what="the alert event")
         assert event["collection"] == slug
-        assert event["payload"]["new"] == 1 and event["payload"]["total"] == 2, event
-        assert event["payload"]["user"] == api.get("/auth/me").json()["username"]
-        assert doc_id(slug, uri) in {h["id"] for h in event["payload"]["hits"]}
+        # every reader of the collection and every webhook sees the outbox: the event names
+        # the saved search, never its owner, its name or its hits (SEMA-048)
+        assert event["payload"] == {"saved_search": alert_id, "new": 1, "total": 2}, event
+        assert word not in str(event)
+        # the owner reads the matches in the in-app alert list
+        mine = next(a for a in api.get("/views/alerts").json() if a["id"] == alert_id)
+        assert doc_id(slug, uri) in {h["id"] for h in mine["newest"]}
         assert saved(api, alert_id)["last_total"] == 2
         # a saved search without an alert is never checked
         assert saved(api, quiet_id)["last_checked_at"] is None
         events = api.get("/curation/events", params={"since_id": cursor, "kind": "alert."}).json()
-        assert [e["subject"] for e in events if word in e["subject"]] == [f"alert {word}"]
+        assert [e["subject"] for e in events if e["subject"] == subject] == [subject]
     finally:
         for sid in (alert_id, quiet_id):
             api.delete(f"/search/saved/{sid}")

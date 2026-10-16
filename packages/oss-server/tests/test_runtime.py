@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from ninja.errors import HttpError
 
@@ -68,3 +70,41 @@ def test_replay_set_adds_followers_and_publishers() -> None:
     assert replay_set(None) == set()
     assert replay_set(["embed"]) == {"structure", "embed", "index", "graph"}
     assert replay_set(["ner"]) == {"ner", "link", "index", "graph"}
+
+
+def test_ner_labels_and_shapes_come_from_the_collections_bound_packs(
+    db: None, tmp_path: Path
+) -> None:
+    from oss_server.catalogue.models import Collection
+    from oss_server.knowledge.models import PackBinding
+
+    shapes: dict[str, Path] = {}
+    for pid, cls in (("myth", "Deity"), ("law", "Easement")):
+        folder = tmp_path / pid
+        folder.mkdir()
+        (folder / "shapes.ttl").write_text(f"# shapes of {pid}\n")
+        shapes[pid] = folder
+        pack = Pack.objects.create(
+            pack_id=pid,
+            version="1",
+            title=pid,
+            base_iri=f"https://x/{pid}#",
+            manifest_hash=pid,
+            graph_iri=f"g:{pid}",
+            status=Pack.Status.ACTIVE,
+            source_path=str(folder),
+        )
+        Concept.objects.create(
+            pack=pack, iri=f"https://x/{pid}#{cls}", kind=Concept.Kind.CLASS, pref_label=cls
+        )
+    bound = Collection.objects.create(slug="bound", name="bound")
+    PackBinding.objects.create(collection=bound, pack_id="myth")
+    open_collection = Collection.objects.create(slug="open", name="open")
+
+    settings = stage_settings(bound)
+    assert set(settings["ner_labels"]) == {"deity"}
+    assert "shapes of myth" in settings["shapes_ttl"]
+    assert "shapes of law" not in settings["shapes_ttl"]
+    every = stage_settings(open_collection)  # no bindings: every active pack
+    assert set(every["ner_labels"]) == {"deity", "easement"}
+    assert "shapes of law" in every["shapes_ttl"]

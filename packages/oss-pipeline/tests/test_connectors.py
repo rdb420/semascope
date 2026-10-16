@@ -55,9 +55,14 @@ def test_mail_messages_and_attachments(tmp_path: Path) -> None:
     (tmp_path / "single.eml").write_bytes(msg.as_bytes())
     src = SourceConfig(id="s", collection="c", connector="mail", settings={"path": str(tmp_path)})
     items = list(MailConnector().discover(src, None))
-    kinds = sorted((i.uri, i.metadata.get("media_type")) for i in items)
-    assert ("mail:m1@example.org", "message/rfc822") in kinds
-    assert ("mail:m1@example.org/doc.pdf", "application/pdf") in kinds
+    kinds = {(i.uri, i.metadata.get("media_type")) for i in items}
+    messages = {u for u, kind in kinds if kind == "message/rfc822"}
+    # the same message in the mbox and as an .eml is one document, under its Message-ID and
+    # a hash of the message
+    assert len(messages) == 1
+    (uri,) = messages
+    assert uri.startswith("mail:m1@example.org#")
+    assert (f"{uri}/doc.pdf", "application/pdf") in kinds
     assert len(items) == 4  # same message from the mbox and the eml, each with its attachment
     assert (
         items[0].modified_at is not None and items[0].modified_at.hour == 0

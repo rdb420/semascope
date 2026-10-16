@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.base import RunReport, path_fields, walk_files
 from oss_pipeline.connectors.guard import (
     SourceNotAllowed,
     all_upload_roots,
@@ -49,13 +50,18 @@ def store_upload(data_dir: Path, collection: str, name: str, content: bytes) -> 
 
 class UploadConnector:
     name = "upload"
+    deletes_missing = True
+
+    def __init__(self) -> None:
+        self.report = RunReport()
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
+        self.report = RunReport()
         roots = upload_roots(source.collection)
         root = confine_path(str(source.settings["path"]), roots)
         if not root.exists():
             return
-        for file in confined_files(sorted(p for p in root.rglob("*") if p.is_file()), roots):
+        for file in confined_files(walk_files(root, self.report), roots):
             stat = file.stat()
             if stat.st_size == 0:
                 continue
@@ -69,7 +75,7 @@ class UploadConnector:
                 content_hash=digest,
                 modified_at=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
                 size=stat.st_size,
-                metadata={"path": str(file)},
+                metadata={"path": str(file), "fields": path_fields([], file.name)},
             )
 
     def fetch(self, item: SourceItem) -> FetchedItem:
