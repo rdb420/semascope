@@ -131,3 +131,30 @@ def test_the_retry_marker_is_not_stored(row: Document) -> None:
     tasks._store(row, work)
     row.refresh_from_db()
     assert TRANSIENT_FAILURES not in row.fields
+
+
+@pytest.mark.parametrize("task", ["process", "reindex"])
+def test_an_unknown_profile_fails_the_document_instead_of_running_another(
+    row: Document, monkeypatch: pytest.MonkeyPatch, task: str
+) -> None:
+    row.collection.profile = "defualt"
+    row.collection.save()
+    ran: list[str] = []
+    monkeypatch.setattr(tasks, "run_profile", lambda *a, **k: ran.append("ran"))
+    monkeypatch.setattr(tasks, "connectors", lambda: {"filesystem": FailingConnector(OSError())})
+    if task == "process":
+        tasks.process_document.push_request(retries=0)
+        try:
+            status = tasks.process_document(row.id, {"uri": row.uri})
+        finally:
+            tasks.process_document.pop_request()
+    else:
+        tasks.reindex_document.push_request(retries=0)
+        try:
+            status = tasks.reindex_document(row.id)
+        finally:
+            tasks.reindex_document.pop_request()
+    assert status == "failed" and ran == []
+    row.refresh_from_db()
+    assert row.status == Document.Status.FAILED and "unknown profile 'defualt'" in row.error
+    assert row.processing_since is None and row.attempts == 0

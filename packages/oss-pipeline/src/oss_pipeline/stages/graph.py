@@ -55,19 +55,33 @@ class GraphStage:
 
     def __init__(self, client: GraphClient | None = None) -> None:
         self._client = client
+        self._client_key: tuple[str, ...] | None = None  # None: a client handed in
         self._constraints_done = False
 
     def _graph(self, ctx: StageContext) -> GraphClient:
-        if self._client is None:
+        """The process's Neo4j driver (the stage lives as long as its worker process), built
+        again only when the connection settings change; constraints once per driver."""
+
+        s = ctx.settings
+        key = tuple(str(s.get(k) or "") for k in ("neo4j_uri", "neo4j_user", "neo4j_password"))
+        if self._client is None or (self._client_key is not None and self._client_key != key):
+            self.close()
             self._client = GraphClient(
-                str(ctx.settings["neo4j_uri"]),
-                str(ctx.settings.get("neo4j_user") or "neo4j"),
-                str(ctx.settings.get("neo4j_password") or ""),
+                str(s["neo4j_uri"]),
+                str(s.get("neo4j_user") or "neo4j"),
+                str(s.get("neo4j_password") or ""),
             )
+            self._client_key = key
+            self._constraints_done = False
         if not self._constraints_done:
             self._client.ensure_constraints()
             self._constraints_done = True
         return self._client
+
+    def close(self) -> None:
+        if self._client is not None and self._client_key is not None:
+            self._client.close()  # only a driver this stage built
+            self._client = None
 
     def run(self, doc: WorkingDocument, ctx: StageContext) -> WorkingDocument:
         g = self._graph(ctx)

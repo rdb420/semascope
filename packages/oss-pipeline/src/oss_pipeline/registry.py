@@ -1,8 +1,17 @@
-"""Discover connectors and stages through entry points, with the built-ins always present."""
+"""Discover connectors and stages through entry points, with the built-ins always present.
+
+`profile()` hands out the stage instances of the running process: they are built
+once per process (again after a fork), so a stage's clients (Solr, Neo4j, the NER
+service) and their connections live as long as the worker process instead of one
+document, and entry points are not rescanned for every task. `stages()` always
+builds new instances.
+"""
 
 from __future__ import annotations
 
+import atexit
 import logging
+import os
 from importlib.metadata import entry_points
 from typing import Any
 
@@ -110,9 +119,49 @@ def stages() -> dict[str, Stage]:
     return {name: cls() for name, cls in found.items()}
 
 
+class UnknownProfileError(ValueError):
+    """A collection names a profile that does not exist (a configuration error)."""
+
+
+_process: dict[str, Any] = {}  # this process's stage instances: {"pid": int, "stages": dict}
+
+
+def process_stages() -> dict[str, Stage]:
+    """The stage instances of this process, built on first use and after a fork."""
+
+    if _process.get("pid") != os.getpid() or "stages" not in _process:
+        _process.update(pid=os.getpid(), stages=stages())
+    found: dict[str, Stage] = _process["stages"]
+    return found
+
+
+def close_stages() -> None:
+    """Close the clients of this process's stages (at exit; tests call it to start afresh)."""
+
+    built: dict[str, Stage] = _process.pop("stages", None) or {}
+    _process.pop("pid", None)
+    for stage in built.values():
+        close = getattr(stage, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:  # noqa: BLE001 - closing is best effort
+                log.debug("closing stage %s: %s", getattr(stage, "name", stage), exc)
+
+
+atexit.register(close_stages)
+
+
 def profile(name: str, available: dict[str, Stage] | None = None) -> list[Stage]:
-    available = available or stages()
-    prof = Profile(name=name, stages=PROFILES.get(name, PROFILES["default"]))
+    """The stages of a profile, in order. An unknown profile name raises
+    `UnknownProfileError`: a typo in a collection's profile must not quietly run another one."""
+
+    if name not in PROFILES:
+        raise UnknownProfileError(
+            f"unknown profile {name!r}; the profiles are {', '.join(sorted(PROFILES))}"
+        )
+    available = available or process_stages()
+    prof = Profile(name=name, stages=PROFILES[name])
     problems = prof.validate_against(available)
     if problems:
         raise ValueError(f"profile {name}: {problems}")
