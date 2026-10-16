@@ -215,7 +215,11 @@ starts again on the existing data, and the command exits non-zero. Only
 then does it switch: the old database is renamed and dropped at the end,
 each Solr collection is replaced from the verified backup, the data
 volume is unpacked and, with a dump, Neo4j is loaded. A failure after the
-switch names what is restored and where the staged copy is. The staging
+switch names what is restored and where the staged copy is. A Solr restore
+also writes the backup's copy of each configset into ZooKeeper, and a backup
+keeps only a configset's top-level files, so after the Solr steps (whether
+they succeeded or failed) the restore uploads the configsets from the image
+again and reloads the collections before the application starts. The staging
 needs free disk for a second copy of the Solr collections and the
 database while the restore runs.
 

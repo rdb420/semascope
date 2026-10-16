@@ -360,6 +360,23 @@ verify_backup() {
   if [ -e "$src/neo4j.dump" ]; then [ -s "$src/neo4j.dump" ] || fail "$src/neo4j.dump is empty"; fi
 }
 
+# refresh_configsets: upload every configset from the image again and reload the collections
+# that exist (none is created). A Solr RESTORE also writes the backup's copy of the configset
+# into ZooKeeper, and a backup keeps only the configset's top-level files, so after any
+# RESTORE the live configsets are put back from the image before the application starts.
+refresh_configsets() {
+  ensure_import_dir
+  docker compose run --rm --no-deps -T cli oss-manage shell --verbosity 0 -c '
+from oss_server.services import configset_dir, solr_client
+client = solr_client()
+have = set(client.list_collections())
+for name in ("documents", "entities", "chunks"):
+    client.upload_configset(f"semascope-{name}", configset_dir(name))
+    if name in have:
+        client.reload_collection(name)
+print("configsets uploaded; collections reloaded:", ", ".join(sorted(have & {"documents", "entities", "chunks"})))'
+}
+
 restore() {
   local src c staged=""
   [ $# -eq 1 ] || fail "usage: ./oss restore <backup-dir>"
@@ -371,14 +388,26 @@ restore() {
 
   # Until the switch below, a failure leaves the live data as it was.
   undo() {
+    local configsets=ok
     echo "error: restore FAILED: $1" >&2
     for c in $staged; do solr_api "action=DELETE&name=${c}_restoring" 2>/dev/null || true; done
     for c in $SOLR_COLLECTIONS; do docker compose exec -T solr rm -rf "/var/solr/data/restore-$c" 2>/dev/null || true; done
     docker compose exec -T postgres psql -q -U semascope -d postgres \
       -c "DROP DATABASE IF EXISTS semascope_restore" >/dev/null 2>&1 || true
+    # a RESTORE that ran (even one Solr refused) may have replaced a live configset
+    if [ -n "$staged" ]; then refresh_configsets >/dev/null || configsets=failed; fi
     docker compose up -d --wait server worker beat >/dev/null 2>&1 || true
-    echo "nothing was changed; the app services are running again on the existing data" >&2
+    if [ "$configsets" = ok ]; then
+      echo "nothing was changed; the app services are running again on the existing data" >&2
+    else
+      echo "the data was not changed, but the Solr configsets could not be uploaded again: run ./oss up, which uploads them" >&2
+    fi
     exit 1
+  }
+  # after the switch: put the configsets back (best effort), then stop with the message
+  switch_fail() {
+    refresh_configsets >/dev/null 2>&1 || echo "warning: the Solr configsets could not be uploaded again; ./oss up does it" >&2
+    fail "$@"
   }
   for c in $SOLR_COLLECTIONS; do
     echo "solr $c <- $src/solr/$c.tar (staged as ${c}_restoring)"
@@ -386,7 +415,7 @@ restore() {
       < "$src/solr/$c.tar" || undo "unpacking solr/$c.tar"
     solr_api "action=DELETE&name=${c}_restoring" >/dev/null 2>&1 || true
     staged="$staged $c"
-    solr_api "action=RESTORE&name=$c&collection=${c}_restoring&location=/var/solr/data/restore-$c" \
+    solr_api "action=RESTORE&name=$c&collection=${c}_restoring&collection.configName=semascope-$c&location=/var/solr/data/restore-$c" \
       || undo "Solr could not restore $c from the backup"
   done
   echo "postgres <- $src/postgres.sql.gz (staged as semascope_restore)"
@@ -403,25 +432,27 @@ restore() {
     -c "SET client_min_messages = warning" -c "DROP DATABASE IF EXISTS semascope_before_restore" \
     -c "ALTER DATABASE semascope RENAME TO semascope_before_restore" \
     -c "ALTER DATABASE semascope_restore RENAME TO semascope" >/dev/null \
-    || fail "restore FAILED switching Postgres databases: check that 'semascope' exists (the previous one may be 'semascope_before_restore', the restored one 'semascope_restore'); the app services are stopped"
+    || switch_fail "restore FAILED switching Postgres databases: check that 'semascope' exists (the previous one may be 'semascope_before_restore', the restored one 'semascope_restore'); the app services are stopped"
   echo "data <- $src/data.tar.gz"
   docker compose run --rm -T cli sh -c "tar -C /data -xzf -" < "$src/data.tar.gz" \
-    || fail "restore FAILED unpacking data.tar.gz into the data volume; Postgres is restored, Solr not yet (staged as *_restoring); the app services are stopped"
+    || switch_fail "restore FAILED unpacking data.tar.gz into the data volume; Postgres is restored, Solr not yet (staged as *_restoring); the app services are stopped"
   for c in $SOLR_COLLECTIONS; do
     echo "solr $c: replacing with the restored copy"
-    solr_api "action=DELETE&name=$c" || fail "restore FAILED deleting Solr collection $c; the restored copy is ${c}_restoring; the app services are stopped"
-    solr_api "action=RESTORE&name=$c&collection=$c&location=/var/solr/data/restore-$c" \
-      || fail "restore FAILED restoring Solr collection $c (it was deleted); the restored copy is ${c}_restoring; the app services are stopped"
+    solr_api "action=DELETE&name=$c" || switch_fail "restore FAILED deleting Solr collection $c; the restored copy is ${c}_restoring; the app services are stopped"
+    solr_api "action=RESTORE&name=$c&collection=$c&collection.configName=semascope-$c&location=/var/solr/data/restore-$c" \
+      || switch_fail "restore FAILED restoring Solr collection $c (it was deleted); the restored copy is ${c}_restoring; the app services are stopped"
     solr_api "action=DELETE&name=${c}_restoring" || echo "warning: could not delete the staging collection ${c}_restoring" >&2
     docker compose exec -T solr rm -rf "/var/solr/data/restore-$c" || true
   done
+  echo "solr: configsets from the image again (a restore also restores the backup's copies)"
+  refresh_configsets || fail "restore FAILED uploading the Solr configsets; the data is restored; run ./oss up, which uploads them"
   if [ -f "$src/neo4j.dump" ]; then
     echo "neo4j <- $src/neo4j.dump"
     docker compose stop neo4j >/dev/null
     local rc=0
     docker compose run --rm -T --no-deps neo4j neo4j-admin database load neo4j --from-stdin --overwrite-destination=true < "$src/neo4j.dump" || rc=$?
     docker compose up -d --wait --no-deps neo4j >/dev/null || fail "neo4j did not start again after the load; run ./oss up"  # back and answering
-    [ "$rc" = 0 ] || fail "restore FAILED loading neo4j.dump; Postgres, Solr and the data volume are restored; './oss reindex' rebuilds the graph"
+    [ "$rc" = 0 ] || switch_fail "restore FAILED loading neo4j.dump; Postgres, Solr and the data volume are restored; './oss reindex' rebuilds the graph"
   fi
   docker compose exec -T postgres psql -q -U semascope -d postgres \
     -c "DROP DATABASE IF EXISTS semascope_before_restore" >/dev/null \

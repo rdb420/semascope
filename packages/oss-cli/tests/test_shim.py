@@ -406,3 +406,51 @@ def test_secrets_mode_adds_the_overlay_and_leaves_valkey_alone(shim: Shim) -> No
     # an explicit COMPOSE_FILE still wins
     assert shim.run("stats", env={"COMPOSE_FILE": "compose.yaml"}).returncode == 0
     assert shim.calls()[-1].compose_file == "compose.yaml"
+
+
+# --- restore puts the Solr configsets back (a RESTORE overwrites them) --------------------------
+
+
+def fake_backup(folder: Path) -> Path:
+    import gzip
+
+    (folder / "solr").mkdir(parents=True)
+    (folder / "postgres.sql.gz").write_bytes(gzip.compress(b"-- dump\n"))
+    with tarfile.open(folder / "data.tar.gz", "w:gz") as tar:
+        info = tarfile.TarInfo("blobs/x")
+        tar.addfile(info, io.BytesIO(b""))
+    for name in ("documents", "entities", "chunks"):
+        with tarfile.open(folder / "solr" / f"{name}.tar", "w") as tar:
+            data = b"backup"
+            info = tarfile.TarInfo(f"./{name}/backup.properties")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return folder
+
+
+def test_a_refused_restore_uploads_the_configsets_before_the_app_starts(shim: Shim) -> None:
+    backup = fake_backup(shim.work / "backup")
+    proc = shim.run("restore", "backup", env={"FAKE_FAIL": "action=RESTORE"})
+    assert proc.returncode != 0 and "nothing was changed" in proc.stderr
+    calls = [c.args for c in shim.calls()]
+    restore = next(i for i, a in enumerate(calls) if any("action=RESTORE" in x for x in a))
+    assert any("collection.configName=semascope-documents" in x for x in calls[restore])
+    refresh = next(i for i, a in enumerate(calls) if "oss-manage" in a)
+    restart = next(i for i, a in enumerate(calls) if a[:4] == ["compose", "up", "-d", "--wait"])
+    assert restore < refresh < restart
+    assert "upload_configset" in calls[refresh][-1]
+    assert backup.is_dir()
+
+
+def test_a_restore_uploads_the_configsets_after_the_switch(shim: Shim) -> None:
+    fake_backup(shim.work / "backup")
+    assert shim.run("restore", "backup").returncode == 0
+    calls = [c.args for c in shim.calls()]
+    switched = max(
+        i
+        for i, a in enumerate(calls)
+        if any(x.startswith("action=RESTORE&name=chunks&collection=chunks&") for x in a)
+    )
+    refresh = [i for i, a in enumerate(calls) if "oss-manage" in a]
+    restart = [i for i, a in enumerate(calls) if a[:4] == ["compose", "up", "-d", "--wait"]][-1]
+    assert refresh and switched < refresh[-1] < restart
