@@ -34,6 +34,7 @@ from oss_core.contracts import (
     SourceItem,
     Stage,
     StageContext,
+    StageRun,
     Tag,
     WorkingDocument,
 )
@@ -458,7 +459,7 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: boo
         },
         fields=fields,
     )
-    work = run_profile(stages, work, ctx)
+    work = _run(stages, work, ctx)
     _store(doc_row, work, fingerprint=fp)
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
@@ -521,12 +522,50 @@ def reindex_document(self: Any, doc_id: str, stages: list[str] | None = None) ->
     ]
     # a partial replay publishes nothing when a replayed stage fails: the published result
     # stays as it was and the document reports the failure
-    work = run_profile(todo, work, ctx, stop_on_failure=tuple(wanted - set(PUBLISH)))
+    work = _run(todo, work, ctx, stop_on_failure=tuple(wanted - set(PUBLISH)))
     # a full replay is what processing the same content again would give
     fp = "" if wanted else fingerprint(doc_row.content_hash, ctx, every)
     _store(doc_row, work, fingerprint=fp)
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
+
+
+GRAPH_PAUSE_S = 60.0  # after Neo4j failed transiently, documents skip the graph stage this long
+_graph_paused_until = 0.0  # per worker process
+
+
+def _run(
+    stages: list[Stage], work: WorkingDocument, ctx: StageContext, **kwargs: Any
+) -> WorkingDocument:
+    """Run a profile; while Neo4j is known to be away, leave the graph stage for later.
+
+    A Neo4j outage costs each document the driver's own retries times the stage's (about
+    a minute and a half), although the graph is only a projection. So after one transient
+    graph failure this process skips the graph stage for `GRAPH_PAUSE_S`: the document is
+    indexed with its projection `pending`, and `project_graph` and `recover` write it later.
+    """
+
+    global _graph_paused_until
+    paused = time.monotonic() < _graph_paused_until
+    work = run_profile(
+        [s for s in stages if not (paused and s.name == "graph")], work, ctx, **kwargs
+    )
+    if paused and any(s.name == "graph" for s in stages):
+        now = datetime.now(UTC)
+        work.stage_runs.append(
+            StageRun(
+                stage="graph",
+                version=next(s.version for s in stages if s.name == "graph"),
+                started_at=now,
+                duration_ms=0,
+                outcome="failed",
+                message="Neo4j unavailable a moment ago; the projection is written later",
+            )
+        )
+        work.fields[TRANSIENT_FAILURES] = [*(work.fields.get(TRANSIENT_FAILURES) or []), "graph"]
+    elif "graph" in (work.fields.get(TRANSIENT_FAILURES) or []):
+        _graph_paused_until = time.monotonic() + GRAPH_PAUSE_S
+    return work
 
 
 def _working_from_row(row: Document) -> WorkingDocument:

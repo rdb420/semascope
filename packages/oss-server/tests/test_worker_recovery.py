@@ -411,3 +411,42 @@ def test_stats_show_pending_and_failed_graphs_and_held_documents(
     assert stats["graph"] == {"pending": 1, "failed": 1} and stats["interrupted"] == 1
     doc = client.get(f"/api/documents/{ID}", headers=auth).json()
     assert doc["graph_status"] == "pending"
+
+
+class FakeStage:
+    version = "1"
+    requires: tuple[str, ...] = ()
+    provides: tuple[str, ...] = ()
+
+    def __init__(self, name: str, fail: bool = False) -> None:
+        self.name = name
+        self.fail = fail
+        self.runs = 0
+
+    def run(self, doc: WorkingDocument, ctx: StageContext) -> WorkingDocument:
+        self.runs += 1
+        if self.fail:
+            raise ServiceUnavailable("neo4j is away")
+        if self.name == "index":
+            doc.fields["indexed"] = True
+        return doc
+
+
+def test_while_neo4j_is_away_documents_skip_the_graph_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tasks, "_graph_paused_until", 0.0)
+    ctx = StageContext(collection="c", profile="default", settings={"stage_retries": 0})
+    index, graph = FakeStage("index"), FakeStage("graph", fail=True)
+
+    def work() -> WorkingDocument:
+        return WorkingDocument(id=ID, collection="c", source_id="1", uri="u", content_hash="h")
+
+    first = tasks._run([index, graph], work(), ctx)  # finds Neo4j away
+    second = tasks._run([index, graph], work(), ctx)  # does not wait for it again
+    assert graph.runs == 1 and index.runs == 2
+    for done in (first, second):
+        assert tasks._graph_status(done, "") == "pending" and done.fields["indexed"]
+    monkeypatch.setattr(tasks, "_graph_paused_until", 0.0)  # the pause is over
+    graph.fail = False
+    assert tasks._graph_status(tasks._run([index, graph], work(), ctx), "") == "ok"
