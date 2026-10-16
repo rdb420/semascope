@@ -45,6 +45,9 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Link to="/review" className="hover:underline">
                   Review
                 </Link>
+                <Link to="/alerts" className="hover:underline">
+                  Alerts
+                </Link>
                 <Link to="/graph" search={{ id: "", collection: "" }} className="hover:underline">
                   Graph
                 </Link>

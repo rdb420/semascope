@@ -10,6 +10,9 @@ opens a document and checks a tag's tooltip, its highlighted occurrences and
 its "why this tag" panel, the knowledge-model pages and a concept page, the
 graph (a neighbourhood and a shortest path), accepts and rejects items on the
 review page, runs a list search, and fails on any browser console error.
+It also walks the views of a search: the query highlighted on the document
+page with its original file, the table, entities and co-occurrence graph
+views (with the documents behind an edge), and the alerts page with a feed.
 Screenshots land in SEMASCOPE_UI_SHOTS (default: the current directory); a
 failure also saves failure.png there.
 
@@ -85,6 +88,7 @@ def run(page: Page) -> None:
     page.click("ol li a >> nth=0")
     page.wait_for_selector("text=Pipeline", timeout=20000)
     shot(page, "04-document.png")
+    document_views(page)
 
     # a tag's tooltip on the document page names the stage, its version and the confidence
     tags = page.locator("div:has(> h2:has-text('Tags (')) li button[aria-pressed]")
@@ -118,6 +122,7 @@ def run(page: Page) -> None:
     page.wait_for_selector("text=nodes", timeout=30000)
     page.wait_for_timeout(2000)
     shot(page, "08-graph.png")
+    edge_documents(page)
 
     # a shortest path between two demo entities on the graph page
     query = urlencode({"id": f"Entity:{DEMO}odysseus", "collection": COLLECTION})
@@ -176,6 +181,97 @@ def run(page: Page) -> None:
     if counts.get("Odysseus", 0) < 1 or counts.get("Xyzzy Nonesuch") != 0:
         raise AssertionError(f"unexpected list search counts {counts}")
     shot(page, "12-list.png")
+
+    search_views(page)
+    alerts_and_feeds(page)
+
+
+def document_views(page: Page) -> None:
+    """The query carried from the results: highlighted, counted, and the original opens."""
+
+    if "q=" not in page.url:
+        raise AssertionError(f"the result link dropped the query: {page.url}")
+    expect(page.locator("[aria-label='Query matches']")).to_contain_text("match", timeout=20000)
+    expect(page.locator("article mark[data-tone=query]").first).to_be_visible(timeout=20000)
+    shot(page, "04a-query-matches.png")
+    href = page.locator("a:has-text('Open original')").get_attribute("href") or ""
+    resp = page.request.get(BASE + href)
+    if resp.status != 200 or not resp.headers.get("content-disposition", "").startswith("inline"):
+        raise AssertionError(f"original: {resp.status} {resp.headers}")
+
+
+def edge_documents(page: Page) -> None:
+    """An edge of the neighbourhood graph lists the documents behind it."""
+
+    page.click("summary:has-text('Edges (')")
+    page.locator("details li button").first.click()
+    panel = page.locator("section[aria-label='Edge documents']")
+    expect(panel.locator("li a").first).to_be_visible(timeout=20000)
+    shot(page, "08a-graph-edge.png")
+
+
+def search_views(page: Page) -> None:
+    """Table, entities and graph views of one search, reached from the search page."""
+
+    page.goto(f"{BASE}/?{urlencode({'q': 'Troy'})}", wait_until="networkidle")
+    page.select_option("select", COLLECTION)
+    page.wait_for_timeout(1500)
+    page.click("a:text-is('table')")
+    rows = page.locator("tbody tr")
+    expect(rows.first).to_be_visible(timeout=20000)
+    expect(page.locator("dl[aria-label='Column statistics']")).to_contain_text("Documents")
+    page.click("th button:has-text('Size')")
+    page.wait_for_url(re.compile(r"sort="), timeout=10000)
+    expect(page.locator("th[aria-sort=descending]")).to_contain_text("Size")
+    shot(page, "13-table.png")
+
+    page.click("a:text-is('entities')")
+    cards = page.locator("main section[aria-label]")
+    expect(cards.first).to_be_visible(timeout=20000)
+    shot(page, "14-entities.png")
+    first = cards.first.locator("li button").first
+    first.click()
+    page.wait_for_url(re.compile(r"[?&]f="), timeout=10000)
+    page.wait_for_selector("text=result", timeout=20000)
+
+    page.click("a:text-is('graph')")
+    page.wait_for_selector("text=edges", timeout=30000)
+    page.click("summary:has-text('Edges (')")
+    page.locator("details li button").first.click()
+    expect(page.locator("section[aria-label='Edge documents'] li a").first).to_be_visible(
+        timeout=20000
+    )
+    page.wait_for_timeout(1500)
+    shot(page, "15-graph-of-results.png")
+
+
+def alerts_and_feeds(page: Page) -> None:
+    """Save a search, see it on the alerts page, switch its alert on and read its Atom feed."""
+
+    page.goto(f"{BASE}/?{urlencode({'q': 'Odysseus'})}", wait_until="networkidle")
+    page.select_option("select", COLLECTION)
+    page.wait_for_timeout(1500)
+    page.once("dialog", lambda d: d.accept("smoke: Odysseus"))
+    page.click("button:has-text('Save search')")
+    page.wait_for_timeout(1000)
+    page.click("text=Alerts")
+    page.wait_for_selector("text=Alerts and feeds", timeout=20000)
+    item = page.locator("main li", has=page.locator("a:text-is('smoke: Odysseus')")).first
+    expect(item.locator("ol li").first).to_be_visible(timeout=20000)
+    box = item.locator("input[type=checkbox]")
+    if not box.is_checked():
+        box.click()  # controlled: it turns on once the server has saved the alert
+        expect(box).to_be_checked(timeout=20000)
+    create = page.locator("button:has-text('Create feed token')")
+    if create.count():
+        create.click()
+    atom = item.locator("a:text-is('Atom')")
+    expect(atom).to_be_visible(timeout=20000)
+    shot(page, "16-alerts.png")
+    feed = page.request.get(atom.get_attribute("href") or "")
+    body = feed.text()
+    if feed.status != 200 or "<entry>" not in body:
+        raise AssertionError(f"atom feed: {feed.status} {body[:300]}")
 
 
 def main() -> int:

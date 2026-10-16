@@ -5,6 +5,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type FacetValue, type SearchHit, type SearchIn } from "../api";
 import { Timeline } from "../components/Timeline";
 import { useUser } from "../components/Shell";
+import { ViewLinks } from "../components/ViewLinks";
+import { originalUrl } from "../api";
 
 export type SearchParams = {
   q?: string;
@@ -158,6 +160,7 @@ export function SearchPage() {
             {v}
           </button>
         ))}
+        <ViewLinks params={{ q: params.q, collection: params.collection, f: params.f, mode: params.mode }} />
         <button
           onClick={() => {
             const name = window.prompt("Name this search");
@@ -273,7 +276,7 @@ export function SearchPage() {
               ))}
             </ul>
           )}
-          {view === "list" && <ol className="space-y-4">{data?.hits.map((hit) => <Hit key={hit.id} hit={hit} />)}</ol>}
+          {view === "list" && <ol className="space-y-4">{data?.hits.map((hit) => <Hit key={hit.id} hit={hit} q={params.q} />)}</ol>}
           {data && pages > 1 && (
             <nav className="mt-6 flex items-center gap-3 text-sm">
               <button disabled={page <= 1} onClick={() => update({ page: page - 1 })} className="rounded border px-3 py-1 disabled:opacity-40">
@@ -378,11 +381,12 @@ function Facet({
   );
 }
 
-function Hit({ hit }: { hit: SearchHit }) {
+function Hit({ hit, q }: { hit: SearchHit; q?: string }) {
+  const carry = q && q !== "*:*" ? { q } : {}; // the document page highlights the query
   return (
     <li className="flex gap-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       {hit.preview_pages > 0 && (
-        <Link to="/documents/$id" params={{ id: hit.id }} className="shrink-0">
+        <Link to="/documents/$id" params={{ id: hit.id }} search={carry} className="shrink-0">
           <img
             src={`/api/documents/${hit.id}/preview/1`}
             alt=""
@@ -392,7 +396,7 @@ function Hit({ hit }: { hit: SearchHit }) {
         </Link>
       )}
       <div className="min-w-0 flex-1">
-      <Link to="/documents/$id" params={{ id: hit.id }} className="font-medium text-blue-700 hover:underline dark:text-blue-400">
+      <Link to="/documents/$id" params={{ id: hit.id }} search={carry} className="font-medium text-blue-700 hover:underline dark:text-blue-400">
         {hit.title}
       </Link>
       <p className="truncate text-xs text-zinc-500">{hit.uri}</p>
@@ -412,6 +416,9 @@ function Hit({ hit }: { hit: SearchHit }) {
         {hit.language && <span>{hit.language}</span>}
         {hit.page_count ? <span>{hit.page_count} pages</span> : null}
         {hit.size ? <span>{(hit.size / 1024).toFixed(0)} KB</span> : null}
+        <a href={originalUrl(hit.id)} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline dark:text-blue-400">
+          open original
+        </a>
       </p>
       </div>
     </li>

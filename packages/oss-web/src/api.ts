@@ -322,3 +322,97 @@ export const api = {
       `/api/knowledge/concepts/documents?iri=${encodeURIComponent(iri)}`,
     ),
 };
+
+// --- views of documents and searches (api/views.py) ------------------------------------------
+// Every path segment is encoded: ids come from the URL and must not reshape the API path.
+
+const enc = encodeURIComponent;
+
+export type DocumentAccess = { collection: string; role: string; can_curate: boolean; can_edit: boolean };
+export type QueryMatches = {
+  terms: string[];
+  total: number;
+  truncated: boolean;
+  first_page: number | null;
+  pages: { page: number; count: number }[];
+  spans: { start: number; end: number; page: number | null; matched: string }[];
+};
+export type NumberStats = { min: number | null; max: number | null; mean: number | null; sum: number | null; count: number };
+export type DateStats = { min: string | null; max: string | null; count: number };
+export type TableStats = {
+  total: number;
+  size: NumberStats;
+  pages: NumberStats;
+  modified: DateStats;
+  indexed: DateStats;
+  types: FacetValue[];
+  languages: FacetValue[];
+};
+export type EntityFacet = { field: string; label: string; values: FacetValue[] };
+export type AlertItem = {
+  id: number;
+  name: string;
+  alert: boolean;
+  total: number | null;
+  last_total: number;
+  last_checked_at: string | null;
+  newest: { id: string; title: string; collection: string; indexed_at: string | null }[];
+  error: string;
+};
+export type CooccurrenceIn = {
+  node?: string | null;
+  collection?: string | null;
+  search?: SearchIn | null;
+  kinds?: string[];
+  nodes?: number;
+  edges?: number;
+  min_docs?: number;
+};
+export type EdgeDocuments = { documents: { id: string; title: string; collection: string }[]; more: boolean };
+
+/** A graph edge's id: the same in the drawing and in the edge list. */
+export function edgeKey(e: GraphEdge): string {
+  return `${e.source}|${e.type}|${e.target}`;
+}
+
+/** The stored original of a document; `download` asks for an attachment. */
+export function originalUrl(id: string, download = false): string {
+  return `/api/documents/${enc(id)}/original${download ? "?download=true" : ""}`;
+}
+
+export function previewUrl(id: string, page: number): string {
+  return `/api/documents/${enc(id)}/preview/${page}`;
+}
+
+/** An Atom or RSS feed URL with the user's feed token (absolute, for a feed reader). */
+export function feedUrl(path: string, token: string, format: "atom" | "rss" = "atom", params: Record<string, string> = {}): string {
+  const q = new URLSearchParams({ ...params, format, token });
+  return `${window.location.origin}/api/feeds/${path}?${q.toString()}`;
+}
+
+export const views = {
+  document: (id: string) => request<Document>(`/api/documents/${enc(id)}`),
+  documentText: (id: string) => request<DocumentText>(`/api/documents/${enc(id)}/text`),
+  documentTags: (id: string) => request<DocTag[]>(`/api/curation/documents/${enc(id)}/tags`),
+  tagHistory: (id: string, iri: string) =>
+    request<TagHistory>(`/api/curation/documents/${enc(id)}/tags/history?iri=${enc(iri)}`),
+  decideTag: (id: string, body: { iri: string; decision: string; label?: string; kind?: string; reason?: string }) =>
+    request<unknown>(`/api/curation/documents/${enc(id)}/tags`, { method: "POST", body: JSON.stringify(body) }),
+  annotations: (id: string) => request<Annotation[]>(`/api/curation/documents/${enc(id)}/annotations`),
+  addAnnotation: (id: string, body: { text: string; tags?: string[] }) =>
+    request<Annotation>(`/api/curation/documents/${enc(id)}/annotations`, { method: "POST", body: JSON.stringify(body) }),
+  access: (id: string) => request<DocumentAccess>(`/api/documents/${enc(id)}/access`),
+  matches: (id: string, q: string) => request<QueryMatches>(`/api/documents/${enc(id)}/matches?q=${enc(q)}`),
+  tableStats: (payload: SearchIn) =>
+    request<TableStats>("/api/views/table/stats", { method: "POST", body: JSON.stringify(payload) }),
+  entities: (payload: SearchIn, limit = 30) =>
+    request<EntityFacet[]>(`/api/views/entities?limit=${limit}`, { method: "POST", body: JSON.stringify(payload) }),
+  alerts: () => request<AlertItem[]>("/api/views/alerts"),
+  cooccurrence: (payload: CooccurrenceIn) =>
+    request<GraphOut>("/api/views/graph", { method: "POST", body: JSON.stringify(payload) }),
+  edgeDocuments: (payload: { a: string; b: string; collection?: string | null; search?: SearchIn | null }) =>
+    request<EdgeDocuments>("/api/views/graph/edge", { method: "POST", body: JSON.stringify(payload) }),
+  feedToken: () => request<{ token: string | null }>("/api/feeds/token"),
+  newFeedToken: () => request<{ token: string }>("/api/feeds/token", { method: "POST" }),
+  revokeFeedToken: () => request<void>("/api/feeds/token", { method: "DELETE" }),
+};

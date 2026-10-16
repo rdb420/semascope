@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, type ReactNode } from "react";
-import { api, type DocTag, type TagHistory, type TagSpan } from "../api";
+import { views, type DocTag, type TagHistory, type TagSpan } from "../api";
 
 const METHOD: Record<string, string> = {
   tag: "Dictionary match against the active packs' labels",
@@ -96,7 +96,7 @@ export function TagExplain({
   onOccurrence: (i: number) => void;
   onClose: () => void;
 }) {
-  const history = useQuery({ queryKey: ["tag-history", docId, tag.iri], queryFn: () => api.tagHistory(docId, tag.iri) });
+  const history = useQuery({ queryKey: ["tag-history", docId, tag.iri], queryFn: () => views.tagHistory(docId, tag.iri) });
   const pages = [...new Set(tag.spans.map((s) => s.page).filter((p): p is number => p !== null))];
   const status = tag.rejected ? "rejected" : tag.curated?.decision === "accept" ? "accepted" : "not reviewed";
   const n = tag.spans.length;
@@ -194,7 +194,35 @@ export function TagExplain({
 }
 
 /** Text with the given spans (offsets relative to `base`) marked; the active one gets an id. */
-export function Highlighted({ text, base, spans, active }: { text: string; base: number; spans: TagSpan[]; active: number }) {
+const TONES = {
+  // a selected tag's occurrences
+  tag: {
+    id: "tag-occurrence",
+    on: "bg-amber-300 ring-2 ring-amber-500 dark:bg-amber-600",
+    off: "bg-amber-100 dark:bg-amber-900/60",
+  },
+  // the words of the search that led here
+  query: {
+    id: "query-match",
+    on: "bg-sky-300 ring-2 ring-sky-500 dark:bg-sky-700",
+    off: "bg-sky-100 dark:bg-sky-900/60",
+  },
+} as const;
+
+export function Highlighted({
+  text,
+  base,
+  spans,
+  active,
+  tone = "tag",
+}: {
+  text: string;
+  base: number;
+  spans: Pick<TagSpan, "start" | "end">[];
+  active: number;
+  tone?: keyof typeof TONES;
+}) {
+  const style = TONES[tone];
   const inside = spans
     .map((s, i) => ({ start: s.start - base, end: s.end - base, i }))
     .filter((s) => s.end > 0 && s.start < text.length)
@@ -210,8 +238,9 @@ export function Highlighted({ text, base, spans, active }: { text: string; base:
     parts.push(
       <mark
         key={`m${s.i}`}
-        id={s.i === active ? "tag-occurrence" : undefined}
-        className={`rounded-sm px-0.5 ${s.i === active ? "bg-amber-300 ring-2 ring-amber-500 dark:bg-amber-600" : "bg-amber-100 dark:bg-amber-900/60"} dark:text-zinc-50`}
+        id={s.i === active ? style.id : undefined}
+        data-tone={tone}
+        className={`rounded-sm px-0.5 ${s.i === active ? style.on : style.off} dark:text-zinc-50`}
       >
         {text.slice(start, end)}
       </mark>,

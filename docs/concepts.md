@@ -116,7 +116,60 @@ individuals and named entities, `MENTIONS`), `Pack`, and `CURATED` edges for
 human decisions. A collection can pseudonymise named-entity keys. The UI
 graph page shows the hubs of a collection and expands neighbourhoods;
 `/api/graph` offers neighbours, shortest paths and a staff-only read-only
-Cypher console.
+Cypher console. `/api/views/graph` computes co-occurrence (concepts and
+entities sharing documents, optionally within a search's results) and
+`/api/views/graph/edge` the documents behind an edge; see
+[views of a search](#views-of-a-search).
+
+## Original files
+
+The fetch stage keeps every original in the data volume under its content
+hash. `GET /api/documents/{id}/original` serves it, and only to a user who
+may read the document's collection; the file is found from the document
+record, never from a path in the request. The response carries the stored
+media type, the original file name, `nosniff` and an ETag (the content
+hash), and it answers a single byte range so viewers can seek in large
+files. PDFs, raster images, plain text, audio and video open in the browser;
+everything else, HTML and SVG included, downloads as an attachment, so a
+document can never run script in Semascope's pages. `?download=true` always
+downloads. The document page and every search result have an "open original"
+command.
+
+## Views of a search
+
+One search (its words, collection, filters and mode) can be looked at in
+several ways, and the links between them keep it:
+
+- **List**, **media** and **terms** on the search page.
+- **Table**: one row per document with sortable columns. Title, size and the
+  dates sort every match; the other columns sort the rows on the page. Above
+  the table, column statistics cover every match: total size, pages, the date
+  range, types and languages.
+- **Entities**: every entity, concept and pattern facet of the results as a
+  grid of top values; a value narrows the result list to it.
+- **Graph**: the concepts and entities that occur in the same documents of
+  the results (the top 500 by keyword relevance), with thicker edges for
+  more shared documents. Clicking an edge, here or on the neighbourhood
+  graph, lists the documents behind it; clicking a node centres the graph on
+  what occurs with it.
+
+A result link carries the query to the document page, which highlights its
+words in the text, counts the matches per page, marks the matching page
+previews and jumps to the first match. Matching there is literal (whole
+words, simple inflections, `*` as a prefix), so a document found through
+stemming, synonyms or semantic search may show no highlight.
+
+### Alerts and feeds
+
+The **Alerts** page lists your saved searches with their newest documents;
+switching a search's alert on also sends its new matches to the event outbox
+and its webhooks. Every saved search, any keyword search
+(`/api/feeds/search?q=…&collection=…&filter=field:value`) and all your
+alerting searches together (`/api/feeds/alerts`) are Atom feeds, or RSS with
+`format=rss`, newest documents first. Feed readers cannot sign in, so a feed
+URL carries a **feed token**: it opens your feeds and nothing else, and a
+feed shows only what you may read at the moment it is fetched. Renewing the
+token on the Alerts page cuts every older feed URL off; revoking removes it.
 
 ## Search modes
 
@@ -139,8 +192,9 @@ includes the ones before it. A role is held on one collection or globally
 (`CollectionRole` in the admin, with or without a collection).
 
 Reading a collection needs at least `reader` on it. That covers documents,
-their text and previews, search in every mode (with its facets, terms, list
-search, CSV export, and saved searches and their alerts), the graph,
+their text, previews and original files, search in every mode (with its facets, terms, list
+search, CSV export, the table and entities views, saved searches, their
+alerts and feeds), the graph,
 concept documents and places, the curation queues (reviews, proposals,
 events, annotations, tags) and the statistics. A search, list or graph query
 that names no collection covers only the collections the user may read.

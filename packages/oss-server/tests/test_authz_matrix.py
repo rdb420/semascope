@@ -163,6 +163,30 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("GET", "/api/curation/webhooks"): Rule("staff", 200),
     ("POST", "/api/curation/webhooks"): Rule("staff", 201, json={"url": "https://example.org/h"}),
     ("DELETE", "/api/curation/webhooks/{webhook_id}"): Rule("staff", 204),
+    # views of documents and searches (api/views.py)
+    ("GET", "/api/documents/{doc_id}/original"): Rule(("reader", "a"), 200),
+    ("GET", "/api/documents/{doc_id}/access"): Rule(("reader", "a"), 200),
+    ("GET", "/api/documents/{doc_id}/matches"): Rule(("reader", "a"), 200, query="q=some"),
+    ("POST", "/api/views/table/stats"): Rule(
+        ("reader", "a"), 200, json={"q": "x", "collection": "a"}
+    ),
+    ("POST", "/api/views/entities"): Rule(("reader", "a"), 200, json={"q": "x", "collection": "a"}),
+    ("GET", "/api/views/alerts"): Rule("auth", 200),
+    ("POST", "/api/views/graph"): Rule(
+        ("reader", "a"), 200, json={"collection": "a", "search": {"q": "x"}}
+    ),
+    ("POST", "/api/views/graph/edge"): Rule(
+        ("reader", "a"),
+        200,
+        json={"a": "Entity:x", "b": f"Concept:{CONCEPT_IRI}", "collection": "a"},
+    ),
+    # feeds: the token routes are the caller's own; feeds are read as their owner
+    ("GET", "/api/feeds/token"): Rule("auth", 200),
+    ("POST", "/api/feeds/token"): Rule("auth", 201),
+    ("DELETE", "/api/feeds/token"): Rule("auth", 204),
+    ("GET", "/api/feeds/saved/{saved_id}"): Rule("auth", 200),
+    ("GET", "/api/feeds/search"): Rule(("reader", "a"), 200, query="q=x&collection=a"),
+    ("GET", "/api/feeds/alerts"): Rule("auth", 200),
 }
 
 
@@ -273,6 +297,9 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     previews = tmp_path / "previews"
     previews.mkdir()
     (previews / "1.webp").write_bytes(b"RIFF0000WEBP")
+    blob = tmp_path / "data" / "blobs" / "ha" / "hash.txt"
+    blob.parent.mkdir(parents=True)
+    blob.write_bytes(b"some text")
     doc = Document.objects.create(
         id="d" * 32,
         collection=a,
@@ -282,6 +309,8 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         title="X",
         text="some text",
         status=Document.Status.INDEXED,
+        media_type="text/plain",
+        blob_path=str(blob),
         fields={"preview_dir": str(previews)},
     )
     pack = Pack.objects.create(
