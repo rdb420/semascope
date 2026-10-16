@@ -126,8 +126,9 @@ implemented has none, or names a test that does not exist.
 | Link an entity to a pack individual | implemented | ci | the link survives reindexing and records the individual's pack version |
 | Annotations on documents | implemented | ci | |
 | Import W3C Web Annotations or Hypothesis exports as notes, matched by URI, anchored by quote | implemented | ci | |
-| Proposals with stable references, applied at once, kept across reindexing | implemented | ci | append-only log, the newest decision wins, one `external_ref` per decision (fixed after rc.2, where accept, reject, accept was not applied); a decision keeps the tag it was taken on and its pack version; a rejected tag stays on the document, flagged, and is left out of Solr and the graph |
-| Curator changes to a pack as deltas | implemented | ci | |
+| Proposals with stable references, applied at once, kept across reindexing | implemented | ci | append-only log, the newest decision wins, one `external_ref` per decision (fixed after rc.2, where accept, reject, accept was not applied); a decision keeps the tag it was taken on and its pack version; a rejected tag stays on the document, flagged, and is left out of Solr and the graph; the decision, the document's record and the outbox event commit together; Solr and Neo4j are written after it, a periodic sweep applies what a store missed, and hierarchical facets follow the decisions, also after reindex |
+| Curator changes to a pack as deltas | implemented | ci |; exported through an RDF serialiser; IRIs and language tags are checked |
+| Bulk tagging: accept or reject a concept on every document of a search, as a job, one proposal per document | implemented | ci, smoke | at most 10,000 documents; keyword search and filters; a dry run counts first |
 | Explanation of a tag: occurrences with pages, method and stage version, matched label, model, `linked_from`, decision history (API and document page) | implemented | ci, smoke | |
 | Merge entities | planned | — | |
 | Audit of logins, pack imports, source and collection changes | planned | — | decisions are logged; administrative actions are not |
@@ -151,11 +152,14 @@ implemented has none, or names a test that does not exist.
 
 | Capability | State | Tests | Notes |
 |---|---|---|---|
-| Pack validation: contract, release manifest, SHACL over the pack's instances, competency questions (`oss pack validate`) | implemented | ci | the ontology skill's own scripts are private; Semascope implements their gates ([ADR-0007](../adr/0007-pack-contract.md)) |
+| Pack validation: contract, release manifest, SHACL over the pack's instances, competency questions (`oss pack validate`) | implemented | ci | the ontology skill's own scripts are private; Semascope implements their gates ([ADR-0007](../adr/0007-pack-contract.md)); a `released` pack without its release manifest is an error |
 | Pack upgrade as a diff and a reindex plan; activation needs confirmation | implemented | ci | affected documents per collection, counted from Solr |
 | Remove a pack version (admin) | implemented | ci | tagged documents keep their tags until reindex |
 | Packs in Turtle, N-Triples, RDF/XML or JSON-LD; `skos:notation`; preferred labels in several languages | implemented | ci | shapes must be Turtle |
-| Pack precedence for shared IRIs and labels; curator draft labels scoped to their collection | implemented | ci | |
+| Pack precedence for shared IRIs and labels; curator draft labels scoped to their collection | implemented | ci |; a new draft label queues the tag stage for the collection's documents that contain it; the dictionary sync swaps entries and is never empty |
+| Pack import and activation as background jobs the UI and `oss pack` follow | implemented | ci | |
+| Import a plain list of names as a pack | implemented | ci, smoke | |
+| Polyhierarchy (a facet path through each broader concept) and `skos:related` | implemented | ci | |
 
 ## Operation
 

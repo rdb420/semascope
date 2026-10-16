@@ -54,6 +54,13 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Bulk tagging: a curator accepts or rejects a concept on every document of
+  a keyword search in a collection (at most 10,000), as a job with one
+  proposal per document (`POST /api/curation/bulk-tags`, with a dry run).
+- Pack imports and activations run as jobs that the pages and `oss pack`
+  follow (`/api/knowledge/pack-jobs`); a plain list of names imports as a
+  pack (`oss pack import-list`); polyhierarchy gives a concept a facet path
+  through each broader concept, and `skos:related` is kept and shown.
 - More like this (`GET /api/documents/{id}/similar`), RDF exports of
   documents and searches in Turtle and JSON-LD (`oss export`), W3C Web
   Annotation export and import (including Hypothesis exports), an OpenSearch
@@ -119,6 +126,12 @@ and the project follows semantic versioning.
 
 ### Changed
 
+- Pack import and activate answer 202 with a job, after the same plan check
+  and 409. Curation decisions commit to PostgreSQL and the outbox first;
+  Solr and Neo4j are written after the commit, and `retry-proposals`
+  (every 5 minutes) applies what a store missed. The dictionary sync adds
+  new entries before removing old ones. A `released` pack without
+  `release-manifest.json` is an error.
 - `compose.yaml` defaults the image tag to the checkout's version instead of
   `main`; `:main` is no longer published.
 - The web UI loads pages and the map, graph and chart libraries on demand:
@@ -147,6 +160,10 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- A rejected concept stayed in the hierarchical facet, even after a reindex,
+  and an added one never appeared there. Delta export could be made to emit
+  extra triples. The pack triple store was loaded inside the import
+  transaction.
 - Backup and restore fail loudly at any failed step; restore checks the
   backup and loads it beside the live data before switching, so a corrupt
   backup changes nothing. `oss init --force` keeps every non-secret setting.
@@ -212,6 +229,9 @@ and the project follows semantic versioning.
 
 ### Upgrade notes
 
+- Run migrations; reindex collections so their tree facets come from the
+  curated view; re-activate packs to fill multi-parent paths. Clients of the
+  pack import and activate API must follow the returned job.
 - Reading is now per collection by default: set `SEMASCOPE_DEFAULT_ROLE=reader`
   in `.env` to keep open reading, or give users roles.
 - Run `./oss up` (not plain `docker compose up`) once: it adds
