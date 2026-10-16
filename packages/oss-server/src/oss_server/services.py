@@ -59,15 +59,19 @@ def bootstrap_solr() -> list[str]:
 
 
 def sync_dictionary(pack_id: str, version: str) -> int:
-    """Replace the Solr dictionary entries of one pack version. Returns the entry count."""
+    """Replace the Solr dictionary entries of one pack version. Returns the entry count.
 
-    from oss_server.knowledge.importer import dictionary_entries
+    Curators' pending draft labels are rebuilt from their deltas, each scoped to
+    the collection that proposed it, so a sync never drops them.
+    """
+
+    from oss_server.knowledge.importer import dictionary_entries, draft_entries
     from oss_server.knowledge.models import Pack
 
     pack = Pack.objects.get(pack_id=pack_id, version=version)
     client = solr_client()
     collection = solr_entities_collection()
-    entries = dictionary_entries(pack)
+    entries = dictionary_entries(pack) + draft_entries(pack)
     client.delete_by_query(collection, f'pack_id:"{pack_id}" AND pack_version:"{version}"')
     for i in range(0, len(entries), 500):
         client.add(collection, entries[i : i + 500], commit_within_ms=1000)

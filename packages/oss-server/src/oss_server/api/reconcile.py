@@ -122,7 +122,12 @@ def reconcile(request: HttpRequest) -> dict[str, Any]:
 
 @router.get("/preview", auth=None)
 def preview(request: HttpRequest, iri: str) -> dict[str, Any]:
-    c = Concept.objects.filter(pack__status=Pack.Status.ACTIVE, iri=iri).first()
+    from oss_server.knowledge.precedence import pack_order, preferred
+
+    c = preferred(
+        Concept.objects.select_related("pack").filter(pack__status=Pack.Status.ACTIVE, iri=iri),
+        pack_order(),
+    )
     if c is None:
         return {}
     return {"iri": c.iri, "label": c.pref_label, "definition": c.definition, "also": c.alt_labels}

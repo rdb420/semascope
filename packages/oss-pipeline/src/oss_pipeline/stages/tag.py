@@ -4,6 +4,12 @@ Every match becomes a Tag with the concept or individual IRI, the pack
 version it came from and character spans. Facet fields are derived per
 scheme: `<scheme>_paths` carries the expanded ancestor path of each matched
 concept, so the UI can show a hierarchical facet without any schema change.
+
+When two active packs define the same IRI, the tag is attributed to the pack
+with the higher binding precedence (see `oss_pipeline.dictionary`), and a
+tag's confidence is that of the best label type it matched through anywhere
+in the text, not only at its first occurrence. Curators' draft labels are
+used only in the collection that proposed them.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ from typing import Any
 import httpx
 
 from oss_core.contracts import Span, StageContext, Tag, WorkingDocument
+from oss_pipeline.dictionary import dictionary_fq, entry_rank, label_confidence, pack_rank
 
 MAX_TEXT = 2_000_000  # characters sent per request; longer texts are tagged in windows
 
@@ -46,13 +53,11 @@ class TagStage:
         if not packs:
             doc.fields["tag_skipped"] = "no active packs"
             return doc
-        fq = " OR ".join(
-            f'(pack_id:"{pid}" AND pack_version:"{ver}")' for pid, ver in packs.items()
-        )
+        fq = dictionary_fq(packs, ctx.collection)
+        ranks = pack_rank(packs)
         client = self._client(ctx)
         found: dict[str, Tag] = {}
-        paths: dict[str, set[str]] = defaultdict(set)
-        labels: dict[str, set[str]] = defaultdict(set)
+        owner: dict[str, dict[str, Any]] = {}  # the entry each tag is attributed to
         for offset in range(0, len(text), MAX_TEXT):
             window = text[offset : offset + MAX_TEXT]
             resp = client.post(
@@ -67,6 +72,8 @@ class TagStage:
             for hit in body.get("tags", []):
                 start, end = int(hit["startOffset"]) + offset, int(hit["endOffset"]) + offset
                 matched = text[start:end]
+                # one candidate per IRI for this occurrence: the best-ranked entry
+                best: dict[str, dict[str, Any]] = {}
                 for entry_id in hit.get("ids", []):
                     entry = entries.get(entry_id)
                     if entry is None:
@@ -74,6 +81,10 @@ class TagStage:
                     if entry.get("case_sensitive") and matched != entry.get("label"):
                         continue
                     iri = str(entry["iri"])
+                    if iri not in best or entry_rank(entry, ranks) < entry_rank(best[iri], ranks):
+                        best[iri] = entry
+                for iri, entry in best.items():
+                    confidence = label_confidence(entry.get("label_type"))
                     tag = found.get(iri)
                     if tag is None:
                         tag = Tag(
@@ -83,16 +94,24 @@ class TagStage:
                             pack_id=str(entry.get("pack_id")),
                             pack_version=str(entry.get("pack_version")),
                             stage=self.name,
-                            confidence={"pref": 1.0, "alt": 0.9, "draft": 0.85}.get(
-                                str(entry.get("label_type")), 0.75
-                            ),
+                            confidence=confidence,
                         )
                         found[iri] = tag
+                        owner[iri] = entry
+                    else:
+                        tag.confidence = max(tag.confidence, confidence)
+                        if entry_rank(entry, ranks)[:2] < entry_rank(owner[iri], ranks)[:2]:
+                            # a higher-precedence pack defines the same IRI
+                            tag.pack_id = str(entry.get("pack_id"))
+                            tag.pack_version = str(entry.get("pack_version"))
+                            tag.label = str(entry.get("pref_label") or tag.label)
+                            owner[iri] = entry
                     tag.spans.append(Span(start=start, end=end))
-                    scheme = str(entry.get("scheme") or "")
-                    if scheme and entry.get("path"):
-                        paths[scheme].add(str(entry["path"]))
-                        labels[scheme].add(str(entry.get("pref_label") or matched))
+        paths: dict[str, set[str]] = defaultdict(set)
+        for entry in owner.values():
+            scheme = str(entry.get("scheme") or "")
+            if scheme and entry.get("path"):
+                paths[scheme].add(str(entry["path"]))
         doc.tags.extend(found.values())
         for scheme, values in paths.items():
             doc.fields[f"x_{scheme}_paths"] = sorted(values)

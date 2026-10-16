@@ -4,7 +4,10 @@ An NER tag whose normalised text equals a taggable individual's label (pref,
 alt or hidden) in an active pack is re-pointed at that individual's IRI with
 the pack version recorded, so the graph and the facets use the curated
 identity instead of a free-text name. The dictionary comes from the Solr
-`entities` collection, fetched once per process per pack set.
+`entities` collection, fetched once per process per pack set and collection.
+When two packs give an individual the same label, the pack with the higher
+binding precedence wins (`oss_pipeline.dictionary`), whatever order Solr
+returns the entries in.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Any
 import httpx
 
 from oss_core.contracts import StageContext, Tag, WorkingDocument
+from oss_pipeline.dictionary import dictionary_fq, entry_rank, pack_rank
 
 
 def normalise(value: str) -> str:
@@ -23,9 +27,17 @@ def normalise(value: str) -> str:
 
 @lru_cache(maxsize=8)
 def _dictionary(
-    base: str, collection: str, pack_key: tuple[tuple[str, str], ...], auth: tuple[str, str] | None
+    base: str,
+    collection: str,
+    pack_key: tuple[tuple[str, str], ...],
+    auth: tuple[str, str] | None,
+    scope: str = "",
 ) -> dict[str, dict[str, Any]]:
-    fq = " OR ".join(f'(pack_id:"{pid}" AND pack_version:"{ver}")' for pid, ver in pack_key)
+    """Normalised label to the winning entry. `pack_key` is in precedence order."""
+
+    packs = dict(pack_key)
+    fq = dictionary_fq(packs, scope)
+    ranks = pack_rank(packs)
     out: dict[str, dict[str, Any]] = {}
     with httpx.Client(timeout=60.0, auth=auth) as client:
         start = 0
@@ -37,14 +49,17 @@ def _dictionary(
                     "fq": fq,
                     "rows": 1000,
                     "start": start,
+                    "sort": "id asc",
                     "wt": "json",
-                    "fl": "iri,label,label_type,pack_id,pack_version,type_iri",
+                    "fl": "iri,label,label_type,pref_label,pack_id,pack_version,type_iri",
                 },
             )
             resp.raise_for_status()
             docs = resp.json().get("response", {}).get("docs", [])
             for d in docs:
-                out.setdefault(normalise(str(d["label"])), d)
+                key = normalise(str(d["label"]))
+                if key not in out or entry_rank(d, ranks) < entry_rank(out[key], ranks):
+                    out[key] = d
             if len(docs) < 1000:
                 break
             start += 1000
@@ -66,7 +81,9 @@ class LinkStage:
         auth = None
         if ctx.settings.get("solr_user") and ctx.settings.get("solr_password"):
             auth = (str(ctx.settings["solr_user"]), str(ctx.settings["solr_password"]))
-        dictionary = _dictionary(base, collection, tuple(sorted(ctx.pack_versions.items())), auth)
+        dictionary = _dictionary(
+            base, collection, tuple(ctx.pack_versions.items()), auth, ctx.collection
+        )
         if not dictionary:
             return doc
         linked = 0

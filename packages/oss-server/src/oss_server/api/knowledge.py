@@ -230,10 +230,18 @@ def list_concepts(
 
 
 @router.get("/concepts", response=ConceptOut)
-def get_concept(request: HttpRequest, iri: str) -> ConceptOut:
-    c = get_object_or_404(
-        Concept.objects.select_related("pack").filter(pack__status=Pack.Status.ACTIVE), iri=iri
-    )
+def get_concept(request: HttpRequest, iri: str, collection: str | None = None) -> ConceptOut:
+    """A concept of the active packs. When two packs define the IRI, the one with the
+    higher binding precedence (for `collection`, or globally) answers."""
+
+    from oss_server.catalogue.models import Collection
+    from oss_server.knowledge.precedence import pack_order, preferred
+
+    scope = get_object_or_404(Collection, slug=collection) if collection else None
+    rows = Concept.objects.select_related("pack").filter(pack__status=Pack.Status.ACTIVE, iri=iri)
+    c = preferred(rows, pack_order(scope))
+    if c is None:
+        raise HttpError(404, "no active concept with that IRI")
     return _concept_out(c)
 
 
@@ -402,29 +410,16 @@ def _user_or_none(request: HttpRequest) -> Any:
 
 
 def _apply_draft_label(pack: Pack, collection_slug: str, params: dict[str, Any]) -> None:
-    """A proposed label tags the proposing collection at once, as a draft dictionary entry."""
+    """A proposed label tags the proposing collection at once, as a draft dictionary entry
+    scoped to that collection (`collection_scope`); `sync_dictionary` rebuilds it."""
 
+    from oss_server.knowledge.importer import draft_entry
     from oss_server.services import solr_client, solr_entities_collection
 
     c = Concept.objects.get(pack=pack, iri=params["iri"])
     if not c.taggable:
         return
-    label = str(params["label"]).strip()
-    entry = {
-        "id": f"{pack}|{c.iri}|draft|{collection_slug}|{label.lower()}",
-        "iri": c.iri,
-        "pack_id": pack.pack_id,
-        "pack_version": pack.version,
-        "label": label,
-        "pref_label": c.pref_label,
-        "label_type": "draft",
-        "lang": str(params.get("lang") or c.lang or "und"),
-        "kind": c.kind,
-        "type_iri": c.type_iri,
-        "scheme": c.scheme_slug,
-        "path": c.path,
-        "case_sensitive": False,
-    }
+    entry = draft_entry(pack, c, collection_slug, params)
     solr_client().add(solr_entities_collection(), [entry], commit_within_ms=1000)
 
 

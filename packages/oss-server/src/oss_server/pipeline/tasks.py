@@ -34,17 +34,17 @@ log = logging.getLogger(__name__)
 
 
 def pack_versions_for(collection: Collection) -> dict[str, str]:
-    """Active pack versions this collection tags with: its bindings, or every active pack."""
+    """Active pack versions this collection tags with: its bindings, or every active pack.
 
-    from oss_server.knowledge.models import Pack, PackBinding
+    The dict is in precedence order (`knowledge.precedence.pack_order`); the tag
+    and link stages resolve an IRI or label that two packs share by that order.
+    """
+
+    from oss_server.knowledge.models import Pack
+    from oss_server.knowledge.precedence import pack_order
 
     active = {p.pack_id: p.version for p in Pack.objects.filter(status=Pack.Status.ACTIVE)}
-    bound = list(
-        PackBinding.objects.filter(collection=collection, enabled=True).order_by("precedence")
-    )
-    if not bound:
-        return active
-    return {b.pack_id: active[b.pack_id] for b in bound if b.pack_id in active}
+    return {pid: active[pid] for pid in pack_order(collection) if pid in active}
 
 
 def build_context(collection: Collection) -> StageContext:
