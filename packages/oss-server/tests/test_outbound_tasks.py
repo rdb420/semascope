@@ -243,9 +243,8 @@ def test_alerts_fire_only_when_the_total_grows(db: None, monkeypatch: pytest.Mon
     assert alert.last_total == 4
     events = list(Event.objects.filter(kind="alert.saved_search"))
     assert len(events) == 1
-    assert events[0].subject == "floods" and events[0].collection == "c"
-    assert events[0].payload["new"] == 2 and events[0].payload["total"] == 5
-    assert events[0].payload["user"] == "watcher"
+    assert events[0].subject == f"saved-search:{alert.pk}" and events[0].collection == "c"
+    assert events[0].payload == {"saved_search": alert.pk, "new": 2, "total": 5}
     quiet.refresh_from_db()
     assert quiet.last_checked_at is None  # no alert, never run
     assert len(fake.calls) == 4 and all(req.q == "flood" for req, _ in fake.calls)
@@ -293,3 +292,119 @@ def test_a_failing_alert_does_not_stop_the_others(
     assert tasks.check_alerts() == 0
     assert SavedSearch.objects.get(name="b-fine").last_checked_at is not None
     assert SavedSearch.objects.get(name="a-broken").last_checked_at is None
+
+
+def test_an_alert_event_carries_nothing_of_its_owner(
+    db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The outbox is read by every reader of the collection and every webhook (SEMA-048)."""
+
+    from oss_server.api import search as search_mod
+    from oss_server.api.schemas import SearchHit
+
+    user = User.objects.create_user("private-person", password="x" * 16, is_staff=True)
+    saved = SavedSearch.objects.create(
+        user=user, name="my divorce papers", query={"q": "custody hearing"}, alert=True
+    )
+    hit = SearchHit(
+        id="d" * 32,
+        score=1.0,
+        title="Custody",
+        uri="file:///import/custody.pdf",
+        collection="c",
+        source_id="1",
+        media_type="application/pdf",
+        content_type_group="text",
+        language="en",
+        size=1,
+        page_count=1,
+        modified_at=None,
+        indexed_at=None,
+        preview_pages=0,
+        snippets=["custody hearing"],
+    )
+    totals = [1, 2]
+
+    def search(client: Any, coll: str, req: Any, allowed: Any) -> SearchOut:
+        return SearchOut(total=totals.pop(0), page=1, page_size=5, took_ms=1, hits=[hit], facets={})
+
+    monkeypatch.setattr(search_mod, "search", search)
+    monkeypatch.setattr(tasks, "solr_client", lambda: object())
+    assert tasks.check_alerts() == 0
+    assert tasks.check_alerts() == 1
+    (event,) = Event.objects.filter(kind="alert.saved_search")
+    body = json.dumps([event.subject, event.collection, event.payload])
+    for private in ("private-person", "my divorce papers", "custody", hit.id):
+        assert private.lower() not in body.lower(), (private, body)
+    assert set(event.payload) == {"saved_search", "new", "total"}
+    assert event.payload["saved_search"] == saved.pk
+
+
+def test_an_alert_check_already_running_is_not_run_twice(
+    db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.api import search as search_mod
+    from oss_server.pipeline.runs import release_lease, take_lease
+
+    user = User.objects.create_user("w3", password="x" * 16, is_staff=True)
+    SavedSearch.objects.create(user=user, name="a", query={"q": "x"}, alert=True)
+    fake = FakeSearch([1, 1])
+    monkeypatch.setattr(search_mod, "search", fake)
+    monkeypatch.setattr(tasks, "solr_client", lambda: object())
+    token = take_lease("check_alerts", 600)
+    assert token is not None
+    assert tasks.check_alerts() == 0 and fake.calls == []  # the other check holds it
+    release_lease("check_alerts", token)
+    tasks.check_alerts()
+    assert len(fake.calls) == 1
+
+
+def test_a_hook_being_delivered_is_skipped_by_an_overlapping_run(
+    receiver: str, db: None, loopback_allowed: None
+) -> None:
+    """The tick starts a delivery run every minute; a slow hook must not get events twice
+    (SEMA-053)."""
+
+    from oss_server.pipeline.runs import release_lease, take_lease
+
+    hook = Webhook.objects.create(url=f"{receiver}/hook/leased")
+    event = emit("proposal.add_tag", collection="c", subject="s")
+    token = take_lease(f"webhook:{hook.pk}", 600)
+    assert token is not None
+    assert tasks.deliver_webhooks() == 0  # another run is delivering to it
+    assert received(receiver, "leased") == []
+    release_lease(f"webhook:{hook.pk}", token)
+    assert tasks.deliver_webhooks() == 1
+    assert tasks.deliver_webhooks() == 0
+    assert len(received(receiver, "leased")) == 1
+    hook.refresh_from_db()
+    assert hook.last_event_id == event.pk
+
+
+def test_a_hook_cursor_never_moves_back(receiver: str, db: None, loopback_allowed: None) -> None:
+    """A run that read the hook before another run delivered more events cannot rewind it."""
+
+    hook = Webhook.objects.create(url=f"{receiver}/hook/monotonic")
+    first = emit("proposal.add_tag", collection="c", subject="1")
+    second = emit("proposal.add_tag", collection="c", subject="2")
+    stale = Webhook.objects.get(pk=hook.pk)  # read before the delivery below
+    assert tasks.deliver_webhooks() == 2
+    tasks._advance(stale, first.pk)  # the stale run finishing its first event
+    hook.refresh_from_db()
+    assert hook.last_event_id == second.pk
+
+
+def test_an_expired_lease_is_taken_over(db: None) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from oss_server.catalogue.models import Lease
+    from oss_server.pipeline.runs import lease, take_lease
+
+    assert take_lease("x", 600) is not None
+    assert take_lease("x", 600) is None
+    Lease.objects.filter(name="x").update(expires_at=timezone.now() - timedelta(seconds=1))
+    with lease("x", 600) as held:  # its holder died: the lease expired
+        assert held is not None
+    assert not Lease.objects.filter(name="x").exists()

@@ -1162,17 +1162,52 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+WEBHOOK_BATCH = 100  # events per hook per run
+WEBHOOK_TIMEOUT_S = 15.0
+# a hook's lease covers a whole batch of slow deliveries; an expired one is free again
+WEBHOOK_LEASE_S = WEBHOOK_BATCH * WEBHOOK_TIMEOUT_S + 60
+ALERTS_LEASE_S = 600.0
+
+
 @shared_task(name="semascope.deliver_webhooks", queue="io")
 def deliver_webhooks() -> int:
     """Send outbox events to every enabled webhook, in order, with an HMAC signature.
 
     Delivery goes through the outbound guard (oss_pipeline.connectors.guard): a receiver on
     a private address needs SEMASCOPE_ALLOWED_PRIVATE_HOSTS, and redirects are not followed.
+    Each hook is delivered by one run at a time (a lease, `runs.lease`): the tick starts a
+    run every minute, and a slow receiver can make one run last longer than that. The
+    hook's cursor moves after each delivered event, never backwards, so an event is sent
+    once even when a run is killed half way.
     """
 
-    import hashlib
+    from oss_server.curation.models import Webhook
+    from oss_server.pipeline.runs import lease
+
+    sent = 0
+    for hook_id in Webhook.objects.filter(enabled=True).values_list("pk", flat=True):
+        with lease(f"webhook:{hook_id}", WEBHOOK_LEASE_S) as held:
+            if held is None:
+                continue  # another run is delivering to this hook
+            sent += _deliver(Webhook.objects.get(pk=hook_id))
+    return sent
+
+
+def _advance(hook: Any, event_id: int, error: str = "") -> None:
+    """Move a hook's cursor forward to `event_id` (never back) and record the outcome."""
+
+    from oss_server.curation.models import Webhook
+
+    Webhook.objects.filter(pk=hook.pk, last_event_id__lt=event_id).update(
+        last_event_id=event_id, last_error=error
+    )
+    hook.last_event_id = max(hook.last_event_id, event_id)
+
+
+def _deliver(hook: Any) -> int:
+    """Deliver a hook's next batch of events, in order, stopping at the first failure."""
+
     import hmac
-    import json
 
     import httpx
 
@@ -1180,89 +1215,95 @@ def deliver_webhooks() -> int:
     from oss_server.curation.models import Event, Webhook
 
     sent = 0
-    for hook in Webhook.objects.filter(enabled=True):
-        events = Event.objects.filter(pk__gt=hook.last_event_id).order_by("pk")[:100]
-        for event in events:
-            if hook.kinds and not any(event.kind.startswith(k) for k in hook.kinds):
-                hook.last_event_id = event.pk
-                continue
-            body = json.dumps(
-                {
-                    "id": event.pk,
-                    "kind": event.kind,
-                    "collection": event.collection,
-                    "subject": event.subject,
-                    "payload": event.payload,
-                    "created_at": event.created_at.isoformat(),
-                },
-                default=str,
-            ).encode()
-            headers = {"Content-Type": "application/json", "X-Semascope-Event": event.kind}
-            if hook.secret:
-                headers["X-Semascope-Signature"] = (
-                    "sha256=" + hmac.new(hook.secret.encode(), body, hashlib.sha256).hexdigest()
-                )
-            try:
-                with guarded_client(timeout=15.0, follow_redirects=False) as client:
-                    resp = client.post(hook.url, content=body, headers=headers)
-                if resp.is_redirect:
-                    hook.last_error = f"{resp.status_code} on event {event.pk} (not followed)"
-                    break
-                if resp.status_code >= 400:
-                    hook.last_error = f"{resp.status_code} on event {event.pk}"
-                    break
-                hook.last_event_id = event.pk
-                hook.last_error = ""
-                sent += 1
-            except SourceNotAllowed as exc:
-                hook.last_error = f"refused on event {event.pk}: {exc}"[:2000]
-                break
-            except httpx.HTTPError as exc:
-                hook.last_error = f"{type(exc).__name__} on event {event.pk}"
-                break
-        hook.save(update_fields=["last_event_id", "last_error"])
+    events = Event.objects.filter(pk__gt=hook.last_event_id).order_by("pk")[:WEBHOOK_BATCH]
+    for event in events:
+        if hook.kinds and not any(event.kind.startswith(k) for k in hook.kinds):
+            _advance(hook, event.pk)
+            continue
+        body = json.dumps(
+            {
+                "id": event.pk,
+                "kind": event.kind,
+                "collection": event.collection,
+                "subject": event.subject,
+                "payload": event.payload,
+                "created_at": event.created_at.isoformat(),
+            },
+            default=str,
+        ).encode()
+        headers = {"Content-Type": "application/json", "X-Semascope-Event": event.kind}
+        if hook.secret:
+            headers["X-Semascope-Signature"] = (
+                "sha256=" + hmac.new(hook.secret.encode(), body, hashlib.sha256).hexdigest()
+            )
+        error = ""
+        try:
+            with guarded_client(timeout=WEBHOOK_TIMEOUT_S, follow_redirects=False) as client:
+                resp = client.post(hook.url, content=body, headers=headers)
+            if resp.is_redirect:
+                error = f"{resp.status_code} on event {event.pk} (not followed)"
+            elif resp.status_code >= 400:
+                error = f"{resp.status_code} on event {event.pk}"
+        except SourceNotAllowed as exc:
+            error = f"refused on event {event.pk}: {exc}"[:2000]
+        except httpx.HTTPError as exc:
+            error = f"{type(exc).__name__} on event {event.pk}"
+        if error:
+            Webhook.objects.filter(pk=hook.pk).update(last_error=error)
+            break
+        _advance(hook, event.pk)
+        sent += 1
     return sent
 
 
 @shared_task(name="semascope.check_alerts", queue="io")
 def check_alerts() -> int:
-    """Run every saved search with an alert; emit an event when its total grew."""
+    """Run every saved search with an alert; emit an event when its total grew.
+
+    The event is in the shared outbox, which every reader of the collection and every
+    webhook sees, so it says only that saved search `<id>` of collection `<c>` has `new`
+    more matches: never its owner, its name, its query or its hits. The owner reads those in
+    the in-app alert list (`/api/views/alerts`). One check runs at a time (a lease).
+    """
 
     from oss_server.api import search as search_mod
     from oss_server.api.access import can_read, readable_collections
     from oss_server.api.schemas import SearchIn
     from oss_server.catalogue.models import SavedSearch
     from oss_server.curation.services import emit
+    from oss_server.pipeline.runs import lease
 
     fired = 0
-    for saved in SavedSearch.objects.filter(alert=True).select_related("user"):
-        try:
-            req = SearchIn(**saved.query).model_copy(
-                update={"page": 1, "page_size": 5, "facets": []}
-            )
-            # an alert sees what its owner may read now, not what they could when saving it
-            if req.collection and not can_read(saved.user, req.collection):
+    with lease("check_alerts", ALERTS_LEASE_S) as held:
+        if held is None:
+            return 0  # the previous check is still running
+        for saved in SavedSearch.objects.filter(alert=True).select_related("user"):
+            try:
+                req = SearchIn(**saved.query).model_copy(
+                    update={"page": 1, "page_size": 5, "facets": []}
+                )
+                # an alert sees what its owner may read now, not what they could when saving it
+                if req.collection and not can_read(saved.user, req.collection):
+                    continue
+                readable = readable_collections(saved.user)
+                allowed = None if readable is None else sorted(readable)
+                res = search_mod.search(solr_client(), solr_documents_collection(), req, allowed)
+            except Exception:  # noqa: BLE001
+                log.exception("alert %s failed", saved.pk)
                 continue
-            readable = readable_collections(saved.user)
-            allowed = None if readable is None else sorted(readable)
-            res = search_mod.search(solr_client(), solr_documents_collection(), req, allowed)
-        except Exception:  # noqa: BLE001
-            log.exception("alert %s failed", saved.pk)
-            continue
-        if saved.last_checked_at is not None and res.total > saved.last_total:
-            emit(
-                "alert.saved_search",
-                collection=str(saved.query.get("collection") or ""),
-                subject=saved.name,
-                payload={
-                    "user": saved.user.username,
-                    "new": res.total - saved.last_total,
-                    "total": res.total,
-                    "hits": [h.model_dump() for h in res.hits],
-                },
-            )
-            fired += 1
-        saved.last_total = res.total
-        saved.last_checked_at = timezone.now()
-        saved.save(update_fields=["last_total", "last_checked_at"])
+            if saved.last_checked_at is not None and res.total > saved.last_total:
+                emit(
+                    "alert.saved_search",
+                    collection=str(saved.query.get("collection") or ""),
+                    subject=f"saved-search:{saved.pk}",
+                    payload={
+                        "saved_search": saved.pk,
+                        "new": res.total - saved.last_total,
+                        "total": res.total,
+                    },
+                )
+                fired += 1
+            saved.last_total = res.total
+            saved.last_checked_at = timezone.now()
+            saved.save(update_fields=["last_total", "last_checked_at"])
     return fired
