@@ -8,6 +8,7 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from oss_pipeline.provenance import curated_tags
 from oss_server.catalogue.models import Collection, Document
 from oss_server.curation.models import Event, Proposal, Review
 
@@ -32,6 +33,43 @@ def _decision(kind: str) -> str:
     """What a proposal decides about its target: accept, reject, or its own kind."""
 
     return "accept" if kind in ACCEPTS else "reject" if kind in REJECTS else kind
+
+
+TAG_KINDS = ("accept_tag", "reject_tag", "add_tag", "remove_tag", "link_entity")
+SNAPSHOT_SPANS = 200  # spans kept in a decision's snapshot of the tag; span_count has them all
+
+
+def _decision_params(params: dict[str, Any]) -> dict[str, Any]:
+    """The params that say what was decided (not the snapshot of the evidence)."""
+
+    return {k: v for k, v in params.items() if k != "tag"}
+
+
+def tag_snapshot(document: Document | None, iri: str) -> dict[str, Any] | None:
+    """The document's tag for an IRI as it is now, for the decision log; None if absent."""
+
+    if document is None:
+        return None
+    for t in document.tags:
+        if t.get("iri") == iri:
+            spans = list(t.get("spans") or [])
+            return {
+                **{k: v for k, v in t.items() if k != "spans"},
+                "spans": spans[:SNAPSHOT_SPANS],
+                "span_count": len(spans),
+            }
+    return None
+
+
+def pack_of(collection: Collection, iri: str) -> tuple[str, str]:
+    """The active pack version that defines an IRI, by the collection's precedence."""
+
+    from oss_server.knowledge.models import Concept, Pack
+    from oss_server.knowledge.precedence import pack_order, preferred
+
+    rows = Concept.objects.filter(iri=iri, pack__status=Pack.Status.ACTIVE).select_related("pack")
+    best = preferred(rows, pack_order(collection))
+    return (best.pack.pack_id, best.pack.version) if best is not None else ("", "")
 
 
 def latest_proposal(
@@ -66,15 +104,31 @@ def propose(
     outbox carries one stable reference per decision. Repeating the decision that
     is already in force (a retried request, a double click) records nothing and
     returns that proposal, applying it again if a store was down the first time.
+
+    A decision on a tag keeps the tag as it was (`params["tag"]`: stage, confidence,
+    provenance and up to 200 spans), and `pack_id`/`pack_version` default to the
+    tag's pack version (for a link, the individual's).
     """
 
-    params = params or {}
+    params = dict(params or {})
     doc_id = document.id if document else None
+    if kind in TAG_KINDS and "tag" not in params:
+        snapshot = tag_snapshot(document, target)
+        if snapshot is not None:
+            params["tag"] = snapshot
+    if kind in TAG_KINDS and not pack_id:
+        # the pack version of what is decided: the linked individual, else the tag itself
+        iri = str(params.get("iri") or "") if kind == Proposal.Kind.LINK_ENTITY else target
+        tag = params.get("tag") if kind != Proposal.Kind.LINK_ENTITY else None
+        if tag and tag.get("pack_id"):
+            pack_id, pack_version = str(tag["pack_id"]), str(tag.get("pack_version") or "")
+        elif iri:
+            pack_id, pack_version = pack_of(collection, iri)
     previous = latest_proposal(collection, target, document)
     if (
         previous is not None
         and _decision(previous.kind) == _decision(kind)
-        and previous.params == params
+        and _decision_params(previous.params) == _decision_params(params)
     ):
         if not previous.applied:
             _apply(previous)
@@ -150,11 +204,14 @@ def apply_proposal(p: Proposal) -> None:
     tags: list[dict[str, Any]] = list(doc.tags)
     before = {str(t.get("iri")): t for t in tags}
     curated: dict[str, Any] = dict(doc.fields.get("curated") or {})
+    # a curator's link survives later decisions on the individual
+    kept = {k: v for k, v in (curated.get(p.target) or {}).items() if k == "linked_from"}
     if p.kind in (Proposal.Kind.ACCEPT_TAG, Proposal.Kind.ADD_TAG):
         curated[p.target] = {
             "decision": "accept",
             "label": p.params.get("label", ""),
             "kind": p.params.get("kind", "concept"),
+            **kept,
         }
         if p.pack_id:
             curated[p.target].update(pack_id=p.pack_id, pack_version=p.pack_version or None)
@@ -173,22 +230,24 @@ def apply_proposal(p: Proposal) -> None:
                 }
             )
     elif p.kind in (Proposal.Kind.REJECT_TAG, Proposal.Kind.REMOVE_TAG):
-        curated[p.target] = {"decision": "reject"}
-        tags = [t for t in tags if t.get("iri") != p.target]
+        # the machine's tag stays in the record, flagged by the decision; Solr and Neo4j
+        # leave it out (`curated_tags`). A tag only a curator had added has no evidence
+        # to keep: it goes (its proposal keeps it).
+        curated[p.target] = {"decision": "reject", **kept}
+        tags = [t for t in tags if t.get("iri") != p.target or t.get("stage") != "curated"]
     elif p.kind == Proposal.Kind.LINK_ENTITY:
+        # the NER tag stays as the machine found it; the curated view points it at the
+        # individual (`curated_tags`), here and after every reindex
         new_iri = str(p.params.get("iri") or "")
-        for t in tags:
-            if t.get("iri") == p.target:
-                t["iri"], t["pack_id"], t["pack_version"], t["stage"], t["confidence"] = (
-                    new_iri,
-                    p.pack_id or t.get("pack_id"),
-                    p.pack_version or t.get("pack_version"),
-                    "curated",
-                    1.0,
-                )
-                if p.params.get("label"):
-                    t["label"] = p.params["label"]
-        curated[new_iri] = {"decision": "accept", "linked_from": p.target}
+        old = before.get(p.target) or {}
+        curated[new_iri] = {
+            "decision": "accept",
+            "linked_from": p.target,
+            "label": str(p.params.get("label") or old.get("label") or new_iri),
+            "kind": "entity",
+            "pack_id": p.pack_id or None,
+            "pack_version": p.pack_version or None,
+        }
     elif p.kind == Proposal.Kind.DISMISS_VIOLATION:
         dismissed = set(doc.fields.get("dismissed_violations") or [])
         dismissed.add(p.target)
@@ -199,16 +258,20 @@ def apply_proposal(p: Proposal) -> None:
     doc.fields["curated"] = curated
     doc.save(update_fields=["tags", "fields", "updated_at"])
 
-    # Solr: atomic update of the tag facets from the curated tag list
-    concept = [t for t in tags if t.get("kind") == "concept"]
-    linked = [t for t in tags if t.get("kind") == "entity" and t.get("pack_id")]
+    # Solr: atomic update of the tag facets from the curated view, as the index stage does
+    effective = curated_tags(tags, curated)
+    concept = [t for t in effective if t.kind == "concept"]
+    linked = [t for t in effective if t.kind == "entity" and t.pack_id]
     update = {
         "id": doc.id,
-        "concept_iris_ss": {"set": sorted({t["iri"] for t in concept})},
-        "concept_labels_ss": {"set": sorted({t["label"] for t in concept})},
-        "entity_iris_ss": {"set": sorted({t["iri"] for t in linked})},
-        "entity_labels_ss": {"set": sorted({t["label"] for t in linked})},
-        "curated_ss": {"set": [f"{k}:{v['decision']}" for k, v in curated.items()]},
+        "concept_iris_ss": {"set": sorted({t.iri for t in concept})},
+        "concept_labels_ss": {"set": sorted({t.label for t in concept})},
+        "entity_iris_ss": {"set": sorted({t.iri for t in linked})},
+        "entity_labels_ss": {"set": sorted({t.label for t in linked})},
+        "pack_versions_ss": {
+            "set": sorted({f"{t.pack_id}@{t.pack_version}" for t in effective if t.pack_id})
+        },
+        "curated_ss": {"set": sorted(f"{k}:{v['decision']}" for k, v in curated.items())},
     }
     solr_client().add(solr_documents_collection(), [update])
 
@@ -272,9 +335,10 @@ def queue_reviews(doc: Document) -> int:
 
     created = 0
     curated = doc.fields.get("curated") or {}
+    linked = {v.get("linked_from") for v in curated.values() if isinstance(v, dict)}
     for tag in doc.tags:
         iri = str(tag.get("iri") or "")
-        if not iri or iri in curated:
+        if not iri or iri in curated or iri in linked:
             continue
         confidence = float(tag.get("confidence") or 0)
         is_ner = tag.get("stage") == "ner" and tag.get("pack_id") is None

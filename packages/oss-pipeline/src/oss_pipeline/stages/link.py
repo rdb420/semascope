@@ -3,11 +3,14 @@
 An NER tag whose normalised text equals a taggable individual's label (pref,
 alt or hidden) in an active pack is re-pointed at that individual's IRI with
 the pack version recorded, so the graph and the facets use the curated
-identity instead of a free-text name. The dictionary comes from the Solr
-`entities` collection, fetched once per process per pack set and collection.
-When two packs give an individual the same label, the pack with the higher
-binding precedence wins (`oss_pipeline.dictionary`), whatever order Solr
-returns the entries in.
+identity instead of a free-text name. The tag keeps the NER entity it was
+(`linked_from`: IRI, surface label, score and model) and the individual's
+label it matched (`matched_label`, `label_type`); its `stage` stays `ner`.
+
+The dictionary comes from the Solr `entities` collection, fetched once per
+process per pack set and collection. When two packs give an individual the
+same label, the pack with the higher binding precedence wins
+(`oss_pipeline.dictionary`), whatever order Solr returns the entries in.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from oss_core.contracts import StageContext, Tag, WorkingDocument
+from oss_core.contracts import LinkedFrom, StageContext, Tag, WorkingDocument
 from oss_pipeline.dictionary import dictionary_fq, entry_rank, pack_rank
 
 
@@ -68,7 +71,7 @@ def _dictionary(
 
 class LinkStage:
     name = "link"
-    version = "1"
+    version = "2"
     queue = "cpu"
     requires = ("tags",)
     provides = ("tags",)
@@ -95,9 +98,19 @@ class LinkStage:
             if entry is None:
                 continue
             target = str(entry["iri"])
+            origin = LinkedFrom(
+                iri=tag.iri,
+                label=tag.label,
+                confidence=tag.confidence,
+                model=tag.model,
+                link_version=self.version,
+            )
             existing = by_iri.get(target)
             if existing is not None and existing is not tag:
+                # the individual was also found another way (usually the dictionary): its
+                # tag keeps its own provenance and gains the NER occurrences
                 existing.spans.extend(tag.spans)
+                existing.linked_from = existing.linked_from or origin
                 doc.tags.remove(tag)
             else:
                 tag.iri = target
@@ -105,6 +118,9 @@ class LinkStage:
                 tag.pack_id = str(entry.get("pack_id"))
                 tag.pack_version = str(entry.get("pack_version"))
                 tag.confidence = max(tag.confidence, 0.85)
+                tag.matched_label = str(entry.get("label") or tag.label)
+                tag.label_type = str(entry.get("label_type") or "hidden")
+                tag.linked_from = origin
                 by_iri[target] = tag
             linked += 1
         doc.fields["linked_count"] = linked

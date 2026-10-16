@@ -1,12 +1,25 @@
 from django.contrib import admin
 
-from oss_server.curation.models import Annotation, Event, Proposal, Review, Webhook
+from oss_server.curation.models import (
+    Annotation,
+    Event,
+    Proposal,
+    Review,
+    ReviewDecision,
+    Webhook,
+)
 
 
 @admin.register(Review)
 class ReviewAdmin(admin.ModelAdmin[Review]):
     list_display = ("kind", "label", "collection", "status", "confidence", "created_at")
     list_filter = ("kind", "status", "collection")
+
+
+@admin.register(ReviewDecision)
+class ReviewDecisionAdmin(admin.ModelAdmin[ReviewDecision]):
+    list_display = ("review", "decision", "decided_by", "decided_at")
+    list_filter = ("decision",)
 
 
 @admin.register(Proposal)

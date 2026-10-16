@@ -7,6 +7,7 @@ from typing import Any
 
 from oss_core.contracts import StageContext, Tag, WorkingDocument
 from oss_pipeline.clients.solr import SolrClient
+from oss_pipeline.provenance import curated_tags
 
 ENTITY_FIELDS = (
     "emails",
@@ -21,25 +22,10 @@ ENTITY_FIELDS = (
 
 
 def effective_tags(doc: WorkingDocument) -> list[Tag]:
-    """The document's tags after curation: rejected ones dropped, accepted additions kept."""
+    """The document's tags after curation: rejected ones dropped, accepted additions and links
+    applied (`oss_pipeline.provenance.curated_tags`)."""
 
-    curated: dict[str, Any] = dict(doc.fields.get("curated") or {})
-    tags = [t for t in doc.tags if curated.get(t.iri, {}).get("decision") != "reject"]
-    present = {t.iri for t in tags}
-    for iri, decision in curated.items():
-        if decision.get("decision") == "accept" and iri not in present and decision.get("label"):
-            tags.append(
-                Tag(
-                    iri=iri,
-                    label=str(decision["label"]),
-                    kind="concept" if decision.get("kind", "concept") == "concept" else "entity",
-                    stage="curated",
-                    confidence=1.0,
-                    pack_id=decision.get("pack_id"),
-                    pack_version=decision.get("pack_version"),
-                )
-            )
-    return tags
+    return curated_tags(doc.tags, doc.fields.get("curated"))
 
 
 def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -> dict[str, Any]:
@@ -120,7 +106,7 @@ def _iso(value: Any) -> str | None:
 
 class IndexStage:
     name = "index"
-    version = "1"
+    version = "2"
     queue = "io"
     requires = ("text",)
     provides = ("indexed",)

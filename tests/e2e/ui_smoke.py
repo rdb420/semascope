@@ -6,11 +6,12 @@
 """Browser smoke test of the UI against a running stack with the demo loaded.
 
 Signs in, searches, checks the query chips, clicks a hierarchical facet,
-opens a document and checks a tag's tooltip, the knowledge-model pages and a
-concept page, the graph (a neighbourhood and a shortest path), accepts and
-rejects items on the review page, runs a list search, and fails on any
-browser console error. Screenshots land in SEMASCOPE_UI_SHOTS (default: the
-current directory); a failure also saves failure.png there.
+opens a document and checks a tag's tooltip, its highlighted occurrences and
+its "why this tag" panel, the knowledge-model pages and a concept page, the
+graph (a neighbourhood and a shortest path), accepts and rejects items on the
+review page, runs a list search, and fails on any browser console error.
+Screenshots land in SEMASCOPE_UI_SHOTS (default: the current directory); a
+failure also saves failure.png there.
 
     SEMASCOPE_UI_PASSWORD=... uv run tests/e2e/ui_smoke.py
     # first: uv run --with playwright python -m playwright install chromium
@@ -85,14 +86,20 @@ def run(page: Page) -> None:
     page.wait_for_selector("text=Pipeline", timeout=20000)
     shot(page, "04-document.png")
 
-    # a tag's tooltip on the document page names the stage and the confidence
-    tags = page.locator("div:has(> h2:has-text('Tags (')) li a")
+    # a tag's tooltip on the document page names the stage, its version and the confidence
+    tags = page.locator("div:has(> h2:has-text('Tags (')) li button[aria-pressed]")
     expect(tags.first).to_be_visible(timeout=20000)
     tags.first.hover()
     tooltip = tags.first.get_attribute("title") or ""
-    if not re.fullmatch(r"[a-z]+ · [01]\.\d\d", tooltip):
-        raise AssertionError(f"tag tooltip {tooltip!r} does not read '<stage> · <confidence>'")
+    if not re.fullmatch(r"[a-z]+( v\w+)? · [01]\.\d\d( · \S+@\S+)?", tooltip):
+        raise AssertionError(f"tag tooltip {tooltip!r} does not read '<stage> v<n> · <confidence>'")
     shot(page, "04b-tag-tooltip.png")
+    # selecting it highlights its occurrences and explains it
+    tags.first.click()
+    expect(page.locator("section[aria-label='Why this tag']")).to_be_visible(timeout=20000)
+    expect(page.locator("article mark").first).to_be_visible(timeout=20000)
+    expect(page.locator("section[aria-label='Why this tag'] >> text=Method")).to_be_visible()
+    shot(page, "04c-why-this-tag.png")
 
     page.click("text=Knowledge models")
     page.wait_for_selector("text=semascope-demo", timeout=20000)

@@ -18,6 +18,7 @@ from typing import Any, NamedTuple, Protocol
 import httpx
 
 from oss_core.contracts import Span, StageContext, Tag, WorkingDocument
+from oss_pipeline.provenance import assign_pages
 from oss_pipeline.stages.base import SkipStageError
 
 BASE = "https://semascope.dev/ontology/base#"
@@ -266,7 +267,7 @@ def facet_for(label: str, cls: str) -> str:
 
 class NerStage:
     name = "ner"
-    version = "2"
+    version = "3"
     queue = "nlp"
     requires = ("text",)
     provides = ("tags",)
@@ -316,6 +317,7 @@ class NerStage:
             labels[str(label).lower()] = str(spec.get("description") or label)
         results = provider.extract([piece for _, piece in pieces], doc.language, labels)
         min_len = int(ctx.settings.get("ner_min_length", 3))
+        model = f"{provider.name}:{getattr(provider, 'model', '')}"
         found: dict[str, Tag] = {}
         facets: dict[str, set[str]] = defaultdict(set)
         for (offset, _), entities in zip(pieces, results, strict=True):
@@ -334,15 +336,18 @@ class NerStage:
                         label=value,
                         kind="entity",
                         stage=self.name,
+                        stage_version=self.version,
                         confidence=round(ent.confidence, 3),
+                        model=model,
                     )
                     found[key] = tag
                     facets[facet_for(ent.label, cls)].add(value)
                 elif ent.confidence > tag.confidence:
                     tag.confidence = round(ent.confidence, 3)
                 tag.spans.append(Span(start=offset + ent.start, end=offset + ent.end))
+        assign_pages(found.values(), doc)
         doc.tags.extend(found.values())
         for facet, values in facets.items():
             doc.fields[facet] = sorted(values)
-        doc.fields["ner_model"] = f"{provider.name}:{getattr(provider, 'model', '')}"
+        doc.fields["ner_model"] = model
         return doc

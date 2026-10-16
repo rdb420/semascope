@@ -8,8 +8,10 @@ concept, so the UI can show a hierarchical facet without any schema change.
 When two active packs define the same IRI, the tag is attributed to the pack
 with the higher binding precedence (see `oss_pipeline.dictionary`), and a
 tag's confidence is that of the best label type it matched through anywhere
-in the text, not only at its first occurrence. Curators' draft labels are
-used only in the collection that proposed them.
+in the text, not only at its first occurrence. The tag records that entry
+(`matched_label`, `label_type`, `lang`), each span the label it matched, and
+the page it is on. Curators' draft labels are used only in the collection
+that proposed them.
 """
 
 from __future__ import annotations
@@ -21,13 +23,22 @@ import httpx
 
 from oss_core.contracts import Span, StageContext, Tag, WorkingDocument
 from oss_pipeline.dictionary import dictionary_fq, entry_rank, label_confidence, pack_rank
+from oss_pipeline.provenance import assign_pages
 
 MAX_TEXT = 2_000_000  # characters sent per request; longer texts are tagged in windows
 
 
+def _explain(tag: Tag, entry: dict[str, Any], label: str) -> None:
+    """Record the dictionary entry behind the tag's confidence: label, label type, language."""
+
+    tag.matched_label = label
+    tag.label_type = str(entry.get("label_type") or "hidden")
+    tag.lang = str(entry["lang"]) if entry.get("lang") else None
+
+
 class TagStage:
     name = "tag"
-    version = "1"
+    version = "2"
     queue = "cpu"
     requires = ("text",)
     provides = ("tags",)
@@ -85,6 +96,7 @@ class TagStage:
                         best[iri] = entry
                 for iri, entry in best.items():
                     confidence = label_confidence(entry.get("label_type"))
+                    label = str(entry.get("label") or matched)
                     tag = found.get(iri)
                     if tag is None:
                         tag = Tag(
@@ -94,24 +106,30 @@ class TagStage:
                             pack_id=str(entry.get("pack_id")),
                             pack_version=str(entry.get("pack_version")),
                             stage=self.name,
+                            stage_version=self.version,
                             confidence=confidence,
                         )
+                        _explain(tag, entry, label)
                         found[iri] = tag
                         owner[iri] = entry
                     else:
-                        tag.confidence = max(tag.confidence, confidence)
+                        if confidence > tag.confidence:
+                            # the confidence is that of the best label type seen: say which
+                            tag.confidence = confidence
+                            _explain(tag, entry, label)
                         if entry_rank(entry, ranks)[:2] < entry_rank(owner[iri], ranks)[:2]:
                             # a higher-precedence pack defines the same IRI
                             tag.pack_id = str(entry.get("pack_id"))
                             tag.pack_version = str(entry.get("pack_version"))
                             tag.label = str(entry.get("pref_label") or tag.label)
                             owner[iri] = entry
-                    tag.spans.append(Span(start=start, end=end))
+                    tag.spans.append(Span(start=start, end=end, matched=label))
         paths: dict[str, set[str]] = defaultdict(set)
         for entry in owner.values():
             scheme = str(entry.get("scheme") or "")
             if scheme and entry.get("path"):
                 paths[scheme].add(str(entry["path"]))
+        assign_pages(found.values(), doc)
         doc.tags.extend(found.values())
         for scheme, values in paths.items():
             doc.fields[f"x_{scheme}_paths"] = sorted(values)

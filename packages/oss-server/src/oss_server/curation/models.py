@@ -2,14 +2,17 @@
 
 Review: something a machine proposed that a person should look at (a
 low-confidence tag, an unlinked entity that resembles a pack individual, a
-SHACL violation). Decision -> Proposal.
+SHACL violation). Its status is the decision in force; every decision on it
+(defer, then accept, say) is kept as a ReviewDecision. Decision -> Proposal.
 
 Proposal: the record of a curation decision (rebuild specification 10.4):
 applied to Semascope's stores at once and exported through the outbox so an
 external system of record can mirror, reject or audit it. The log is
 append-only: a new decision on the same target is a new row, and the newest
 one is in force. `external_ref` is a stable hash per decision (chained to the
-decision it supersedes), so a re-export is idempotent.
+decision it supersedes), so a re-export is idempotent. `params["tag"]` keeps
+the tag as it was when it was decided (stage, confidence, spans, provenance),
+so a rejected tag's evidence outlives the tag.
 
 Annotation: a curator's note or tag on a document.
 
@@ -69,6 +72,29 @@ class Review(models.Model):
         return f"{self.kind} {self.label or self.target} ({self.status})"
 
 
+class ReviewDecision(models.Model):
+    """One decision on a review item: the history behind `Review.status` (append-only).
+
+    Deferring and later deciding leaves two rows; the review keeps the decision in
+    force. An accept or reject that became a proposal points at it.
+    """
+
+    review = models.ForeignKey(Review, on_delete=models.CASCADE, related_name="decisions")
+    decision = models.CharField(max_length=16)  # accept | reject | defer
+    note = models.TextField(blank=True)
+    decided_by = models.ForeignKey("auth.User", on_delete=models.SET_NULL, null=True, blank=True)
+    decided_at = models.DateTimeField(auto_now_add=True)
+    proposal = models.ForeignKey(
+        "Proposal", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["decided_at", "pk"]
+
+    def __str__(self) -> str:
+        return f"{self.decision} on review {self.review_id}"
+
+
 class Proposal(models.Model):
     class Kind(models.TextChoices):
         ACCEPT_TAG = "accept_tag"
@@ -116,9 +142,14 @@ class Proposal(models.Model):
         *,
         previous: str = "",
     ) -> str:
-        """The decision's stable reference; `previous` is the ref of the decision it supersedes."""
+        """The decision's stable reference; `previous` is the ref of the decision it supersedes.
 
-        parts: list[Any] = [collection, kind, target, params, document_id]
+        The snapshot of the decided tag (`params["tag"]`) is evidence, not the decision,
+        and is left out.
+        """
+
+        decided = {k: v for k, v in params.items() if k != "tag"}
+        parts: list[Any] = [collection, kind, target, decided, document_id]
         if previous:  # the first decision on a target keeps the rc.2 formula
             parts.append(previous)
         payload = json.dumps(parts, sort_keys=True, default=str)

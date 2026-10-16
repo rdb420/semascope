@@ -144,6 +144,9 @@ TABLE: dict[tuple[str, str], Rule] = {
         ("curator", "a"), 200, json={"decision": "defer"}
     ),
     ("GET", "/api/curation/documents/{doc_id}/tags"): Rule(("reader", "a"), 200),
+    ("GET", "/api/curation/documents/{doc_id}/tags/history"): Rule(
+        ("reader", "a"), 200, query=f"iri={IRI_Q}"
+    ),
     ("POST", "/api/curation/documents/{doc_id}/tags"): Rule(
         ("curator", "a"), 200, json={"iri": CONCEPT_IRI, "decision": "accept"}
     ),
