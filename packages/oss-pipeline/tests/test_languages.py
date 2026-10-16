@@ -105,6 +105,16 @@ def test_no_language_shares_another_languages_stemmer() -> None:
     assert len(stems) == len(set(stems))
 
 
+def test_configsets_have_no_subfolders() -> None:
+    # Solr's collection BACKUP keeps only the top-level files of a configset, and RESTORE
+    # writes that copy over the live one: a file in a subfolder (lang/stopwords_it.txt)
+    # is lost, and the schema that names it no longer loads. Keep every file at the root.
+    root = CONF.parents[1]
+    nested = sorted(str(p.relative_to(root)) for p in root.glob("*/conf/*/**") if p.exists())
+    assert nested == [], nested
+    assert not re.search(r'(?:words|articles|dictionary|synonyms)="[^"]*/', SCHEMA)
+
+
 def test_the_neutral_field_has_no_language_stop_words() -> None:
     block = re.search(r'<fieldType name="text_general".*?</fieldType>', SCHEMA, re.S)
     assert block and 'name="stop"' not in block.group(0)

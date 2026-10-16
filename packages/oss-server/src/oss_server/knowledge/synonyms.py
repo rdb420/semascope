@@ -75,7 +75,7 @@ def stopwords(languages: Iterable[str] | None = None, conf_dir: Path | None = No
         conf_dir = configset_dir("documents")
     wanted = None if languages is None else {c for c in languages if c}
     words: set[str] = set()
-    for path in sorted((conf_dir / "lang").glob("stopwords_*.txt")):
+    for path in sorted(conf_dir.glob("stopwords_*.txt")):
         if wanted is not None and path.stem.removeprefix("stopwords_") not in wanted:
             continue
         for line in path.read_text(encoding="utf-8").splitlines():

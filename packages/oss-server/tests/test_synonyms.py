@@ -188,7 +188,7 @@ def test_sync_uploads_the_whole_configset_with_the_file_and_reloads() -> None:
     assert synonyms.sync_synonyms(solr) == 1
     assert solr.uploaded["@name"] == "semascope-documents"
     assert "Odysseus, Ulysses" in solr.uploaded["synonyms_packs.txt"]
-    assert "managed-schema.xml" in solr.uploaded and "lang/stopwords_de.txt" in solr.uploaded
+    assert "managed-schema.xml" in solr.uploaded and "stopwords_de.txt" in solr.uploaded
     assert solr.reloaded == ["documents"]
 
 
