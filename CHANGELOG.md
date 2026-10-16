@@ -5,8 +5,47 @@ and the project follows semantic versioning.
 
 ## [Unreleased]
 
+### Security
+
+- Every API route has an explicit role rule, checked by a test that walks
+  each route as six kinds of user; annotations need the curator role (or
+  authorship), document reindex the editor role, and marking pack deltas
+  exported is a POST for editors.
+- Reading can be limited per collection: with `SEMASCOPE_DEFAULT_ROLE=none`
+  a user reads only the collections they hold a role on, across search
+  (all modes and exports), documents, previews, the graph, curation and
+  stats. The default stays `reader`, so existing installs read as before.
+- Solr requires basic authentication, configured from `SOLR_PASSWORD` at
+  start, including on existing installs; backup, restore and `oss doctor`
+  send the credentials.
+- File sources read only under `SEMASCOPE_SOURCE_ROOTS`; web, feed, SPARQL
+  and S3 sources share one private-address guard
+  (`SEMASCOPE_ALLOWED_PRIVATE_HOSTS` names exceptions) and response size
+  caps; source credentials stay in the source settings and are masked in
+  API responses.
+- A decided review answers 409 to a second decision.
+
+### Added
+
+- Integration tests against the real stack (`tests/integration`,
+  `just integration`), the browser journey and a backup and restore round
+  trip, in a CI workflow on amd64 and weekly on arm64; the clean-room check
+  compares against the pinned legacy sources.
+- `oss demo --only`, `SEMASCOPE_ENV_FILE` for a second stack beside the
+  first.
+- The demo corpus is pinned by hash; `packs/demo/derive.py` builds the
+  `mixed-1k` corpus in twelve formats; benchmark scripts for size, review
+  throughput and failure recovery, and a hardware block in `bench.py`.
+- Compose images pinned by digest (`just bump-images`); release images
+  signed with cosign.
+- `oss init --size` sets the worker's processes and memory cap;
+  `SEMASCOPE_MAP_TILE_URL` (empty for no base map) for offline installs.
+
 ### Fixed
 
+- Semantic and hybrid search apply every filter to the vector candidates,
+  so totals and pages are right when facets are selected; deletion removes
+  a document's passages too.
 - Curation: the proposal log is append-only and the newest decision on a
   target wins, so accept, reject, accept leaves the tag accepted (rc.2
   returned the first proposal unapplied). Each decision has its own

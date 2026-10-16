@@ -46,17 +46,21 @@ chosen; it must be redistributable or re-downloadable by a pinned script.
 
 ## Failure and recovery scenarios
 
-| Scenario | Expected behaviour in rc.2 | Pass condition |
+| Scenario | Expected behaviour | Pass condition |
 |---|---|---|
-| Kill a worker in the middle of a document | the task is acknowledged late, so Valkey redelivers it to the next worker | every document reaches `indexed` exactly once |
+| Kill a worker in the middle of a document | the task is acknowledged late, so Valkey redelivers it to the next worker (measured on rc.2: **fails**, see [Quality numbers](../quality.md)) | every document reaches `indexed` exactly once |
 | Restart Valkey during indexing | the append-only file keeps queued tasks | no document is lost |
-| Stop Solr or Neo4j during indexing | the stage fails and the document is marked failed; `oss reindex` retries failed documents that have text | after reindex, counts match a clean run |
-| A `remote` service answers errors | the stage fails and nothing falls back to the CPU model; reindex recovers | no mixed-model chunks in the index |
+| Stop Solr or Neo4j during indexing | the stage is retried in place, then the document task is retried with backoff; after that the document is marked failed and `oss reindex` recovers it (measured on rc.2: a Neo4j outage left documents `indexed` with the graph stage failed) | after recovery, counts match a clean run |
+| A `remote` service answers errors | transient errors are retried against the same service, never a CPU model; after the retries the stage fails and reindex recovers | no mixed-model chunks in the index |
 | Restore a backup onto a fresh host | `./oss restore` | search, facets, review decisions and the outbox cursor match the source |
 | Replace the embedding model | chunks of the old model stop being searched; `oss reindex --stage embed` | semantic search returns to the old recall level |
 
-Automatic retries of failed stages are not in rc.2; recovery today is
-`oss reindex`. The recovery benchmark will show how long that takes.
+rc.2 had no automatic retries; the next release retries transient
+failures twice in place and then the document task three times with
+backoff, and `oss reindex` recovers whatever is left. The two worker-loss
+scenarios failed on rc.2 and are open: a killed pool process leaves its
+document in `processing`, and a killed worker container is redelivered
+only after the queue's visibility timeout.
 
 ## Reporting
 
