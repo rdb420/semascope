@@ -1,0 +1,67 @@
+# Test-only services for the integration stack, layered over compose.yaml by
+# scripts/integration.sh (COMPOSE_FILE=compose.yaml:tests/integration/stack/compose.yaml).
+# Never used by `./oss up`. Paths are relative to the repository root.
+#
+#   fixtures  tests/integration/stack/fixture_server.py: a web site with robots.txt and
+#             sitemaps, RSS and Atom feeds, a webhook receiver and a mock OpenID Connect
+#             provider, run from the Semascope image (no extra pull)
+#   minio     an S3-compatible bucket for the s3 connector
+#   oxigraph  a SPARQL endpoint for the rdf connector
+#
+# Each publishes one port on 127.0.0.1 with a port Docker picks, which the tests
+# look up with `docker compose port`, so parallel stacks never collide. The
+# source guard refuses private addresses, so these three hosts are allowed by
+# name; everything else on the compose network stays refused.
+
+x-allowed: &allowed
+  SEMASCOPE_ALLOWED_PRIVATE_HOSTS: fixtures,minio,oxigraph
+
+services:
+  server:
+    environment:
+      <<: *allowed
+      SEMASCOPE_OIDC_NAME: Mock IdP
+      SEMASCOPE_OIDC_SERVER_URL: http://fixtures:8000/oidc
+      SEMASCOPE_OIDC_CLIENT_ID: semascope-it
+      SEMASCOPE_OIDC_CLIENT_SECRET: semascope-it-oidc-secret
+
+  worker:
+    environment:
+      <<: *allowed
+
+  beat:
+    environment:
+      <<: *allowed
+
+  fixtures:
+    image: ghcr.io/rdb420/semascope:${SEMASCOPE_IMAGE_TAG:-main}
+    pull_policy: missing
+    command: ["python", "/fixtures/fixture_server.py", "--port", "8000", "--root", "/fixtures/web"]
+    volumes:
+      - ./tests/integration/stack:/fixtures:ro
+    ports:
+      - "127.0.0.1::8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest@sha256:2136d593beacf4461187035eca949fe49abd589d5079735025c711ca58fee0c8
+    command: ["server", "/data", "--address", ":9000"]
+    environment:
+      MINIO_ROOT_USER: semascope-it
+      MINIO_ROOT_PASSWORD: semascope-it-minio-secret
+    tmpfs:
+      - /data:uid=65532,gid=65532
+    ports:
+      - "127.0.0.1::9000"
+
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:0.5.11@sha256:7532c1f9aa5f28c0dc6a4243198f7f6144017fab7429bf6c164a89fec9411767
+    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
+    tmpfs:
+      - /data
+    ports:
+      - "127.0.0.1::7878"

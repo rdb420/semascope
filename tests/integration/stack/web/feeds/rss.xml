@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<channel>
+  <title>Fixture news</title>
+  <link>@BASE@/</link>
+  <description>RSS fixture</description>
+  <item>
+    <title>Heron sighted at the weir</title>
+    <link>@BASE@/news/heron</link>
+    <guid>@BASE@/news/heron</guid>
+    <pubDate>Mon, 02 Feb 2026 09:30:00 GMT</pubDate>
+    <content:encoded><![CDATA[<p>A grey heron waited at the weir all morning.</p>]]></content:encoded>
+  </item>
+  <item>
+    <title>Ibis count</title>
+    <link>@BASE@/news/ibis</link>
+    <guid>@BASE@/news/ibis</guid>
+    <pubDate>Tue, 03 Feb 2026 11:00:00 GMT</pubDate>
+    <description>Forty ibis on the river flats.</description>
+  </item>
+</channel>
+</rss>

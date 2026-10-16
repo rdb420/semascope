@@ -99,6 +99,120 @@ def make_client() -> httpx.Client:
     )
 
 
+def compose(*args: str, timeout: float = 300) -> subprocess.CompletedProcess[str]:
+    """`docker compose` for this stack (COMPOSE_PROJECT_NAME and COMPOSE_FILE from the env)."""
+
+    cmd = ["docker", "compose", *args]
+    return subprocess.run(  # noqa: S603 - fixed program, arguments from the tests
+        cmd, cwd=ROOT, capture_output=True, text=True, timeout=timeout, check=False
+    )
+
+
+def service_url(service: str, port: int) -> str:
+    """http://127.0.0.1:<published port> of a test service in tests/integration/stack/compose.yaml.
+
+    Skips when the stack runs without that file, unless SEMASCOPE_IT_REQUIRE_FIXTURES=1
+    (scripts/integration.sh sets it), where a missing service fails the test.
+    """
+
+    proc = compose("port", service, str(port), timeout=60)
+    published = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+    if proc.returncode != 0 or not published or published.endswith(":0"):
+        message = f"no {service} service on this stack ({proc.stderr.strip()[:200]})"
+        if os.environ.get("SEMASCOPE_IT_REQUIRE_FIXTURES") == "1":
+            pytest.fail(message)
+        pytest.skip(message + "; layer tests/integration/stack/compose.yaml")
+    host, _, mapped = published.rpartition(":")
+    return f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{mapped}"  # noqa: S104
+
+
+def run_task(name: str) -> None:
+    """Queue a Celery task by name on the stack's worker (instead of waiting for the beat)."""
+
+    code = (
+        "from oss_server.celery import app; "
+        f"app.send_task({name!r}, queue='io'); print('queued {name}')"
+    )
+    proc = compose("exec", "-T", "server", "oss-manage", "shell", "-c", code, timeout=120)
+    if proc.returncode != 0:
+        pytest.fail(f"could not queue {name}: {proc.stdout}{proc.stderr}")
+
+
+def doc_id(collection_slug: str, uri: str) -> str:
+    """A document's id, as oss_server.catalogue.models.document_id computes it."""
+
+    import hashlib
+
+    return hashlib.sha256(f"{collection_slug}\n{uri}".encode()).hexdigest()[:32]
+
+
+def ensure_collection(api: httpx.Client, slug: str, profile: str = "fast") -> None:
+    if api.get(f"/collections/{slug}").status_code == 404:
+        api.post("/collections", json={"slug": slug, "profile": profile}).raise_for_status()
+
+
+def add_source(
+    api: httpx.Client,
+    slug: str,
+    name: str,
+    connector: str,
+    settings: dict[str, Any],
+    *,
+    schedule: str = "",
+    run: bool = True,
+) -> dict[str, Any]:
+    """Create (or find) a source and, unless run=False, start a run of it; returns the source."""
+
+    resp = api.post(
+        f"/collections/{slug}/sources",
+        json={"name": name, "connector": connector, "settings": settings, "schedule": schedule},
+    )
+    if resp.status_code == 409:
+        source: dict[str, Any] = next(
+            s for s in api.get(f"/collections/{slug}/sources").json() if s["name"] == name
+        )
+    else:
+        assert resp.status_code == 201, resp.text
+        source = resp.json()
+    if run:
+        api.post(f"/sources/{source['id']}/run").raise_for_status()
+    return source
+
+
+def source_settled(api: httpx.Client, slug: str, source_id: int) -> dict[str, Any] | None:
+    """The source once its run has finished (idle after a run, or failed)."""
+
+    for s in api.get(f"/collections/{slug}/sources").raise_for_status().json():
+        if s["id"] == source_id and (
+            s["status"] == "failed" or (s["status"] == "idle" and s["last_run_at"])
+        ):
+            return dict(s)
+    return None
+
+
+def documents_settled(
+    api: httpx.Client, slug: str, uris: list[str]
+) -> dict[str, dict[str, Any]] | None:
+    """The documents for these URIs once none is queued or processing (None until then)."""
+
+    out: dict[str, dict[str, Any]] = {}
+    for uri in uris:
+        resp = api.get(f"/documents/{doc_id(slug, uri)}")
+        if resp.status_code == 404:
+            return None
+        doc = resp.raise_for_status().json()
+        if doc["status"] in ("queued", "processing"):
+            return None
+        out[uri] = doc
+    return out
+
+
+def search_uris(api: httpx.Client, slug: str, q: str = "*:*") -> set[str]:
+    body = {"q": q, "collection": slug, "page_size": 100, "facets": []}
+    hits = api.post("/search", json=body).raise_for_status().json()["hits"]
+    return {h["uri"] for h in hits}
+
+
 def indexing_done(api: httpx.Client, expected: int) -> dict[str, Any] | None:
     stats: dict[str, Any] = api.get("/stats").raise_for_status().json()
     docs = stats["documents"]
