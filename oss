@@ -50,7 +50,7 @@ case "$cmd" in
       echo "neo4j (stopped for the dump) -> $dest/neo4j.dump"
       docker compose stop neo4j >/dev/null
       docker compose run --rm -T --no-deps neo4j neo4j-admin database dump neo4j --to-stdout > "$dest/neo4j.dump"
-      docker compose start neo4j >/dev/null
+      docker compose up -d --wait --no-deps neo4j >/dev/null  # back and answering
     else
       echo "graph not dumped: it is a projection; 'oss reindex' rebuilds it (pass --with-graph to dump it)"
     fi
@@ -76,7 +76,7 @@ case "$cmd" in
       echo "neo4j <- $src/neo4j.dump"
       docker compose stop neo4j >/dev/null
       docker compose run --rm -T --no-deps neo4j neo4j-admin database load neo4j --from-stdin --overwrite-destination=true < "$src/neo4j.dump"
-      docker compose start neo4j >/dev/null
+      docker compose up -d --wait --no-deps neo4j >/dev/null  # back and answering
     fi
     docker compose up -d --wait server worker beat >/dev/null
     echo "restored from $src; run ./oss doctor" ;;
