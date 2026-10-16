@@ -120,6 +120,7 @@ class Bench:
         self.stuck: dict[str, tuple[float, list[str]]] = {}  # collection -> (kill time, ids)
         self.prefix = f"rec{args.run_id or time.strftime('%m%d%H%M')}"  # fresh collections per run
         self.clean_s = 0.0
+        self.copies: list[Path] = []  # subsets copied into the import folder
 
     def log(self, msg: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {msg}"
@@ -139,6 +140,7 @@ class Bench:
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
+        self.copies.append(dest)
         for f in chosen:
             shutil.copy2(f, dest / f"{f.parent.name}-{f.name}")
         return f"/import/{dest.relative_to(self.import_dir).as_posix()}", len(chosen)
@@ -674,6 +676,8 @@ def main(argv: list[str] | None = None) -> int:
                     [f"{time.monotonic() - killed_at:.0f} s after the kill: {dict(rows)}"],
                 )
             )
+    for path in [bench.work, *bench.copies]:  # overrides, the backup, the copied subsets
+        shutil.rmtree(path, ignore_errors=True)
     print(table(["item", "value"], hardware_block(c, args.corpus_manifest)))
     print(f"\nClean run: {n} documents ({', '.join(FORMATS)}) in {bench.clean_s:.0f} s.\n")
     print(

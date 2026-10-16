@@ -12,6 +12,9 @@ demo data under the texts' public-domain status (ADR-0005):
     html  docx  odt  epub  pdf (text layer)  scanned pdf (page images, no text
     layer)  png (page image)  eml  mbox  csv  ttl  zip
 
+A scanned PDF holds the chapter's first four pages and a PNG its first page,
+to bound the OCR time; every other format holds the whole chapter.
+
 Output goes to `derived/mixed-1k/<format>/<slug>-<NNN>.<ext>`, with an index of
 which chapter each file holds in `derived/mixed-1k.index.csv` (outside the corpus
 folder, so it is not indexed with it).
