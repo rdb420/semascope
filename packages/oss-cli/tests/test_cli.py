@@ -26,6 +26,7 @@ def test_init_writes_secrets(tmp_path: Path) -> None:
     text = env.read_text()
     assert "POSTGRES_PASSWORD=" in text and "change-me" not in text
     assert re.search(r"^VALKEY_PASSWORD=[A-Za-z0-9_-]{24,}$", text, re.M), text
+    assert "\nSEMASCOPE_DEFAULT_ROLE=none\n" in text
     assert runner.invoke(app, ["init", "--env-file", str(env)]).exit_code != 0
     from oss_core.config import Settings
 

@@ -96,11 +96,13 @@ with `scripts/bench_size.py` on a sample of your own documents.
   writes no role, so they get `SEMASCOPE_DEFAULT_ROLE` like everyone else.
 - **Roles.** `reader`, `curator`, `editor`, `admin`, global or per
   collection, for reading and writing. With the default
-  `SEMASCOPE_DEFAULT_ROLE=reader` every signed-in user can read every
-  collection; set it to `none` to keep collections apart, so that each user
-  reads only the collections they hold a role on (see
-  [Roles](../concepts.md#roles)). Releases up to 1.0.0-rc.2 did not restrict
-  reading per collection.
+  `SEMASCOPE_DEFAULT_ROLE=none` collections are kept apart: each user reads
+  only the collections they hold a role on (or all of them with a global
+  role); set it to `reader` to let every signed-in user read every
+  collection (see [Roles](../concepts.md#roles)). Releases up to 1.0.0-rc.2
+  did not restrict reading per collection, and up to 1.0.0-rc.3 the default
+  was `reader`: on upgrade, set `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to
+  keep open reading, or give users their roles.
 
 There is no anonymous access to the UI or the search API. The
 Reconciliation API (`/api/reconcile`) is public by design, so that
@@ -144,7 +146,9 @@ not.
 ./oss doctor
 ```
 
-From 1.0.0-rc.4 Valkey requires a password: `./oss up` adds a generated
+From 1.0.0-rc.4 `SEMASCOPE_DEFAULT_ROLE` defaults to `none`: users without
+a role on a collection no longer read it. Set `SEMASCOPE_DEFAULT_ROLE=reader`
+in `.env` before upgrading to keep open reading. Valkey requires a password: `./oss up` adds a generated
 `VALKEY_PASSWORD` to an older `.env`, and the application refuses to start
 with an empty or placeholder secret (see [Secrets](../operations.md#secrets)).
 
@@ -192,7 +196,8 @@ What still needs a network:
       placeholder secrets of `.env.example`) and backed up somewhere safe,
       outside the host
 - [ ] A scheduled `./oss backup` copied off the host, and one restore tried
-- [ ] Roles assigned; `SEMASCOPE_DEFAULT_ROLE` chosen deliberately (`none`
-      when collections must be kept apart)
+- [ ] Roles assigned; `SEMASCOPE_DEFAULT_ROLE` chosen deliberately (the
+      default `none` keeps collections apart; `reader` opens reading to every
+      signed-in user)
 - [ ] The `remote` runtime pointed only at services you control, because
       document text is sent to them

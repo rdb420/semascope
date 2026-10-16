@@ -83,6 +83,7 @@ def init(
         f"SEMASCOPE_ADMIN_PASSWORD={secrets.token_urlsafe(18)}",
         f"SEMASCOPE_API_TOKEN=oss_{secrets.token_urlsafe(32)}",
         f"SEMASCOPE_IMPORT_DIR={import_dir}",
+        "SEMASCOPE_DEFAULT_ROLE=none",
         f"SOLR_HEAP={heaps[size]}",
         f"NEO4J_HEAP={heaps[size]}",
         f"TIKA_HEAP={heaps[size]}",

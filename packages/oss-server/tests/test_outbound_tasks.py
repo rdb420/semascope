@@ -219,8 +219,12 @@ class FakeSearch:
 
 def test_alerts_fire_only_when_the_total_grows(db: None, monkeypatch: pytest.MonkeyPatch) -> None:
     from oss_server.api import search as search_mod
+    from oss_server.catalogue.models import Collection, CollectionRole
 
     user = User.objects.create_user("watcher", password="x" * 16)
+    CollectionRole.objects.create(
+        user=user, collection=Collection.objects.create(slug="c", name="c"), role="reader"
+    )
     alert = SavedSearch.objects.create(
         user=user, name="floods", query={"q": "flood", "collection": "c"}, alert=True
     )

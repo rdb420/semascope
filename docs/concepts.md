@@ -150,12 +150,15 @@ they hold no role on:
 
 | Value | Effect |
 |---|---|
-| `reader` (default) | every signed-in user reads every collection; roles add the right to change things. |
-| `none` | per-collection reading: a user sees only the collections they have a role on, or all of them with a global role |
+| `none` (default) | per-collection reading: a user sees only the collections they have a role on, or all of them with a global role |
+| `reader` | every signed-in user reads every collection; roles add the right to change things |
 | `curator`, `editor`, `admin` | that role on every collection, for small single-team installs |
 
 An unknown value counts as `none`. Up to 1.0.0-rc.2 every signed-in user
-could read every collection whatever this setting said. Packs, concepts and
+could read every collection whatever this setting said; up to 1.0.0-rc.3 the
+default was `reader`. An install that relied on open reading sets
+`SEMASCOPE_DEFAULT_ROLE=reader` in `.env` explicitly (`oss init` writes
+`none` for new installs). Packs, concepts and
 the Reconciliation API are not collection data and are readable by every
 signed-in user (the Reconciliation API also anonymously, for OpenRefine).
 

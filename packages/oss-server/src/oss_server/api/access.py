@@ -7,9 +7,9 @@ everywhere. A `CollectionRole` row without a collection is a global role.
 
 Reading a collection needs at least `reader` on it. A signed-in user with no
 row for a collection (and no global row) gets the deployment default,
-`SEMASCOPE_DEFAULT_ROLE`: `reader` (the default) keeps reading open to every
-signed-in user; `none` makes every collection private to the users given a
-role on it. An unknown value counts as `none`.
+`SEMASCOPE_DEFAULT_ROLE`: `none` (the default) makes every collection private
+to the users given a role on it; `reader` opens reading to every signed-in
+user. An unknown value counts as `none`.
 """
 
 from __future__ import annotations

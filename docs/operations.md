@@ -118,6 +118,12 @@ enrichment and indexing from the stored text without touching the originals.
 The graph is a projection: `./oss reindex` rebuilds it after a Neo4j
 upgrade or a projection change.
 
+Upgrading to 1.0.0-rc.4: `SEMASCOPE_DEFAULT_ROLE` now defaults to `none`,
+so a user reads only the collections they hold a role on; put
+`SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to keep open reading. `./oss up`
+adds a `VALKEY_PASSWORD`, and the application refuses to start while any
+required secret is empty or a placeholder ([Secrets](#secrets)).
+
 ## Backup and restore
 
 `./oss backup [dir] [--with-graph]` and `./oss restore <dir>` are described

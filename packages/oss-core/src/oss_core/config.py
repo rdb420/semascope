@@ -49,9 +49,9 @@ class Settings(BaseSettings):
     semascope_admin_password: SecretStr | None = None
     semascope_api_token: SecretStr | None = None
     semascope_api_url: str = "http://server:8000"
-    # role of a signed-in user on a collection they have no role on: reader (open reading)
-    # or none (each collection readable only by the users given a role on it)
-    semascope_default_role: str = "reader"
+    # role of a signed-in user on a collection they have no role on: none (the default: each
+    # collection readable only by the users given a role on it) or reader (open reading)
+    semascope_default_role: str = "none"
     # where file-reading sources may read (comma-separated paths inside the containers):
     # the import mount and the demo corpus shipped in the image
     semascope_source_roots: str = "/import,/app/packs/demo/corpus"
