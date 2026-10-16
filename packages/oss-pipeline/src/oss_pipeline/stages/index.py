@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections import defaultdict
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -125,13 +126,63 @@ def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -
         out["pack_versions_ss"] = sorted(packs)
     if curated:
         out["curated_ss"] = sorted(f"{iri}:{v.get('decision')}" for iri, v in curated.items())
+    tree = curated_path_fields(doc.fields, tags)
     for key, value in doc.fields.items():
         field = custom_field_name(key)  # pre-suffixed custom fields: x_owner_s -> owner_s
+        if field in tree:
+            continue  # a scheme's tag paths come from the curated view
         if field and isinstance(value, str | int | float | bool | list):
             if field.endswith("_paths") and isinstance(value, list):
                 value = expand_paths([str(v) for v in value])
             out[field] = value
+    out.update(tree)
     return {k: v for k, v in out.items() if v is not None}
+
+
+def curated_path_fields(fields: Mapping[str, Any], tags: Iterable[Tag]) -> dict[str, Any]:
+    """`<scheme>_paths` for every scheme the document's tags or decisions touch, from the
+    curated view: the paths of the tags in `tags` (the curated view, rejected tags left
+    out), expanded to their ancestors, or None for a scheme left with no path (an atomic
+    update then removes the field).
+
+    Each tag's paths come from the tag stage (`fields["paths_by_tag"]`) or, for a tag a curator
+    added, from the decision (`curated[iri]["paths"]`). A document tagged before the tag
+    stage kept `paths_by_tag` falls back to the tag stage's `x_<scheme>_paths` less the paths
+    of rejected concepts plus those of accepted ones; a reindex replaces that with the exact
+    computation.
+    """
+
+    curated: Mapping[str, Any] = fields.get("curated") or {}
+    decisions = {str(k): v for k, v in curated.items() if isinstance(v, Mapping)}
+    schemes: set[str] = {str(s) for s in fields.get("tagged_schemes") or []}
+    for decision in decisions.values():
+        schemes.update(str(s) for s in (decision.get("paths") or {}))
+    leaves: dict[str, set[str]] = defaultdict(set)
+    by_iri = fields.get("paths_by_tag")
+    if isinstance(by_iri, Mapping):
+        for tag in tags:
+            own = by_iri.get(tag.iri) or (decisions.get(tag.iri) or {}).get("paths") or {}
+            for scheme, values in own.items():
+                leaves[str(scheme)].update(str(v) for v in values or [])
+    else:
+        for scheme in schemes:
+            values = fields.get(f"x_{scheme}_paths")
+            if isinstance(values, list):
+                leaves[scheme].update(str(v) for v in values)
+        kept = {tag.iri for tag in tags}
+        for iri, decision in decisions.items():
+            for scheme, values in (decision.get("paths") or {}).items():
+                if decision.get("decision") == "reject":
+                    leaves[str(scheme)].difference_update(str(v) for v in values or [])
+                elif decision.get("decision") == "accept" and iri in kept:
+                    leaves[str(scheme)].update(str(v) for v in values or [])
+    schemes.update(leaves)
+    out: dict[str, Any] = {}
+    for scheme in sorted(schemes):
+        field = custom_field_name(f"x_{scheme}_paths")
+        if field is not None:
+            out[field] = expand_paths(sorted(leaves[scheme])) or None
+    return out
 
 
 def expand_paths(paths: list[str]) -> list[str]:

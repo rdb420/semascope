@@ -27,11 +27,20 @@ TAG_FIELDS = (
     "hidden_labels",
     "scheme_slug",
     "path",
+    "paths",
     "type_iri",
     "broader",
 )
 # Fields that change only what the pack page and concept cards show.
-INFO_FIELDS = ("lang", "definition", "notation", "support", "term_status", "coordinates")
+INFO_FIELDS = (
+    "lang",
+    "definition",
+    "notation",
+    "support",
+    "term_status",
+    "coordinates",
+    "related",
+)
 LIST_CAP = 200
 
 
@@ -49,7 +58,9 @@ def concept_row(c: Concept) -> dict[str, Any]:
         "scheme_slug": c.scheme_slug,
         "type_iri": c.type_iri,
         "broader": list(c.broader),
+        "related": list(c.related or []),
         "path": c.path,
+        "paths": list(c.paths or []),
         "taggable": c.taggable,
         "support": c.support,
         "term_status": c.term_status,
@@ -75,8 +86,11 @@ def _norm(row: dict[str, Any]) -> dict[str, Any]:
         "hidden_labels": sorted(row.get("hidden_labels") or []),
         "scheme_slug": row.get("scheme_slug") or "",
         "path": row.get("path") or "",
+        # rows imported before polyhierarchy have the one path only
+        "paths": sorted(row.get("paths") or ([row["path"]] if row.get("path") else [])),
         "type_iri": row.get("type_iri") or "",
         "broader": sorted(row.get("broader") or []),
+        "related": sorted(row.get("related") or []),
         "lang": row.get("lang") or "",
         "definition": row.get("definition") or "",
         "notation": sorted(extra.get("notation") or []),

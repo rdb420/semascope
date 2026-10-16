@@ -17,7 +17,13 @@ from oss_core.pack import load_pack
 from oss_pipeline.clients.solr import quote_term
 from oss_server.api.access import check, read_scope
 from oss_server.knowledge import store
-from oss_server.knowledge.importer import activate_pack, derive, hierarchy, import_pack
+from oss_server.knowledge.importer import (
+    activate_pack,
+    concept_paths,
+    derive,
+    hierarchy,
+    import_pack,
+)
 from oss_server.knowledge.models import Concept, Pack, PackDelta
 from oss_server.knowledge.upgrade import collections_using, concept_row, upgrade_plan
 
@@ -60,7 +66,9 @@ class ConceptOut(Schema):
     type_iri: str
     type_label: str
     broader: list[str]
+    related: list[str] = []
     path: str
+    paths: list[str] = []
     depth: int
     taggable: bool
     support: str
@@ -137,7 +145,9 @@ def _concept_out(c: Concept) -> ConceptOut:
         type_iri=c.type_iri,
         type_label=c.type_label,
         broader=list(c.broader),
+        related=list(c.related or []),
         path=c.path,
+        paths=concept_paths(c),
         depth=c.depth,
         taggable=c.taggable,
         support=c.support,

@@ -2,8 +2,10 @@
 
 Every match becomes a Tag with the concept or individual IRI, the pack
 version it came from and character spans. Facet fields are derived per
-scheme: `<scheme>_paths` carries the expanded ancestor path of each matched
-concept, so the UI can show a hierarchical facet without any schema change.
+scheme: `<scheme>_paths` carries the expanded ancestor paths of each matched
+concept (every path in a polyhierarchy), so the UI can show a hierarchical
+facet without any schema change. `fields["paths_by_tag"]` keeps each tag's own
+paths, from which the index stage builds the facet of the curated view.
 
 When two active packs define the same IRI, the tag is attributed to the pack
 with the higher binding precedence (see `oss_pipeline.dictionary`), and a
@@ -124,14 +126,25 @@ class TagStage:
                             owner[iri] = entry
                     tag.spans.append(Span(start=start, end=end, matched=label))
         paths: dict[str, set[str]] = defaultdict(set)
-        for entry in owner.values():
+        paths_by_tag: dict[str, dict[str, list[str]]] = {}
+        for iri, entry in owner.items():
             scheme = str(entry.get("scheme") or "")
-            if scheme and entry.get("path"):
-                paths[scheme].add(str(entry["path"]))
+            # every path of a concept in a polyhierarchy; `path` alone in older dictionaries
+            values = entry.get("paths") or ([entry["path"]] if entry.get("path") else [])
+            if isinstance(values, str):
+                values = [values]
+            if scheme and values:
+                paths[scheme].update(str(v) for v in values)
+                paths_by_tag[iri] = {scheme: sorted(str(v) for v in values)}
         assign_pages(found.values(), doc)
         doc.tags.extend(found.values())
+        # the schemes an earlier run tagged lose their paths unless this run tags them again
+        for scheme in doc.fields.get("tagged_schemes") or []:
+            doc.fields.pop(f"x_{scheme}_paths", None)
         for scheme, values in paths.items():
             doc.fields[f"x_{scheme}_paths"] = sorted(values)
+        # the paths of each tag, so the index stage can build the facet from the curated view
+        doc.fields["paths_by_tag"] = paths_by_tag
         doc.fields["tag_count"] = len(found)
         doc.fields["tagged_schemes"] = sorted(paths)
         return doc

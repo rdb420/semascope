@@ -19,6 +19,8 @@
   <field name="type_iri" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="scheme" type="string" indexed="true" stored="true" docValues="true"/>
   <field name="path" type="string" indexed="true" stored="true"/>
+  <!-- Every facet path of the term (one per broader chain in a polyhierarchy); `path` is the first. -->
+  <field name="paths" type="string" indexed="true" stored="true" multiValued="true"/>
   <field name="case_sensitive" type="boolean" indexed="true" stored="true"/>
   <!-- Set on a curator's draft label only: the collection that proposed it, the only one it tags. -->
   <field name="collection_scope" type="string" indexed="true" stored="true" docValues="true"/>

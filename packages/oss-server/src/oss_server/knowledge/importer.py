@@ -6,7 +6,9 @@ Derivation rules (from the rebuild specification, section 6):
   their pref, alt and hidden labels; OWL classes become navigable entity
   types but are not tagged by label.
 - `skos:broader` (and `rdfs:subClassOf` for classes) gives the hierarchy;
-  the facet path is the chain of slugs from the top concept.
+  a facet path is a chain of slugs from a top concept. A concept with several
+  broader concepts (polyhierarchy) has one path per chain (`paths`); `path` is
+  the first of them. `skos:related` is kept (`related`), in both directions.
 - `model.yaml` support and status mark `proposed` and `disputed` terms,
   which are excluded from tagging by default.
 """
@@ -33,6 +35,7 @@ from oss_server.knowledge.models import Concept, Pack
 
 log = logging.getLogger(__name__)
 _SLUG = re.compile(r"[^a-z0-9]+")
+MAX_PATHS = 20  # facet paths kept per concept in a polyhierarchy
 
 
 def slugify(value: str) -> str:
@@ -170,7 +173,9 @@ def derive(
             "type_iri": "",
             "type_label": "",
             "broader": [],
+            "related": [],
             "path": "",
+            "paths": [],
             "depth": 0,
             "taggable": kind in ("concept", "individual"),
             "support": str(term.get("support") or ""),
@@ -196,6 +201,10 @@ def derive(
         row["broader"] = sorted(
             str(b) for b in g.objects(concept, SKOS.broader) if isinstance(b, URIRef)
         )
+        # skos:related is symmetric; a pack may state it in one direction only
+        related = {str(r) for r in g.objects(concept, SKOS.related) if isinstance(r, URIRef)}
+        related |= {str(r) for r in g.subjects(SKOS.related, concept) if isinstance(r, URIRef)}
+        row["related"] = sorted(related - {str(concept)})
 
     for cls in g.subjects(RDF.type, OWL.Class):
         if not isinstance(cls, URIRef) or str(cls) in rows:
@@ -237,26 +246,40 @@ def derive(
         elif row["kind"] == "individual":
             row["scheme_slug"] = slugify(row["type_label"] or "individuals")
 
-    cache: dict[str, tuple[str, int]] = {}
+    cache: dict[str, list[tuple[str, int]]] = {}
 
-    def path_of(iri: str, seen: frozenset[str]) -> tuple[str, int]:
+    def paths_of(iri: str, seen: frozenset[str]) -> tuple[list[tuple[str, int]], bool]:
+        """Every (path, depth) from a top concept down to this one, first parent first, and
+        whether the answer is complete (no parent left out to break a cycle)."""
+
         if iri in cache:
-            return cache[iri]
+            return cache[iri], True
         row = rows[iri]
-        parents = [b for b in row["broader"] if b in rows and b not in seen]
+        known = [b for b in row["broader"] if b in rows]
+        parents = [b for b in known if b not in seen]
+        complete = len(parents) == len(known)
         own = slugify(row["pref_label"])
-        if not parents:
-            cache[iri] = (own, 0)
-        else:
-            parent_path, depth = path_of(parents[0], seen | {iri})
-            cache[iri] = (f"{parent_path}/{own}", depth + 1)
-        return cache[iri]
+        out: list[tuple[str, int]] = []
+        for parent in parents:
+            found, done = paths_of(parent, seen | {iri})
+            complete = complete and done
+            for parent_path, depth in found:
+                path = (f"{parent_path}/{own}", depth + 1)
+                if path not in out and len(out) < MAX_PATHS:
+                    out.append(path)
+        result = out or [(own, 0)]
+        if complete:
+            cache[iri] = result
+        return result, complete
 
     for iri, row in rows.items():
         if row["kind"] in ("concept", "class"):
-            row["path"], row["depth"] = path_of(iri, frozenset())
+            found, _ = paths_of(iri, frozenset())
+            row["path"], row["depth"] = found[0]
+            row["paths"] = [p for p, _ in found]
         elif row["kind"] == "individual":
             row["path"], row["depth"] = slugify(row["pref_label"]), 0
+            row["paths"] = [row["path"]]
 
     # tagging policy: which schemes and whether individuals may tag text
     allowed_schemes = policy.get("tag_schemes")
@@ -372,6 +395,13 @@ def active_packs() -> list[Pack]:
     return list(Pack.objects.filter(status=Pack.Status.ACTIVE))
 
 
+def concept_paths(concept: Concept) -> list[str]:
+    """Every facet path of a concept (one per broader chain); the single `path` for rows
+    imported before polyhierarchy was kept."""
+
+    return [str(p) for p in concept.paths or []] or ([concept.path] if concept.path else [])
+
+
 def dictionary_entries(pack: Pack) -> list[dict[str, Any]]:
     """Solr `entities` documents for every taggable label of a pack version."""
 
@@ -405,6 +435,7 @@ def dictionary_entries(pack: Pack) -> list[dict[str, Any]]:
                     "type_iri": concept.type_iri,
                     "scheme": concept.scheme_slug,
                     "path": concept.path,
+                    "paths": concept_paths(concept),
                     "case_sensitive": label.isupper() and len(label) <= 6,
                 }
             )
@@ -430,6 +461,7 @@ def draft_entry(
         "type_iri": concept.type_iri,
         "scheme": concept.scheme_slug,
         "path": concept.path,
+        "paths": concept_paths(concept),
         "case_sensitive": False,
         "collection_scope": collection_slug,
     }
@@ -471,18 +503,22 @@ def hierarchy(pack: Pack, scheme_slug: str | None = None) -> list[dict[str, Any]
     roots: list[Concept] = []
     for c in by_iri.values():
         parents = [b for b in c.broader if b in by_iri]
-        if parents:
-            children[parents[0]].append(c)
-        else:
+        # in a polyhierarchy a concept sits under each of its broader concepts
+        for parent in parents:
+            children[parent].append(c)
+        if not parents:
             roots.append(c)
 
-    def node(c: Concept) -> dict[str, Any]:
+    def node(c: Concept, seen: frozenset[str]) -> dict[str, Any]:
+        below = [x for x in children[c.iri] if x.iri not in seen]
         return {
             "iri": c.iri,
             "label": c.pref_label,
             "path": c.path,
             "kind": c.kind,
-            "children": [node(x) for x in sorted(children[c.iri], key=lambda x: x.pref_label)],
+            "children": [
+                node(x, seen | {x.iri}) for x in sorted(below, key=lambda x: x.pref_label)
+            ],
         }
 
-    return [node(r) for r in sorted(roots, key=lambda x: x.pref_label)]
+    return [node(r, frozenset({r.iri})) for r in sorted(roots, key=lambda x: x.pref_label)]

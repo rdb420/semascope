@@ -73,8 +73,12 @@ class Concept(models.Model):
     broader = models.JSONField(
         default=list, blank=True, help_text="skos:broader or rdfs:subClassOf IRIs"
     )
+    related = models.JSONField(default=list, blank=True, help_text="skos:related IRIs")
     path = models.CharField(
-        max_length=1000, blank=True, help_text="facet path of slugs from the top"
+        max_length=1000, blank=True, help_text="facet path of slugs from the top (the first)"
+    )
+    paths = models.JSONField(
+        default=list, blank=True, help_text="every facet path (one per broader chain)"
     )
     depth = models.PositiveSmallIntegerField(default=0)
     taggable = models.BooleanField(default=True)

@@ -230,3 +230,52 @@ def test_demo_pack_places_carry_coordinates() -> None:
     assert abs(troy["extra"]["lat"] - 39.957) < 0.01 and abs(troy["extra"]["lon"] - 26.239) < 0.01
     asgard = next(r for r in rows if r["iri"].endswith("#asgard"))
     assert "lat" not in asgard["extra"]
+
+
+def test_polyhierarchy_keeps_every_path_and_related_concepts(tmp_path: Path) -> None:
+    """SEMA-071: a concept under two broader concepts has a path through each; skos:related
+    is kept in both directions; the tree shows the concept under both parents."""
+
+    import shutil
+
+    pack = tmp_path / "pack"
+    shutil.copytree(REPO / "packs" / "demo" / "pack", pack)
+    with (pack / "taxonomy.ttl").open("a", encoding="utf-8") as fh:
+        fh.write("\nth:descent skos:broader th:journey .\nth:flood skos:related th:creation .\n")
+    rows = {r["iri"]: r for r in derive(pack, load_pack(pack, force=True))}
+    th = "https://semascope.dev/ontology/demo/themes#"
+    descent = rows[th + "descent"]
+    assert descent["paths"] == [
+        "afterlife/descent-to-the-underworld",
+        "hero-s-journey/descent-to-the-underworld",
+    ]
+    assert descent["path"] == descent["paths"][0] and descent["depth"] == 1
+    assert rows[th + "creation"]["related"] == [th + "flood"]
+    assert rows[th + "flood"]["related"] == [th + "creation"]
+    assert rows[th + "flood"]["paths"] == ["flood"]
+
+
+@pytest.mark.django_db
+def test_the_tree_and_dictionary_carry_every_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    import pyoxigraph as ox
+
+    from oss_server.knowledge import store as store_mod
+
+    monkeypatch.setattr(store_mod, "store", lambda: ox.Store())
+    pack_dir = tmp_path / "pack"
+    shutil.copytree(REPO / "packs" / "demo" / "pack", pack_dir)
+    with (pack_dir / "taxonomy.ttl").open("a", encoding="utf-8") as fh:
+        # a cycle as well: the import still ends
+        fh.write("\nth:descent skos:broader th:journey .\nth:journey skos:broader th:descent .\n")
+    pack = import_pack(pack_dir, force=True)
+    tree = {n["label"]: n for n in hierarchy(pack, "themes")}
+    assert [c["label"] for c in tree["Afterlife"]["children"]] == ["Descent to the underworld"]
+    descent_iri = "https://semascope.dev/ontology/demo/themes#descent"
+    entries = [e for e in dictionary_entries(pack) if e["iri"] == descent_iri]
+    assert entries and all(len(e["paths"]) >= 1 for e in entries)
+    stored = Concept.objects.get(pack=pack, iri=descent_iri)
+    assert stored.paths[0] == "afterlife/descent-to-the-underworld"
