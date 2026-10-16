@@ -12,4 +12,5 @@ from a fresh clone, and that demonstration is the gate.
 | 4 Semantic layer and 1.0 (release candidates 2026-10-15 and 2026-10-16) | Embeddings, chunks collection, hybrid search, optional LLM answers, OIDC, roles per collection, audit log, backup and restore, OpenTelemetry, runtimes `cpu`, `gpu` and `remote` with a provider per heavy stage (ADR-0008), arm64 images, security review, complete documentation | 1.0 on GHCR with signed images; a stranger follows the quick start to a working instance; search and tagging quality published |
 
 Deliberately after 1.0: Helm chart, OpenSearch backend, SPLADE, Docling
-extractor, GLiNER, multi-instance scaling, SaaS multi-tenancy.
+extractor, multi-instance scaling, SaaS multi-tenancy. (GLiNER, first listed
+here, shipped in 1.0.0-rc.2 as the `gliner` entity provider.)

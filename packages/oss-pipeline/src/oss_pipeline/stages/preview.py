@@ -3,7 +3,7 @@
 PDF pages are rendered with pypdfium2 (first `preview_pages` pages, default
 20, at `preview_width` pixels, default 1200), images are resized with Pillow.
 Files land in `<blob_dir>/previews/<content_hash>/<page>.webp`; the API serves
-them by document id and page number. Other formats get no preview in Phase 1.
+them by document id and page number. Other formats get no preview.
 """
 
 from __future__ import annotations
