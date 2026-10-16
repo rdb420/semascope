@@ -35,13 +35,21 @@ SOLR_COLLECTIONS="documents entities chunks"
 
 fail() { echo "error: $*" >&2; exit 1; }
 
+# has_files <tar>: the archive reads to the end and lists at least one entry
+has_files() {
+  local listing
+  listing="$(tar -tf "$1" 2>/dev/null)" || return 1
+  [ -n "$listing" ]
+}
+
 # solr_api <query>: a Collections API call inside the Solr container; fails unless status 0
 solr_api() {
   docker compose exec -T solr sh -c '
     out="$(curl -sS -u "semascope:$SEMASCOPE_SOLR_PASSWORD" "http://localhost:8983/solr/admin/collections?$1&wt=json")" || exit 1
     if printf "%s" "$out" | grep -Eq "\"status\"[[:space:]]*:[[:space:]]*0([^0-9]|\$)" \
       && ! printf "%s" "$out" | grep -q "\"failure\""; then exit 0; fi
-    printf "%s\n" "$out" | head -c 2000 >&2; exit 1' sh "$1"
+    printf "%s\n" "$out" | grep -m1 "\"msg\"" >&2 || printf "%s\n" "$out" | head -c 1000 >&2
+    exit 1' sh "$1"
 }
 
 # solr_backup <collection>: back the collection up inside the Solr container; the tar on stdout
@@ -53,7 +61,8 @@ solr_backup() {
     out="$(curl -sS -u "semascope:$SEMASCOPE_SOLR_PASSWORD" "http://localhost:8983/solr/admin/collections?action=BACKUP&name=$1&collection=$1&location=$dir&wt=json")"
     if ! printf "%s" "$out" | grep -Eq "\"status\"[[:space:]]*:[[:space:]]*0([^0-9]|\$)" \
       || printf "%s" "$out" | grep -q "\"failure\""; then
-      printf "%s\n" "$out" | head -c 2000 >&2; exit 1
+      printf "%s\n" "$out" | grep -m1 "\"msg\"" >&2 || printf "%s\n" "$out" | head -c 1000 >&2
+      exit 1
     fi
     [ -n "$(ls -A "$dir")" ] || { echo "Solr wrote no backup files for $1" >&2; exit 1; }
     tar -C "$dir" -cf - .' sh "$1"
@@ -70,7 +79,7 @@ backup() {
   echo "solr collections -> $dest/solr/"
   for c in $SOLR_COLLECTIONS; do
     solr_backup "$c" > "$dest/solr/$c.tar" || fail "backup FAILED: Solr collection $c; $dest is incomplete"
-    tar -tf "$dest/solr/$c.tar" | grep -q . || fail "backup FAILED: $dest/solr/$c.tar is empty or unreadable"
+    has_files "$dest/solr/$c.tar" || fail "backup FAILED: $dest/solr/$c.tar is empty or unreadable"
   done
   echo "blobs, previews, uploads, pack store -> $dest/data.tar.gz"
   docker compose run --rm -T cli sh -c "tar -C /data -czf - --exclude=static --exclude=celerybeat-schedule ." > "$dest/data.tar.gz" \
@@ -99,7 +108,7 @@ verify_backup() {
   tar -tzf "$src/data.tar.gz" >/dev/null 2>&1 || fail "$src/data.tar.gz is corrupt"
   for c in $SOLR_COLLECTIONS; do
     [ -f "$src/solr/$c.tar" ] || fail "no solr/$c.tar in $src"
-    tar -tf "$src/solr/$c.tar" 2>/dev/null | grep -q . || fail "$src/solr/$c.tar is empty or corrupt"
+    has_files "$src/solr/$c.tar" || fail "$src/solr/$c.tar is empty or corrupt"
   done
   if [ -e "$src/neo4j.dump" ]; then [ -s "$src/neo4j.dump" ] || fail "$src/neo4j.dump is empty"; fi
 }
@@ -109,7 +118,7 @@ restore() {
   echo "checking $src"
   verify_backup "$src"
   echo "stopping app services"
-  docker compose stop server worker beat >/dev/null
+  docker compose stop server worker beat >/dev/null 2>&1
 
   # Until the switch below, a failure leaves the live data as it was.
   undo() {
@@ -117,7 +126,7 @@ restore() {
     for c in $staged; do solr_api "action=DELETE&name=${c}_restoring" 2>/dev/null || true; done
     docker compose exec -T postgres psql -q -U semascope -d postgres \
       -c "DROP DATABASE IF EXISTS semascope_restore" >/dev/null 2>&1 || true
-    docker compose up -d --wait server worker beat >/dev/null || true
+    docker compose up -d --wait server worker beat >/dev/null 2>&1 || true
     echo "nothing was changed; the app services are running again on the existing data" >&2
     exit 1
   }
@@ -132,7 +141,8 @@ restore() {
   done
   echo "postgres <- $src/postgres.sql.gz (staged as semascope_restore)"
   docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U semascope -d postgres \
-    -c "DROP DATABASE IF EXISTS semascope_restore" -c "CREATE DATABASE semascope_restore OWNER semascope" >/dev/null \
+    -c "SET client_min_messages = warning" -c "DROP DATABASE IF EXISTS semascope_restore" \
+    -c "CREATE DATABASE semascope_restore OWNER semascope" >/dev/null \
     || undo "creating the staging database"
   gunzip -c "$src/postgres.sql.gz" | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U semascope -d semascope_restore >/dev/null \
     || undo "loading postgres.sql.gz"
@@ -140,7 +150,7 @@ restore() {
   # The switch: from here a failure is reported with what is where.
   echo "switching to the restored data"
   docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U semascope -d postgres \
-    -c "DROP DATABASE IF EXISTS semascope_before_restore" \
+    -c "SET client_min_messages = warning" -c "DROP DATABASE IF EXISTS semascope_before_restore" \
     -c "ALTER DATABASE semascope RENAME TO semascope_before_restore" \
     -c "ALTER DATABASE semascope_restore RENAME TO semascope" >/dev/null \
     || fail "restore FAILED switching Postgres databases: check that 'semascope' exists (the previous one may be 'semascope_before_restore', the restored one 'semascope_restore'); the app services are stopped"
@@ -166,7 +176,8 @@ restore() {
   docker compose exec -T postgres psql -q -U semascope -d postgres \
     -c "DROP DATABASE IF EXISTS semascope_before_restore" >/dev/null \
     || echo "warning: could not drop the previous database semascope_before_restore" >&2
-  docker compose up -d --wait server worker beat >/dev/null || fail "the app services did not come back; see ./oss logs server"
+  docker compose up -d --wait server worker beat >/dev/null 2>&1 \
+    || fail "the app services did not come back; see ./oss logs server"
   echo "restored from $src; run ./oss doctor"
 }
 
