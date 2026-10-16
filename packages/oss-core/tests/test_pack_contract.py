@@ -284,3 +284,15 @@ def test_ambiguous_and_non_turtle_shapes(pack: Path) -> None:
     codes = _codes(pack)
     assert {"ambiguous_rdf", "rdf_format"} <= codes
     assert "missing_file" not in codes
+
+
+def test_a_released_pack_without_its_manifest_is_an_error(pack: Path) -> None:
+    """SEMA-039 / N-8: deleting release-manifest.json must not skip verification of a
+    released pack; `force` accepts it with a warning."""
+
+    req = pack / "requirements.yaml"
+    req.write_text(req.read_text().replace("status: draft", "status: released", 1))
+    (pack / "release-manifest.json").unlink()
+    info = load_pack(pack)
+    assert not info.ok and "no_manifest" in _codes(pack)
+    assert load_pack(pack, force=True).ok and "no_manifest" in _codes(pack, "warning", force=True)
