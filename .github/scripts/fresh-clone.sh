@@ -47,6 +47,12 @@ if [ -z "${CI:-}" ]; then
 fi
 
 step() { printf '\n== fresh clone: %s (%s)\n' "$1" "$(date -u +%H:%M:%S)"; }
+# Docker creates the bind-mounted ./data/import as root when it is missing (the shim
+# does not create it), so plain rm cannot always remove a used clone.
+remove_tree() {
+  rm -rf "$1" 2>/dev/null || sudo -n rm -rf "$1" 2>/dev/null \
+    || { echo "could not remove $1 (files owned by root); remove it by hand" >&2; return 1; }
+}
 in_clone() { cd "$dest" || { echo "no clone at $dest; run the clone step first" >&2; exit 2; }; }
 
 # Polls `./oss search` until it reports at least one hit.
@@ -70,7 +76,7 @@ wait_for_hits() {
 
 clone() {
   step clone
-  rm -rf "$dest"
+  remove_tree "$dest"
   mkdir -p "$(dirname "$dest")"
   git init --quiet "$dest"
   git -C "$dest" fetch --quiet --depth 1 "file://$src" HEAD
@@ -133,7 +139,8 @@ down() {
   step down
   if [ -d "$dest" ]; then
     (cd "$dest" && docker compose down --volumes --remove-orphans) || true
-    rm -rf "$dest"
+    cd /
+    remove_tree "$dest" || true
   fi
 }
 
