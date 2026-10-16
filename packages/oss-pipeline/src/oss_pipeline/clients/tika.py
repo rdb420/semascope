@@ -2,12 +2,16 @@
 
 /rmeta returns one JSON object per embedded document (the container first),
 each with `X-TIKA:content` and the parsed metadata. Semascope keeps the
-container's text and records the embedded items' names; archives and mail
-attachments become child documents through their own connector logic.
+container's text and metadata, and each embedded item's name, media type and
+text (an attachment of an .eml, the files of a zip, an image in a Word file,
+OCRed when OCR is on), which the extract stage adds to the container's text
+within limits. Archive and mail sources make their members child documents
+instead.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +36,23 @@ class Extraction:
     page_count: int | None
     embedded: list[dict[str, Any]] = field(default_factory=list)
     ocr_used: bool = False
+    # (name, media type, text) of each embedded item with text, in Tika's order
+    embedded_text: list[tuple[str, str, str]] = field(default_factory=list)
+
+
+# Tesseract language codes: `eng`, `deu`, `chi_sim`, `deu_latf`, joined with `+`
+OCR_LANGUAGES = re.compile(r"[a-z]{3}(?:_[a-z]{2,5})?(?:\+[a-z]{3}(?:_[a-z]{2,5})?){0,7}")
+
+
+def valid_ocr_languages(value: object) -> str | None:
+    """The value as a Tesseract language list (`eng+deu`), or None when it is not one."""
+
+    if isinstance(value, list | tuple):
+        value = "+".join(str(v).strip() for v in value)
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower().replace(",", "+").replace(" ", "")
+    return value if OCR_LANGUAGES.fullmatch(value) else None
 
 
 class TikaClient:
@@ -60,8 +81,7 @@ class TikaClient:
         )
         if resp.status_code != 200:
             return None
-        code = resp.text.strip().lower()
-        return code[:2] if code and code.isalpha() else None
+        return primary_language(resp.text)
 
     def detect(self, path: Path) -> str:
         with path.open("rb") as fh:
@@ -73,7 +93,9 @@ class TikaClient:
         resp.raise_for_status()
         return resp.text.strip()
 
-    def extract(self, path: Path, *, ocr: bool = True) -> Extraction:
+    def extract(
+        self, path: Path, *, ocr: bool = True, ocr_languages: str | None = None
+    ) -> Extraction:
         size = path.stat().st_size
         if size > self.max_bytes:
             raise TikaError(f"{path.name} is {size} bytes, above the {self.max_bytes} byte cap")
@@ -83,6 +105,8 @@ class TikaClient:
         }
         if not ocr:
             headers["X-Tika-OCRskipOcr"] = "true"
+        elif ocr_languages and valid_ocr_languages(ocr_languages):
+            headers["X-Tika-OCRLanguage"] = str(valid_ocr_languages(ocr_languages))
         with path.open("rb") as fh:
             resp = self._http.put(f"{self.base_url}/rmeta/text", content=fh, headers=headers)
         if resp.status_code == 422:
@@ -111,11 +135,40 @@ class TikaClient:
             embedded=[
                 {k: v for k, v in item.items() if k != "X-TIKA:content"} for item in items[1:]
             ],
-            ocr_used=ocr_used,
+            ocr_used=ocr_used
+            or any(
+                "TesseractOCRParser" in str(v)
+                for item in items[1:]
+                for v in _as_list(item.get("X-TIKA:Parsed-By-Full-Set"))
+            ),
+            embedded_text=[
+                (
+                    _embedded_name(item, n),
+                    _normalise_media_type(_first(item, "Content-Type")) or "",
+                    str(item.get("X-TIKA:content") or "").strip(),
+                )
+                for n, item in enumerate(items[1:], start=1)
+                if str(item.get("X-TIKA:content") or "").strip()
+            ],
         )
 
     def close(self) -> None:
         self._http.close()
+
+
+def primary_language(value: str | None) -> str | None:
+    """`en`, `zh-CN`, `pt_BR` -> the primary subtag (`en`, `zh`, `pt`); None for anything else."""
+
+    code = (value or "").strip().lower().replace("_", "-").split("-", 1)[0]
+    if code in ("und", "mul", "zxx", "mis"):  # undetermined, several, none, uncoded
+        return None
+    return code if 2 <= len(code) <= 3 and code.isalpha() else None
+
+
+def _embedded_name(item: dict[str, Any], n: int) -> str:
+    path = _first(item, "X-TIKA:embedded_resource_path") or ""
+    name = _first(item, "resourceName") or path.rsplit("/", 1)[-1]
+    return name or f"embedded item {n}"
 
 
 def _normalise_media_type(value: str | None) -> str | None:
