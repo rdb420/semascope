@@ -3,16 +3,26 @@
 Every setting comes from the environment (or a `.env` file), is validated once
 at start-up, and is never generated as code. Runtime-editable settings live in
 the database and are a separate concern of oss-server.
+
+Any setting can instead be read from a file named by `<NAME>_FILE` (for example
+`POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password`), which is how Docker and
+Kubernetes secrets reach a container; see `compose.secrets.yaml`.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic.fields import FieldInfo
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 MAX_RETRY_COUNTDOWN_S = 600  # a document task never waits longer than this for its retry
 
@@ -39,8 +49,67 @@ def _url_password(url: str) -> str:
         return ""
 
 
+def _with_password(url: str, password: str) -> str:
+    """`url` with `password` in its user part (the user name kept), when it has none."""
+
+    if not password or _url_password(url):
+        return url
+    parts = urlsplit(url)
+    userinfo, _, host = parts.netloc.rpartition("@")
+    user = userinfo.partition(":")[0]
+    netloc = f"{user}:{quote(password, safe='')}@{host}"
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
+class SettingsFileError(ValueError):
+    """A `<NAME>_FILE` setting names a file that cannot be read."""
+
+
+class FileSettingsSource(PydanticBaseSettingsSource):
+    """Settings read from the files that `<NAME>_FILE` environment variables name.
+
+    The Docker convention for secrets (`docker compose` `secrets:`, Kubernetes secret
+    volumes): the value is the file's content without its trailing line break. A file
+    setting wins over the plain variable and the `.env` file.
+    """
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        return None, field_name, False  # unused: __call__ reads every field at once
+
+    def __call__(self) -> dict[str, Any]:
+        environ = {k.upper(): v for k, v in os.environ.items()}
+        out: dict[str, Any] = {}
+        for name in self.settings_cls.model_fields:
+            variable = f"{name.upper()}_FILE"
+            path = environ.get(variable, "").strip()
+            if not path:
+                continue
+            try:
+                text = Path(path).read_text(encoding="utf-8")
+            except OSError as exc:
+                raise SettingsFileError(
+                    f"{variable}: cannot read {path} ({exc.strerror or exc})"
+                ) from exc
+            out[name] = text.rstrip("\r\n")
+        return out
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Explicit values, then `<NAME>_FILE`, then the environment, then `.env`."""
+
+        files = FileSettingsSource(settings_cls)
+        return init_settings, files, env_settings, dotenv_settings, file_secret_settings
 
     # Identity and sizing
     semascope_host: str = "localhost"
@@ -54,6 +123,10 @@ class Settings(BaseSettings):
     semascope_admin_password: SecretStr | None = None
     semascope_api_token: SecretStr | None = None
     semascope_api_url: str = "http://server:8000"
+    # key of the keyed hash that pseudonymises entity keys in the graph (a collection's
+    # `pseudonymise` setting). Kept when other secrets are rotated, because a new key gives
+    # every entity a new pseudonym; empty means SEMASCOPE_SECRET_KEY (installs before rc.4)
+    semascope_pseudonym_key: SecretStr | None = None
     # role of a signed-in user on a collection they have no role on: none (the default: each
     # collection readable only by the users given a role on it) or reader (open reading)
     semascope_default_role: str = "none"
@@ -137,15 +210,16 @@ class Settings(BaseSettings):
     semascope_llm_model: str | None = None
 
     @model_validator(mode="after")
-    def _valkey_auth(self) -> Settings:
-        """Put VALKEY_PASSWORD into VALKEY_URL when the URL has none of its own."""
+    def _store_auth(self) -> Settings:
+        """Put VALKEY_PASSWORD into VALKEY_URL, and POSTGRES_PASSWORD into DATABASE_URL,
+        when the URL has no password of its own (compose builds both URLs from the
+        variables; with Docker secrets those are empty and the files fill them in)."""
 
-        password = self.valkey_password.get_secret_value() if self.valkey_password else ""
-        if password and not _url_password(self.valkey_url):
-            parts = urlsplit(self.valkey_url)
-            host = parts.netloc.rpartition("@")[2]
-            netloc = f":{quote(password, safe='')}@{host}"
-            self.valkey_url = urlunsplit(parts._replace(netloc=netloc))
+        valkey = self.valkey_password.get_secret_value() if self.valkey_password else ""
+        self.valkey_url = _with_password(self.valkey_url, valkey)
+        postgres = self.postgres_password.get_secret_value() if self.postgres_password else ""
+        if not self.database_url.startswith("sqlite"):
+            self.database_url = _with_password(self.database_url, postgres)
         return self
 
     def insecure_secrets(self) -> list[str]:
@@ -167,7 +241,24 @@ class Settings(BaseSettings):
             "VALKEY_PASSWORD": value(self.valkey_password) or _url_password(self.valkey_url),
             "SEMASCOPE_ADMIN_PASSWORD": value(self.semascope_admin_password),
         }
-        return [name for name, secret in checks.items() if is_placeholder(secret)]
+        weak = [name for name, secret in checks.items() if is_placeholder(secret)]
+        # optional, but a placeholder (`oss_change-me` in .env.example) is not a token, and a
+        # placeholder pseudonym key would make every pseudonym guessable
+        token = value(self.semascope_api_token)
+        if token and is_placeholder(token.removeprefix("oss_")):
+            weak.append("SEMASCOPE_API_TOKEN")
+        if self.semascope_pseudonym_key and is_placeholder(value(self.semascope_pseudonym_key)):
+            weak.append("SEMASCOPE_PSEUDONYM_KEY")
+        return weak
+
+    @property
+    def pseudonym_key(self) -> str:
+        """The key that pseudonymises graph entity keys: its own setting, else the secret key."""
+
+        own = (
+            self.semascope_pseudonym_key.get_secret_value() if self.semascope_pseudonym_key else ""
+        )
+        return own or self.semascope_secret_key.get_secret_value()
 
     @property
     def llm_enabled(self) -> bool:
