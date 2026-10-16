@@ -163,7 +163,9 @@ def test_linking_an_entity_to_a_pack_individual(api: httpx.Client) -> None:
     # Postgres: the entity's tag now points at the individual, with the link recorded
     tags = tags_of(api, doc)
     tag = tags[individual["iri"]]
-    assert tag["curated"] == {"decision": "accept", "linked_from": entity}, tag
+    curated = tag["curated"]
+    assert curated["decision"] == "accept" and curated["linked_from"] == entity, tag
+    assert tag["pack_id"] and tag["pack_version"], "the link records the individual's pack"
     assert tag["stage"] == "curated" and tag["confidence"] == 1.0, tag
     assert entity not in tags, "the unlinked entity tag is still there"
     # graph: a CURATED edge to the individual's entity node
