@@ -20,7 +20,10 @@ exclude globs), `web` (pages, a sitemap, or a bounded same-host crawl that
 respects robots.txt and refuses private addresses), `upload` (files sent
 through the API or `oss upload`), `feed` (RSS and Atom), `mail` (mbox and
 eml, attachments as child documents), `archive` (zip and tar with member,
-size, ratio and depth limits), `table` (CSV, TSV and XLSX rows as documents).
+size, ratio and depth limits), `table` (CSV, TSV and XLSX rows as documents),
+`s3` (objects in an S3-compatible bucket, AWS, MinIO or Ceph, with change
+detection by ETag), `rdf` (one document per subject, from RDF files or a
+SPARQL endpoint).
 
 ## Pack
 
@@ -42,10 +45,20 @@ individuals, so OpenRefine and similar tools resolve names to pack IRIs.
 
 Curators **propose changes** (`PackDelta`): another name for a concept, a new
 concept in a scheme, a label to retire, or a note. A proposed name tags the
-proposing collection at once as a draft dictionary entry; the pending deltas
+proposing collection, and only that collection, at once as a draft
+dictionary entry, and stays one across dictionary syncs and new pack
+versions until a pack version accepts or rejects it; the pending deltas
 export as `taxonomy.delta.ttl` and `model.delta.yaml`, terms marked `draft`
 and `proposed`, for the ontology-skill workflow to accept into the next pack
 version. The imported pack itself is never edited.
+
+When two active packs define the same IRI or give the same label to
+different individuals, **pack precedence** decides: a collection's
+`PackBinding.precedence` (lowest first, then pack id), or, for a collection
+without bindings and for lookups outside a collection, the lowest
+precedence any binding gives the pack (100 when unbound), then pack id. The
+tag and link stages, the concept page (`/api/knowledge/concepts?iri=`, with
+an optional `collection`) and the reconciliation preview all use it.
 
 ## Profile
 
@@ -59,7 +72,8 @@ One step of the pipeline, declared with the queue it runs on and the fields
 it reads and writes. Stages are plugins registered through entry points.
 Stages: `fetch` (store the original under its content hash), `extract`
 (Tika text and metadata, OCR for images and scanned PDFs, language
-detection), `structure` (pages and chunks), `patterns` (email addresses,
+detection; with a MinerU server, PDF, OOXML Office and raster image files
+are parsed by MinerU instead), `structure` (pages and chunks), `patterns` (email addresses,
 links, phone numbers, amounts, hashtags), `tag` (dictionary tagging against
 the active packs through Solr's Tagger, with a hierarchical facet per
 scheme), `ner` (named entities: spaCy, GLiNER2 or a remote service, see
@@ -77,7 +91,11 @@ entity the model found that resembles a pack individual (link it, or
 reject), a tag matched on a less certain label, a SHACL violation on the
 document's metadata. A decision on a review item, or directly on a
 document's tags, becomes a **proposal**: the record of the decision with a
-stable `external_ref`. Proposals are applied at once to Semascope's stores
+stable `external_ref`. The proposal log is append-only and the newest
+decision on a target is the one in force, so accept, reject and accept again
+leaves three proposals, each with its own `external_ref` (chained to the one
+it supersedes, which the outbox event names in `supersedes`), and the tag
+accepted. Repeating the decision already in force records nothing. Proposals are applied at once to Semascope's stores
 (Postgres, the Solr facets, a `CURATED` edge in the graph) and written to
 the **outbox** (`/api/curation/events`, read by cursor) so an external
 system of record can mirror, reject or audit them. Webhooks deliver outbox
@@ -125,8 +143,12 @@ volume (originals, previews, uploads, the pack store) into
 ## Operations profiles
 
 `compose.observe.yaml` adds an OpenTelemetry collector, Prometheus and
-Grafana (on `127.0.0.1:3000`); the server and workers export traces and
-metrics when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. `compose.gpu.yaml` is the
+Grafana (on `127.0.0.1:3000`); the server, the workers and beat export
+traces and metrics over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+The bundled collector logs traces (debug exporter) and sends metrics to
+Prometheus: request and HTTP client durations from the instrumentation,
+plus `semascope.documents` (documents processed, by status) and
+`semascope.stage.duration` (by stage and outcome). `compose.gpu.yaml` is the
 `gpu` runtime: the worker runs from the `-gpu` image on an NVIDIA card, with
 FastEmbed on CUDA and GLiNER2 for entities (`./oss up` adds it when
 `SEMASCOPE_RUNTIME=gpu`). `compose.dev.yaml` exposes every service on
