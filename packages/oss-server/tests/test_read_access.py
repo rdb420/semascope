@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -284,3 +285,58 @@ def test_source_settings_never_echo_credentials(world: dict[str, Any], client: C
     masked = "********"
     assert out["secret_key"] == masked and out["nested"]["token"] == masked
     assert out["bucket"] == "x"
+
+
+def test_sources_outside_the_roots_are_refused(
+    world: dict[str, Any], client: Client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roots = tmp_path / "import"
+    roots.mkdir()
+    (roots / "escape").symlink_to("/etc")
+    monkeypatch.setenv("SEMASCOPE_SOURCE_ROOTS", str(roots))
+    monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path / "data"))
+    auth = _auth(User.objects.create_user("staff", is_staff=True))
+
+    def create(connector: str, path: str) -> int:
+        return client.post(
+            "/api/collections/c/sources",
+            data={
+                "name": f"{connector}-{len(path)}",
+                "connector": connector,
+                "settings": {"path": path},
+            },
+            content_type="application/json",
+            headers=auth,
+        ).status_code
+
+    for connector in ("filesystem", "mail", "archive", "table", "rdf"):
+        assert create(connector, "/etc") == 422
+        assert create(connector, str(roots / ".." / "..")) == 422
+        assert create(connector, str(roots / "escape")) == 422
+    assert create("filesystem", str(roots)) == 201
+    assert create("upload", str(tmp_path / "data" / "uploads" / "a")) == 422  # another collection
+    assert create("upload", str(tmp_path / "data" / "uploads" / "c")) == 201
+    r = client.post(
+        "/api/collections/c/sources",
+        data={"name": "w", "connector": "web", "settings": {"urls": ["file:///etc/passwd"]}},
+        content_type="application/json",
+        headers=auth,
+    )
+    assert r.status_code == 422
+
+
+def test_a_source_moved_outside_the_roots_fails_at_run_time(
+    world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.pipeline.tasks import discover_source
+
+    monkeypatch.setenv("SEMASCOPE_SOURCE_ROOTS", str(tmp_path / "import"))
+    s = Source.objects.create(
+        collection=Collection.objects.get(slug="c"),
+        name="old",
+        connector="filesystem",
+        settings={"path": "/etc"},
+    )
+    assert discover_source(s.id) == {"error": 1}
+    s.refresh_from_db()
+    assert s.status == Source.Status.FAILED and s.last_error.startswith("refused:")

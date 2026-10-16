@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import confine_path, confined_files, source_roots
 
 ARCHIVE_SUFFIXES = (".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz")
 
@@ -29,7 +30,8 @@ class ArchiveConnector:
     name = "archive"
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
-        root = Path(str(source.settings["path"])).expanduser()
+        roots = source_roots()
+        root = confine_path(str(source.settings["path"]), roots)
         limits = {
             "max_members": int(source.settings.get("max_members", 10000)),
             "max_member_bytes": int(source.settings.get("max_member_bytes", 256 * 1024 * 1024)),
@@ -41,6 +43,7 @@ class ArchiveConnector:
             if root.is_file()
             else sorted(p for p in root.rglob("*") if p.is_file() and is_archive(p))
         )
+        files = list(confined_files(files, roots))
         tmp = Path(tempfile.gettempdir()) / "semascope-archive"
         tmp.mkdir(parents=True, exist_ok=True)
         for file in files:

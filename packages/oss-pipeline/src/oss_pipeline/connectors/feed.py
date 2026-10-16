@@ -1,7 +1,9 @@
 """Feed connector: RSS and Atom entries as documents.
 
 Settings: `urls` (list), `max_entries` (200 per feed), `fetch_links`
-(false: index the entry's own content; true: download the linked page).
+(false: index the entry's own content; true: download the linked page),
+`max_bytes` (50 MiB per response). Private addresses are refused on every
+request and redirect (see `guard`).
 Entries are deduplicated by id or link; the entry's published date becomes
 the document's modified time.
 """
@@ -19,7 +21,15 @@ import feedparser
 import httpx
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
-from oss_pipeline.connectors.web import USER_AGENT, _refuse_private
+from oss_pipeline.connectors.guard import (
+    DEFAULT_MAX_BYTES,
+    SourceNotAllowed,
+    TooLarge,
+    get_capped,
+    guarded_client,
+    refuse_private,
+)
+from oss_pipeline.connectors.web import USER_AGENT
 
 
 class FeedConnector:
@@ -31,19 +41,20 @@ class FeedConnector:
             raise ValueError("feed connector needs settings.urls")
         max_entries = int(source.settings.get("max_entries", 200))
         fetch_links = bool(source.settings.get("fetch_links", False))
+        max_bytes = int(source.settings.get("max_bytes", DEFAULT_MAX_BYTES))
         tmp = Path(tempfile.gettempdir()) / "semascope-feed"
         tmp.mkdir(parents=True, exist_ok=True)
-        with httpx.Client(
+        with guarded_client(
             timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
         ) as client:
             for url in urls:
-                _refuse_private(url)
+                refuse_private(url)
                 try:
-                    resp = client.get(url)
+                    resp, feed_body = get_capped(client, url, max_bytes)
                     resp.raise_for_status()
-                except httpx.HTTPError:
+                except (httpx.HTTPError, TooLarge, SourceNotAllowed):
                     continue
-                parsed = feedparser.parse(resp.content)
+                parsed = feedparser.parse(feed_body)
                 for entry in parsed.entries[:max_entries]:
                     link = str(entry.get("link") or "")
                     entry_id = str(entry.get("id") or link)
@@ -55,14 +66,12 @@ class FeedConnector:
                     )
                     if fetch_links and link:
                         try:
-                            _refuse_private(link)
-                            page = client.get(link)
+                            page, content = get_capped(client, link, max_bytes)
                             page.raise_for_status()
-                            content = page.content
                             media_type = (
                                 page.headers.get("content-type", "text/html").split(";")[0].strip()
                             )
-                        except (httpx.HTTPError, ValueError):
+                        except (httpx.HTTPError, ValueError):  # TooLarge, SourceNotAllowed
                             continue
                     else:
                         body = ""

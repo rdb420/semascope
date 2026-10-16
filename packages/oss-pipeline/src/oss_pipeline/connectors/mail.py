@@ -18,13 +18,14 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.guard import confine_path, confined_files, source_roots
 
 
-def _messages(path: Path) -> Iterator[tuple[str, Message]]:
+def _messages(path: Path, roots: list[Path]) -> Iterator[tuple[str, Message]]:
     if path.is_dir():
-        for file in sorted(path.rglob("*")):
+        for file in confined_files(sorted(path.rglob("*")), roots):
             if file.is_file():
-                yield from _messages(file)
+                yield from _messages(file, roots)
         return
     suffix = path.suffix.lower()
     if suffix == ".eml":
@@ -43,13 +44,14 @@ class MailConnector:
     name = "mail"
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
-        root = Path(str(source.settings["path"])).expanduser()
+        roots = source_roots()
+        root = confine_path(str(source.settings["path"]), roots)
         if not root.exists():
             raise FileNotFoundError(f"{root} does not exist")
         want_attachments = bool(source.settings.get("attachments", True))
         tmp = Path(tempfile.gettempdir()) / "semascope-mail"
         tmp.mkdir(parents=True, exist_ok=True)
-        for locator, msg in _messages(root):
+        for locator, msg in _messages(root, roots):
             raw = msg.as_bytes()
             digest = hashlib.sha256(raw).hexdigest()
             message_id = str(msg.get("Message-ID") or "").strip("<> ") or digest[:16]

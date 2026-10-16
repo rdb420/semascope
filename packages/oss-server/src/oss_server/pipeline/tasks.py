@@ -7,6 +7,7 @@ collection's profile and stores the result. Both are idempotent.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 from datetime import UTC, datetime
@@ -151,6 +152,15 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
             status=Source.Status.FAILED, last_error=f"unknown connector {source.connector}"
         )
         return {"error": 1}
+    from oss_pipeline.connectors.guard import SourceNotAllowed, check_source
+
+    try:
+        check_source(source.connector, source.settings, source.collection.slug)
+    except SourceNotAllowed as exc:
+        Source.objects.filter(pk=source_id).update(
+            status=Source.Status.FAILED, last_error=f"refused: {exc}"[:2000]
+        )
+        return {"error": 1}
     Source.objects.filter(pk=source_id).update(status=Source.Status.RUNNING, last_error="")
     config = SourceConfig(
         id=str(source.id),
@@ -224,7 +234,9 @@ def process_document(doc_id: str, item: dict[str, Any]) -> str:
     doc_row = Document.objects.select_related("collection", "source").get(pk=doc_id)
     Document.objects.filter(pk=doc_id).update(status=Document.Status.PROCESSING)
     connector = connectors()[doc_row.source.connector]
-    fetched = connector.fetch(SourceItem.model_validate(item))
+    fetched = _fetch(
+        connector, SourceItem.model_validate(item), doc_row.source, doc_row.collection.slug
+    )
     meta = fetched.item.metadata
     fields: dict[str, Any] = {"local_path": fetched.path} if fetched.path else {}
     fields.update({k: v for k, v in (meta.get("fields") or {}).items() if str(k).startswith("x_")})
@@ -251,6 +263,20 @@ def process_document(doc_id: str, item: dict[str, Any]) -> str:
     work = run_profile(profile(ctx.profile), work, ctx)
     _store(doc_row, work)
     return doc_row.status
+
+
+def _fetch(connector: Any, item: SourceItem, source: Source, collection: str) -> Any:
+    """Fetch an item; connectors that take `source` get its current settings (credentials)."""
+
+    if "source" in inspect.signature(connector.fetch).parameters:
+        config = SourceConfig(
+            id=str(source.id),
+            collection=collection,
+            connector=source.connector,
+            settings=source.settings,
+        )
+        return connector.fetch(item, source=config)
+    return connector.fetch(item)
 
 
 PREREQS = {"embed": ("structure",)}  # not stored on the row, so recomputed for the replayed stage

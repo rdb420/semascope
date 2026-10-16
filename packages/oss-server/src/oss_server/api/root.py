@@ -182,6 +182,12 @@ def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[i
         raise HttpError(
             422, f"unknown connector {payload.connector}; known: {sorted(connectors())}"
         )
+    from oss_pipeline.connectors.guard import SourceNotAllowed, check_source
+
+    try:
+        check_source(payload.connector, payload.settings, slug)
+    except SourceNotAllowed as exc:
+        raise HttpError(422, str(exc)) from exc
     s, created = Source.objects.get_or_create(
         collection=c,
         name=payload.name,

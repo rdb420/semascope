@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # role of a signed-in user on a collection they have no role on: reader (open reading)
     # or none (each collection readable only by the users given a role on it)
     semascope_default_role: str = "reader"
+    # where file-reading sources may read (comma-separated paths inside the containers)
+    semascope_source_roots: str = "/import"
+    # private hosts or CIDR ranges that URL sources (web, feed, SPARQL, S3) may reach
+    semascope_allowed_private_hosts: str = ""
 
     # Optional OpenID Connect sign-in (any provider); local accounts always work
     semascope_oidc_name: str = ""  # label on the sign-in button, e.g. "Company SSO"
