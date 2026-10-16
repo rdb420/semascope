@@ -2,26 +2,34 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Map as MapLibreMap, Marker, setWorkerUrl } from "maplibre-gl";
-import type { Marker as MarkerType } from "maplibre-gl";
+import type { Marker as MarkerType, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 // The worker and its shared chunk are copied beside index.html by vite.config.ts.
 setWorkerUrl("/maplibre-gl-worker.mjs");
 import { api } from "../api";
+import type { UiConfig } from "../api";
 import { useUser } from "../components/Shell";
 
-const STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: "raster" as const,
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
+// The base map comes from SEMASCOPE_MAP_TILE_URL (an XYZ raster template). Empty means no
+// base map, for offline installs: the places are drawn on a plain background.
+function mapStyle(config: UiConfig): StyleSpecification {
+  if (!config.map_tile_url) {
+    return { version: 8, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#e4e4e7" } }] };
+  }
+  return {
+    version: 8,
+    sources: {
+      base: {
+        type: "raster",
+        tiles: [config.map_tile_url],
+        tileSize: 256,
+        attribution: config.map_tile_attribution,
+      },
     },
-  },
-  layers: [{ id: "osm", type: "raster" as const, source: "osm" }],
-};
+    layers: [{ id: "base", type: "raster", source: "base" }],
+  };
+}
 
 export function MapPage() {
   const user = useUser();
@@ -29,10 +37,11 @@ export function MapPage() {
   const [collection, setCollection] = useState("");
   const collections = useQuery({ queryKey: ["collections"], queryFn: api.collections, enabled: user.isSuccess });
   const places = useQuery({ queryKey: ["places", collection], queryFn: () => api.places(collection || undefined), enabled: user.isSuccess });
+  const config = useQuery({ queryKey: ["ui-config"], queryFn: api.uiConfig, enabled: user.isSuccess, staleTime: Infinity });
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!ref.current || !places.data) return;
-    const map = new MapLibreMap({ container: ref.current, style: STYLE, center: [20, 35], zoom: 2.5 });
+    if (!ref.current || !places.data || !config.data) return;
+    const map = new MapLibreMap({ container: ref.current, style: mapStyle(config.data), center: [20, 35], zoom: 2.5 });
     const markers: MarkerType[] = [];
     for (const p of places.data) {
       const el = document.createElement("button");
@@ -48,7 +57,7 @@ export function MapPage() {
       markers.forEach((m) => m.remove());
       map.remove();
     };
-  }, [places.data, navigate]);
+  }, [places.data, config.data, navigate]);
   if (!user.isSuccess) return null;
   return (
     <div className="space-y-3">
@@ -60,7 +69,10 @@ export function MapPage() {
             <option key={c.slug} value={c.slug}>{c.name}</option>
           ))}
         </select>
-        <span className="text-sm text-zinc-500">{places.data?.length ?? 0} places from the active packs; marker size is the number of documents</span>
+        <span className="text-sm text-zinc-500">
+          {places.data?.length ?? 0} places from the active packs; marker size is the number of documents
+          {config.data && !config.data.map_tile_url ? "; no base map is configured (SEMASCOPE_MAP_TILE_URL)" : ""}
+        </span>
       </div>
       <div ref={ref} className="h-[70vh] w-full rounded-lg border border-zinc-200 dark:border-zinc-800" />
     </div>
