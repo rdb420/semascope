@@ -475,6 +475,7 @@ def check_alerts() -> int:
     """Run every saved search with an alert; emit an event when its total grew."""
 
     from oss_server.api import search as search_mod
+    from oss_server.api.access import can_read, readable_collections
     from oss_server.api.schemas import SearchIn
     from oss_server.catalogue.models import SavedSearch
     from oss_server.curation.services import emit
@@ -485,7 +486,12 @@ def check_alerts() -> int:
             req = SearchIn(**saved.query).model_copy(
                 update={"page": 1, "page_size": 5, "facets": []}
             )
-            res = search_mod.search(solr_client(), solr_documents_collection(), req)
+            # an alert sees what its owner may read now, not what they could when saving it
+            if req.collection and not can_read(saved.user, req.collection):
+                continue
+            readable = readable_collections(saved.user)
+            allowed = None if readable is None else sorted(readable)
+            res = search_mod.search(solr_client(), solr_documents_collection(), req, allowed)
         except Exception:  # noqa: BLE001
             log.exception("alert %s failed", saved.pk)
             continue

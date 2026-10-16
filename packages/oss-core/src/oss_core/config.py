@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     semascope_admin_password: SecretStr | None = None
     semascope_api_token: SecretStr | None = None
     semascope_api_url: str = "http://server:8000"
-    semascope_default_role: str = "reader"  # role of a signed-in user with no explicit roles
+    # role of a signed-in user on a collection they have no role on: reader (open reading)
+    # or none (each collection readable only by the users given a role on it)
+    semascope_default_role: str = "reader"
 
     # Optional OpenID Connect sign-in (any provider); local accounts always work
     semascope_oidc_name: str = ""  # label on the sign-in button, e.g. "Company SSO"

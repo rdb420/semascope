@@ -45,8 +45,18 @@ def _escape(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def build_params(req: SearchIn) -> dict[str, Any]:
-    fq: list[str] = []
+def collection_filter(allowed: list[str] | None) -> list[str]:
+    """The filter query that keeps a search inside the readable collections (none for all)."""
+
+    if allowed is None:
+        return []
+    if not allowed:
+        return ["-*:*"]
+    return ["collection_s:(" + " OR ".join(_escape(c) for c in allowed) + ")"]
+
+
+def build_params(req: SearchIn, allowed: list[str] | None = None) -> dict[str, Any]:
+    fq: list[str] = collection_filter(allowed)
     if req.collection:
         fq.append(f"collection_s:{_escape(req.collection)}")
     for field, values in req.filters.items():
@@ -163,13 +173,17 @@ def entity_class_facets() -> list[str]:
     )
 
 
-def search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
+def search(
+    client: SolrClient, collection_name: str, req: SearchIn, allowed: list[str] | None = None
+) -> SearchOut:
+    """Run a search. `allowed` limits it to those collections (None: no limit)."""
+
     extra = [f for f in [*scheme_facets(), *entity_class_facets()] if f not in req.facets]
     if extra:
         req = req.model_copy(update={"facets": [*req.facets, *extra]})
     if req.mode in ("semantic", "hybrid") and req.q.strip() and req.q.strip() != "*:*":
-        return _semantic_search(client, collection_name, req)
-    body = client.select(collection_name, **build_params(req))
+        return _semantic_search(client, collection_name, req, allowed)
+    body = client.select(collection_name, **build_params(req, allowed))
     return parse_response(req, body)
 
 
@@ -197,7 +211,9 @@ def current_embed_model() -> str:
         return get_settings().semascope_embed_model
 
 
-def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any]]:
+def _knn_chunks(
+    client: SolrClient, req: SearchIn, k: int, allowed: list[str] | None = None
+) -> list[dict[str, Any]]:
     """Top-k chunks by vector similarity, with their passage text.
 
     Only chunks embedded by the current model take part: vectors of different
@@ -210,7 +226,9 @@ def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any
     embedder = query_embedder()
     query_vec = getattr(embedder, "embed_query", None)
     vector = query_vec(req.q) if query_vec else embedder.embed([req.q])[0]
-    fq = [f'collection_s:"{req.collection}"'] if req.collection else []
+    fq = collection_filter(allowed)
+    if req.collection:
+        fq.append(f"collection_s:{_escape(req.collection)}")
     model = str(getattr(embedder, "model_name", "") or "")
     if model:
         fq.append(f'model_s:"{model}"')
@@ -225,11 +243,13 @@ def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any
     return list(body.get("response", {}).get("docs", []))
 
 
-def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) -> SearchOut:
+def _semantic_search(
+    client: SolrClient, collection_name: str, req: SearchIn, allowed: list[str] | None = None
+) -> SearchOut:
     """Semantic: rank documents by their best chunk. Hybrid: reciprocal rank fusion with keyword."""
 
     k = max(200, req.page_size * 20)
-    chunks = _knn_chunks(client, req, k)
+    chunks = _knn_chunks(client, req, k, allowed)
     # rank documents by their best chunk, but count at most three chunks per document so one
     # long text cannot crowd out every other hit
     doc_order: list[str] = []
@@ -250,7 +270,7 @@ def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) ->
         kw = req.model_copy(
             update={"page": 1, "page_size": k, "facets": [], "highlight": False, "mode": "keyword"}
         )
-        kw_body = client.select(collection_name, **build_params(kw))
+        kw_body = client.select(collection_name, **build_params(kw, allowed))
         for i, d in enumerate(kw_body.get("response", {}).get("docs", [])):
             ranks[d["id"]] = ranks.get(d["id"], 0.0) + 1.0 / (60 + i)
     ordered = sorted(ranks, key=lambda d: -ranks[d])
@@ -277,7 +297,7 @@ def _semantic_search(client: SolrClient, collection_name: str, req: SearchIn) ->
             "mode": "keyword",
         }
     )
-    params = build_params(fetch)
+    params = build_params(fetch, allowed)
     params["q"] = id_query
     params["defType"] = "lucene"
     params["df"] = "text_txt"
