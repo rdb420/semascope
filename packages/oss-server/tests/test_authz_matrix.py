@@ -163,6 +163,8 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("GET", "/api/curation/webhooks"): Rule("staff", 200),
     ("POST", "/api/curation/webhooks"): Rule("staff", 201, json={"url": "https://example.org/h"}),
     ("DELETE", "/api/curation/webhooks/{webhook_id}"): Rule("staff", 204),
+    # ADR-0012 capabilities (api/extras.py)
+    ("GET", "/api/documents/{doc_id}/similar"): Rule(("reader", "a"), 200, query="mode=text"),
 }
 
 
