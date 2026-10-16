@@ -111,7 +111,9 @@ export type Concept = {
   type_iri: string;
   type_label: string;
   broader: string[];
+  related?: string[];
   path: string;
+  paths?: string[];
   depth: number;
   taggable: boolean;
   support: string;
@@ -450,4 +452,102 @@ export const views = {
   feedToken: () => request<{ token: string | null }>("/api/feeds/token"),
   newFeedToken: () => request<{ token: string }>("/api/feeds/token", { method: "POST" }),
   revokeFeedToken: () => request<void>("/api/feeds/token", { method: "DELETE" }),
+};
+
+// --- curation and knowledge jobs (api/curation.py bulk tags, api/knowledge.py pack jobs) ---------
+
+export type JobStatus = "queued" | "running" | "done" | "failed";
+export type PackPlan = {
+  pack_id: string;
+  active_version: string | null;
+  candidate_version: string;
+  requires_confirmation: boolean;
+  diff?: { summary?: Record<string, unknown> };
+  plan?: { reindex?: string[] };
+};
+export type PackJob = {
+  id: number;
+  kind: "import" | "activate";
+  status: JobStatus;
+  pack_id: string;
+  version: string;
+  params: Record<string, unknown>;
+  plan: PackPlan | null;
+  result: { status?: string; counts?: Record<string, number>; reindexed?: string[]; dictionary_entries?: number };
+  error: string;
+  created_by: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+export type BulkTagJob = {
+  id: number;
+  collection: string;
+  query: { q?: string; filters?: Record<string, string[]> };
+  iri: string;
+  label: string;
+  kind: string;
+  decision: "accept" | "reject";
+  reason: string;
+  status: JobStatus;
+  matched: number;
+  decided: number;
+  unchanged: number;
+  unapplied: number;
+  error: string;
+  created_by: string | null;
+  created_at: string;
+  finished_at: string | null;
+};
+export type BulkTagIn = {
+  collection: string;
+  q: string;
+  filters?: Record<string, string[]>;
+  iri: string;
+  decision: "accept" | "reject";
+  label?: string;
+  reason?: string;
+};
+
+/** A pack request answers 202 with a job, or 409 with the plan to confirm. */
+export type JobOrPlan = { job: PackJob; plan?: undefined } | { job?: undefined; plan: PackPlan; detail: string };
+
+async function jobOrPlan(path: string, body?: unknown): Promise<JobOrPlan> {
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRFToken": await ensureCsrf() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  if (res.status === 409 && data && "plan" in data) {
+    return { plan: data.plan as PackPlan, detail: String(data.detail ?? "") };
+  }
+  if (!res.ok) throw new ApiError(res.status, data && "detail" in data ? String(data.detail) : res.statusText);
+  return { job: data as unknown as PackJob };
+}
+
+export const isRunning = (status: JobStatus) => status === "queued" || status === "running";
+
+export const curation = {
+  bulkTagCount: (body: BulkTagIn) =>
+    request<{ matched: number; limit: number }>("/api/curation/bulk-tags", {
+      method: "POST",
+      body: JSON.stringify({ ...body, dry_run: true }),
+    }),
+  bulkTag: (body: BulkTagIn) =>
+    request<BulkTagJob>("/api/curation/bulk-tags", { method: "POST", body: JSON.stringify(body) }),
+  bulkTagJob: (id: number) => request<BulkTagJob>(`/api/curation/bulk-tags/${id}`),
+  bulkTagJobs: (iri?: string) =>
+    request<BulkTagJob[]>(`/api/curation/bulk-tags?limit=10${iri ? `&iri=${enc(iri)}` : ""}`),
+  packJobs: () => request<PackJob[]>("/api/knowledge/pack-jobs?limit=10"),
+  packJob: (id: number) => request<PackJob>(`/api/knowledge/pack-jobs/${id}`),
+  packVersions: (packId: string) =>
+    request<Pack[]>("/api/knowledge/packs").then((all) => all.filter((p) => p.pack_id === packId)),
+  importPack: (body: { path: string; activate?: boolean; reindex?: boolean; force?: boolean; confirm?: boolean }) =>
+    jobOrPlan("/api/knowledge/packs/import", body),
+  importList: (body: { pack_id: string; title?: string; scheme?: string; version?: string; text: string; confirm?: boolean }) =>
+    jobOrPlan("/api/knowledge/packs/import-list", body),
+  activatePack: (packId: string, version: string, confirm = false) =>
+    jobOrPlan(`/api/knowledge/packs/${enc(packId)}/activate?version=${enc(version)}&confirm=${confirm}`),
 };
