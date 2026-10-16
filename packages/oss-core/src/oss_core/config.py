@@ -9,9 +9,31 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Values that are not secrets: the .env.example placeholders and their usual cousins.
+# Compared case-insensitively; anything starting with "change-me" counts too.
+PLACEHOLDER_SECRETS = frozenset(
+    {"", "change-me", "changeme", "change_me", "changeit", "secret", "password", "example"}
+    | {"placeholder", "xxx", "todo", "none", "null", "default", "admin", "semascope"}
+)
+
+
+def is_placeholder(value: str | None) -> bool:
+    """True when a secret is empty or a known placeholder."""
+
+    text = (value or "").strip().lower()
+    return text in PLACEHOLDER_SECRETS or text.startswith(("change-me", "changeme"))
+
+
+def _url_password(url: str) -> str:
+    try:
+        return unquote(urlsplit(url).password or "")
+    except ValueError:
+        return ""
 
 
 class Settings(BaseSettings):
@@ -50,7 +72,10 @@ class Settings(BaseSettings):
 
     # Stores
     database_url: str = "postgresql://semascope:change-me@localhost:5432/semascope"
+    postgres_password: SecretStr | None = None  # compose builds DATABASE_URL from it
     valkey_url: str = "redis://localhost:6379/0"
+    # Valkey's requirepass; added to VALKEY_URL when that URL carries no password
+    valkey_password: SecretStr | None = None
     solr_url: str = "http://localhost:8983/solr"
     solr_user: str = "semascope"
     solr_password: SecretStr = Field(default=SecretStr("change-me"))
@@ -98,6 +123,39 @@ class Settings(BaseSettings):
     semascope_llm_base_url: str | None = None
     semascope_llm_api_key: SecretStr | None = None
     semascope_llm_model: str | None = None
+
+    @model_validator(mode="after")
+    def _valkey_auth(self) -> Settings:
+        """Put VALKEY_PASSWORD into VALKEY_URL when the URL has none of its own."""
+
+        password = self.valkey_password.get_secret_value() if self.valkey_password else ""
+        if password and not _url_password(self.valkey_url):
+            parts = urlsplit(self.valkey_url)
+            host = parts.netloc.rpartition("@")[2]
+            netloc = f":{quote(password, safe='')}@{host}"
+            self.valkey_url = urlunsplit(parts._replace(netloc=netloc))
+        return self
+
+    def insecure_secrets(self) -> list[str]:
+        """The required secrets that are empty or a known placeholder (environment names).
+
+        The server, worker and beat refuse to start with any of these outside debug mode
+        (`oss_server.settings`). Each is checked where the process reads it: the Postgres
+        and Valkey passwords also count when given only inside DATABASE_URL or VALKEY_URL.
+        """
+
+        def value(secret: SecretStr | None) -> str:
+            return secret.get_secret_value() if secret else ""
+
+        checks = {
+            "SEMASCOPE_SECRET_KEY": value(self.semascope_secret_key),
+            "POSTGRES_PASSWORD": value(self.postgres_password) or _url_password(self.database_url),
+            "NEO4J_PASSWORD": value(self.neo4j_password),
+            "SOLR_PASSWORD": value(self.solr_password),
+            "VALKEY_PASSWORD": value(self.valkey_password) or _url_password(self.valkey_url),
+            "SEMASCOPE_ADMIN_PASSWORD": value(self.semascope_admin_password),
+        }
+        return [name for name, secret in checks.items() if is_placeholder(secret)]
 
     @property
     def llm_enabled(self) -> bool:

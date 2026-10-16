@@ -25,7 +25,12 @@ def test_init_writes_secrets(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     text = env.read_text()
     assert "POSTGRES_PASSWORD=" in text and "change-me" not in text
+    assert re.search(r"^VALKEY_PASSWORD=[A-Za-z0-9_-]{24,}$", text, re.M), text
     assert runner.invoke(app, ["init", "--env-file", str(env)]).exit_code != 0
+    from oss_core.config import Settings
+
+    # every secret the server checks at start-up is generated
+    assert Settings(_env_file=env).insecure_secrets() == []  # type: ignore[call-arg]
 
 
 def test_pack_validate_base() -> None:

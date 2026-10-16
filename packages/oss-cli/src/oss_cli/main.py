@@ -79,6 +79,7 @@ def init(
         f"POSTGRES_PASSWORD={secrets.token_urlsafe(24)}",
         f"NEO4J_PASSWORD={secrets.token_urlsafe(24)}",
         f"SOLR_PASSWORD={secrets.token_urlsafe(24)}",
+        f"VALKEY_PASSWORD={secrets.token_urlsafe(24)}",
         f"SEMASCOPE_ADMIN_PASSWORD={secrets.token_urlsafe(18)}",
         f"SEMASCOPE_API_TOKEN=oss_{secrets.token_urlsafe(32)}",
         f"SEMASCOPE_IMPORT_DIR={import_dir}",

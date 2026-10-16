@@ -16,7 +16,7 @@ x-app: &app
       required: false
   environment:
     DATABASE_URL: postgresql://semascope:${POSTGRES_PASSWORD}@postgres:5432/semascope
-    VALKEY_URL: redis://valkey:6379/0
+    VALKEY_URL: redis://:${VALKEY_PASSWORD:-}@valkey:6379/0
     SOLR_URL: http://solr:8983/solr
     SOLR_USER: semascope
     NEO4J_URI: bolt://neo4j:7687
@@ -100,11 +100,24 @@ services:
 
   valkey:
     image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
-    command: ["valkey-server", "--save", "60", "1", "--appendonly", "yes"]
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-}
+    # requirepass from VALKEY_PASSWORD, through a config file so it is not on the command line;
+    # the image's entrypoint then drops to the valkey user
+    command:
+      - sh
+      - -c
+      - |
+        [ -n "$$VALKEY_PASSWORD" ] || { echo "VALKEY_PASSWORD is empty: ./oss up adds one to .env (docs/operations.md#secrets)" >&2; exit 1; }
+        umask 077
+        printf 'requirepass "%s"\n' "$$VALKEY_PASSWORD" > /tmp/semascope-auth.conf
+        chown valkey:valkey /tmp/semascope-auth.conf
+        exec docker-entrypoint.sh valkey-server /tmp/semascope-auth.conf --save 60 1 --appendonly yes
     volumes:
       - valkey:/data
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      # healthy once the password gets in and an anonymous client is refused
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${VALKEY_PASSWORD}\" valkey-cli ping | grep -qx PONG && ! valkey-cli ping | grep -qx PONG"]
       interval: 5s
       timeout: 3s
       retries: 20

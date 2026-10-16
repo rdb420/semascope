@@ -107,7 +107,8 @@ git pull                   # or: edit SEMASCOPE_IMAGE_TAG in .env to the new ver
 ./oss doctor
 ```
 
-What `./oss up` does on start: Django migrations, static files, the Solr
+What `./oss up` does on start: adds a generated `VALKEY_PASSWORD` to
+`.env` when it has none ([Secrets](#secrets)), then Django migrations, static files, the Solr
 configsets uploaded and the collections reloaded (created when missing),
 the bundled base pack imported when its content hash changed. A schema
 change that needs the index rebuilt is announced in the changelog; run
@@ -124,9 +125,25 @@ in [Concepts](concepts.md#backup-and-restore). Keep `.env` with the backup.
 
 ## Secrets
 
-`.env` holds every secret. To rotate: `oss init --force --import-dir <same>`
+`.env` holds every secret. The server, workers and beat refuse to start
+when `SEMASCOPE_SECRET_KEY`, `POSTGRES_PASSWORD`, `NEO4J_PASSWORD`,
+`SOLR_PASSWORD`, `VALKEY_PASSWORD` or `SEMASCOPE_ADMIN_PASSWORD` is empty
+or a placeholder such as `change-me` (the values in `.env.example`); the
+error names each one. Only debug mode (`SEMASCOPE_DEBUG=true`, for
+development) skips the check. `oss init` generates all of them.
+
+Valkey requires `VALKEY_PASSWORD` (from 1.0.0-rc.4); the workers and the
+server reach it through `VALKEY_URL`, which compose builds with the
+password. An install whose `.env` predates this gets a generated
+`VALKEY_PASSWORD` added by the next `./oss up`; Valkey reads it when it
+starts, so no data changes. Starting with plain `docker compose up`
+instead, Valkey and the application stop with a message naming the
+missing value.
+
+To rotate: `oss init --force --import-dir <same>`
 writes new ones; PostgreSQL, Neo4j and Solr then need their passwords
-changed to match (or recreate their volumes on a fresh install). Solr's
+changed to match (or recreate their volumes on a fresh install); Valkey and
+the secret key take the new value at the next start. Solr's
 basic authentication is set up from `SOLR_PASSWORD` on first start; the
 [Solr notes](https://github.com/rdb420/semascope/blob/main/deploy/solr/README.md)
 show how to change it. The API

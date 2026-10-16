@@ -13,10 +13,25 @@ runtime="$(grep -E '^SEMASCOPE_RUNTIME=' "$env_file" 2>/dev/null | cut -d= -f2- 
 case "${runtime:-cpu}" in
   gpu) export COMPOSE_FILE="${COMPOSE_FILE:-compose.yaml:compose.gpu.yaml}" ;;
 esac
+# Valkey requires a password from 1.0.0-rc.4 on. An env file written before then gets a
+# generated VALKEY_PASSWORD on the next `./oss up`; Valkey reads it at start, nothing else
+# changes. (`oss init` writes one for new installs.)
+ensure_valkey_password() {
+  [ -f "$env_file" ] || return 0
+  if grep -qE '^VALKEY_PASSWORD=[^[:space:]]+' "$env_file"; then return 0; fi
+  local password tmp
+  password="$(head -c 24 /dev/urandom | base64 | tr -d '+/=\n')"
+  tmp="$env_file.tmp.$$"
+  { grep -v '^VALKEY_PASSWORD=' "$env_file" || true; printf 'VALKEY_PASSWORD=%s\n' "$password"; } > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$env_file"
+  echo "added a generated VALKEY_PASSWORD to $env_file (Valkey now requires a password)"
+}
 case "$cmd" in
   init)
     shift; exec uv run --package oss-cli oss init --env-file "$env_file" "$@" ;;
   up)
+    ensure_valkey_password
     docker compose pull --ignore-buildable 2>/dev/null || true
     docker compose up -d --wait; exec docker compose run --rm cli oss doctor ;;
   down)

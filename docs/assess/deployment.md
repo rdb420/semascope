@@ -24,7 +24,7 @@ runs on one host.
 | caddy | `caddy:2-alpine` | TLS and reverse proxy; the only published port (`SEMASCOPE_HTTPS_PORT`, default 8443) |
 | server, worker, beat | `ghcr.io/rdb420/semascope:<tag>` (about 1.4 GB) | API and UI, pipeline workers, scheduler |
 | postgres | `postgres:17-alpine` | collections, documents and extracted text, packs, reviews, proposals, events |
-| valkey | `valkey/valkey:8-alpine` | task queue (append-only file on) |
+| valkey | `valkey/valkey:8-alpine` | task queue (append-only file on, password from `VALKEY_PASSWORD`) |
 | solr | `solr:10.0.0` | `documents`, `entities` (tagging dictionary) and `chunks` (vectors) |
 | neo4j | `neo4j:5.26-community` | the document-entity graph; no plugins needed |
 | tika | `apache/tika:3.3.0.0-full` | text extraction and OCR (Tesseract, English) |
@@ -141,6 +141,10 @@ not.
 ./oss doctor
 ```
 
+From 1.0.0-rc.4 Valkey requires a password: `./oss up` adds a generated
+`VALKEY_PASSWORD` to an older `.env`, and the application refuses to start
+with an empty or placeholder secret (see [Secrets](../operations.md#secrets)).
+
 A release whose index layout changes says so in the changelog; then run
 `./oss reindex --collection <slug>` for each collection. Reindexing replays
 enrichment from the stored text without fetching or extracting again.
@@ -181,7 +185,9 @@ What still needs a network:
 
 - [ ] A release tag in `SEMASCOPE_IMAGE_TAG`
 - [ ] A real host name and a trusted certificate
-- [ ] `.env` backed up somewhere safe, outside the host
+- [ ] `.env` written by `oss init` (the application will not start with the
+      placeholder secrets of `.env.example`) and backed up somewhere safe,
+      outside the host
 - [ ] A scheduled `./oss backup` copied off the host, and one restore tried
 - [ ] Roles assigned; `SEMASCOPE_DEFAULT_ROLE` chosen deliberately (`none`
       when collections must be kept apart)
