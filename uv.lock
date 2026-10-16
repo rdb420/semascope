@@ -2696,6 +2696,7 @@ source = { editable = "packages/oss-core" }
 dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyshacl" },
     { name = "pyyaml" },
     { name = "rdflib" },
 ]
@@ -2704,6 +2705,7 @@ dependencies = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
+    { name = "pyshacl", specifier = ">=0.30" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "rdflib", specifier = ">=7.1,<8" },
 ]

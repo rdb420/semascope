@@ -10,6 +10,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "rdflib>=7.1,<8",
     "pyyaml>=6,<7",
+    "pyshacl>=0.30",
 ]
 
 [build-system]

@@ -26,17 +26,30 @@ def graph_iri(pack_id: str, version: str) -> str:
     return f"urn:semascope:pack:{pack_id}:{version}"
 
 
-def load_bundle(pack_dir: Path, pack_id: str, version: str) -> int:
-    """Load the four RDF files of a bundle into the pack's named graph; returns the triple count."""
+def load_bundle(files: dict[str, Path], pack_id: str, version: str) -> int:
+    """Load a bundle's RDF files (stem -> file) into the pack's named graph; returns the
+    triple count. Turtle loads directly; other serialisations go through rdflib, the
+    parser validation used, so both see the same triples."""
+
+    from rdflib import Graph
+
+    from oss_core.pack import parse_rdf
 
     s = store()
     graph = ox.NamedNode(graph_iri(pack_id, version))
     s.remove_graph(graph) if graph in list(s.named_graphs()) else None
-    for name in ("ontology.ttl", "taxonomy.ttl", "shapes.ttl", "instances.ttl"):
-        file = pack_dir / name
-        if file.exists():
+    for stem in ("ontology", "taxonomy", "shapes", "instances"):
+        file = files.get(stem)
+        if file is None or not file.exists():
+            continue
+        if file.suffix == ".ttl":
             with file.open("rb") as fh:
                 s.bulk_load(fh, ox.RdfFormat.TURTLE, to_graph=graph)
+        else:
+            g = Graph()
+            parse_rdf(g, file)
+            data = g.serialize(format="nt", encoding="utf-8")
+            s.bulk_load(data, ox.RdfFormat.N_TRIPLES, to_graph=graph)
     return sum(1 for _ in s.quads_for_pattern(None, None, None, graph))
 
 
