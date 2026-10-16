@@ -1,7 +1,8 @@
 import { lazy, Suspense } from "react";
 import type { FacetValue } from "../api";
 
-export type TimelineProps = { buckets: FacetValue[]; onPick?: (from: string) => void };
+/** `onPick` gets the clicked bar's bucket (its start date); `gap` is the bar width (+1YEAR, +1MONTH, +1DAY). */
+export type TimelineProps = { buckets: FacetValue[]; onPick?: (from: string) => void; gap?: string };
 
 // echarts is a large library and only the date histogram uses it, so it loads in
 // its own chunk the first time a timeline is shown; the placeholder keeps the
