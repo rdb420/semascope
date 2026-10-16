@@ -133,7 +133,7 @@ class Connector(Protocol):
 @runtime_checkable
 class Stage(Protocol):
     """One step of a profile. A document's whole profile runs in one task on the `cpu`
-    queue, so a stage has no queue of its own (docs/adr/0009-one-task-per-document.md)."""
+    queue, so a stage has no queue of its own (docs/adr/0010-one-task-per-document.md)."""
 
     name: str
     version: str

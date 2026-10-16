@@ -1,4 +1,4 @@
-# ADR-0009: One task per document, two queues
+# ADR-0010: One task per document, two queues
 
 Status: proposed, 2026-10-16.
 
