@@ -17,6 +17,15 @@ nav:
   - Quality numbers: quality.md
   - Security: security.md
   - Operations: operations.md
+  - Assessment:
+      - assess/index.md
+      - Capability matrix: assess/capabilities.md
+      - Pack specification: assess/pack-spec.md
+      - Explainability model: assess/explainability.md
+      - Deployment guide: assess/deployment.md
+      - Coming from Open Semantic Search: assess/migration-from-oss.md
+      - Benchmarks: assess/benchmarks.md
+      - Walkthrough: assess/walkthrough.md
   - Decisions:
       - adr/index.md
       - adr/0001-clean-room-apache-2.md
