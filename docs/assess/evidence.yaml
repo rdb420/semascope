@@ -30,9 +30,15 @@
   - tests/integration/test_sources.py::test_upload_needs_an_existing_collection
 
 "Inputs | Mail: mbox and `.eml`, attachments as child documents":
+  - packages/oss-pipeline/tests/test_ingest_safety.py::test_two_messages_sharing_a_message_id_are_two_documents
+  - packages/oss-pipeline/tests/test_ingest_safety.py::test_attachments_with_the_same_name_do_not_collide
   - packages/oss-pipeline/tests/test_connectors.py::test_mail_messages_and_attachments
 
 "Inputs | Archives: zip and tar (gz, bz2, xz), nested, with size, ratio and depth limits":
+  - packages/oss-pipeline/tests/test_ingest_safety.py::test_the_ratio_budget_covers_every_nesting_level
+  - packages/oss-pipeline/tests/test_ingest_safety.py::test_max_total_bytes_stops_an_archive
+  - packages/oss-pipeline/tests/test_ingest_safety.py::test_the_member_limit_counts_nested_members
+  - tests/integration/test_retention.py::test_an_archive_bomb_is_expanded_within_its_budget
   - packages/oss-pipeline/tests/test_connectors.py::test_archive_members_and_nested_archives
 
 "Inputs | Tables: CSV, TSV and XLSX, one document per row, chosen columns as facets":
@@ -66,6 +72,8 @@
   - tests/integration/test_sources.py::test_web_source_with_a_non_http_url_is_rejected
 
 "Inputs | RSS and Atom feeds":
+  - packages/oss-server/tests/test_discovery_deletion.py::test_feeds_never_delete_by_absence_unless_the_source_asks
+  - tests/integration/test_retention.py::test_articles_that_roll_off_a_feed_are_kept
   - packages/oss-pipeline/tests/test_url_sources_live.py::test_rss_entries_become_html_documents
   - packages/oss-pipeline/tests/test_url_sources_live.py::test_atom_entries_with_linked_pages
   - packages/oss-pipeline/tests/test_url_sources_live.py::test_feed_max_entries_and_an_unreachable_feed
@@ -79,6 +87,10 @@
   - tests/integration/test_sources.py::test_deleted_objects_are_detected_on_the_next_run
 
 "Inputs | Scheduled sources (cron or `every 15m`) and deletion detection":
+  - packages/oss-server/tests/test_discovery_deletion.py::test_an_item_that_could_not_be_read_means_nothing_is_deleted
+  - packages/oss-server/tests/test_discovery_deletion.py::test_a_run_that_sees_too_little_deletes_nothing
+  - packages/oss-server/tests/test_discovery_deletion.py::test_a_deleted_document_comes_back_when_the_source_has_it_again
+  - tests/integration/test_retention.py::test_a_site_that_goes_down_loses_nothing_and_pages_come_back
   - packages/oss-server/tests/test_api.py::test_schedules
   - tests/integration/test_sources.py::test_a_scheduled_source_is_started_by_the_beat
   - tests/integration/test_sources.py::test_deleted_objects_are_detected_on_the_next_run
@@ -95,6 +107,7 @@
   - tests/e2e/ui_smoke.py
 
 "Inputs | OCR of images and scanned PDFs (Tesseract, English)":
+  - packages/oss-pipeline/tests/test_extract_routing.py::test_ocr_languages_reach_tika_and_only_as_tesseract_codes
   - tests/integration/test_sources.py::test_ocr_of_an_uploaded_image
 
 "Inputs | Language detection":
@@ -347,7 +360,9 @@
   - packages/oss-server/tests/test_explain.py::test_a_rejected_tag_keeps_its_evidence_and_pack_version
   - tests/integration/test_decisions.py::test_add_reject_and_remove_tags
 
-"Export targets | Webhooks with HMAC signature":
+"Export targets | Webhooks with HMAC signature (one delivery run per hook; the cursor never moves back)":
+  - packages/oss-server/tests/test_outbound_tasks.py::test_a_hook_being_delivered_is_skipped_by_an_overlapping_run
+  - packages/oss-server/tests/test_outbound_tasks.py::test_a_hook_cursor_never_moves_back
   - packages/oss-server/tests/test_outbound_tasks.py::test_webhooks_are_signed_filtered_and_retried
   - packages/oss-server/tests/test_outbound_tasks.py::test_unsigned_disabled_and_unreachable_webhooks
   - tests/integration/test_outbound.py::test_webhook_delivery_signature_filter_and_retry
@@ -599,3 +614,18 @@
   - packages/oss-server/tests/test_knowledge.py::test_polyhierarchy_keeps_every_path_and_related_concepts
   - packages/oss-server/tests/test_knowledge.py::test_the_tree_and_dictionary_carry_every_parent
   - packages/oss-pipeline/tests/test_stages.py::test_tree_facet_comes_from_the_curated_view
+
+"Inputs | One run per source at a time":
+  - packages/oss-server/tests/test_discovery_deletion.py::test_a_second_run_of_a_running_source_does_nothing
+  - packages/oss-server/tests/test_discovery_deletion.py::test_a_run_that_lost_its_source_never_deletes
+  - packages/oss-server/tests/test_discovery_deletion.py::test_the_api_refuses_to_start_a_source_that_is_running
+  - tests/integration/test_retention.py::test_a_source_cannot_be_started_while_it_runs
+
+"Inputs | Folder path and extension fields from source paths":
+  - packages/oss-pipeline/tests/test_ingest_safety.py::test_path_fields_are_a_hierarchy_and_an_extension
+
+"Inputs | Deletion reaches every store: graph, blobs, previews, work files and uploads; a daily sweep removes leftovers":
+  - packages/oss-server/tests/test_discovery_deletion.py::test_deleting_a_document_removes_its_files_and_keeps_only_a_tombstone
+  - packages/oss-server/tests/test_discovery_deletion.py::test_deleting_a_source_reaches_the_graph_files_and_work_area
+  - packages/oss-server/tests/test_discovery_deletion.py::test_the_sweep_removes_what_no_document_uses_and_spares_young_files
+  - tests/integration/test_retention.py::test_deleting_a_collection_removes_its_files_and_graph

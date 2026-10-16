@@ -7,6 +7,10 @@ and the project follows semantic versioning.
 
 ### Security
 
+- Deleting a document, source or collection also removes its graph nodes,
+  blobs, previews, work files and uploads; a daily `gc` sweeps leftovers.
+  Alert events in the outbox carry no owner, search name or hits; webhook
+  deliveries and alert checks take a lease, so no event is sent twice.
 - Feed tokens open feeds only and read as their owner; originals are read
   only from the blob store, and active content is sent as an attachment
   with a sandbox content-security policy; curator controls show only to
@@ -54,6 +58,10 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Per-collection `ocr_languages`; the text of embedded items (attachments,
+  archive members, images in Office files) is indexed with their container;
+  `folder_paths` and `extension_s` fields from source paths; ADR-0013
+  deletion and retention.
 - Bulk tagging: a curator accepts or rejects a concept on every document of
   a keyword search in a collection (at most 10,000), as a job with one
   proposal per document (`POST /api/curation/bulk-tags`, with a dry run).
@@ -160,6 +168,18 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- Source runs no longer lose documents: a run deletes what its source no
+  longer has only when it read everything it tried, did not stop at a limit
+  and saw at least half the documents; a site, feed or sitemap that cannot
+  be read fails the run; feeds keep articles that roll off; a deleted
+  document comes back when its source has it again; one run per source at a
+  time (409 while running).
+- The archive connector streams members to disk within one byte budget
+  across every nesting level, as documented. Mail URIs include a hash of the
+  message and duplicate attachment names are numbered. Blobs are named by
+  the hash of what was read. Tika keeps OCR for formats MinerU does not take.
+  Titles with several values and regional language codes are read correctly.
+  NER labels and SHACL shapes come from the collection's bound packs.
 - A rejected concept stayed in the hierarchical facet, even after a reindex,
   and an added one never appeared there. Delta export could be made to emit
   extra triples. The pack triple store was loaded inside the import
@@ -229,6 +249,8 @@ and the project follows semantic versioning.
 
 ### Upgrade notes
 
+- Existing mail documents are re-created once under their new URIs.
+  Alert webhook payloads are now `{saved_search, new, total}`.
 - Run migrations; reindex collections so their tree facets come from the
   curated view; re-activate packs to fill multi-parent paths. Clients of the
   pack import and activate API must follow the returned job.

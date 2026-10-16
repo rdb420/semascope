@@ -24,20 +24,23 @@ implemented has none, or names a test that does not exist.
 |---|---|---|---|
 | Folder (`filesystem`), include and exclude globs, change detection by content hash | implemented | ci | files up to 512 MiB |
 | Upload (`oss upload`, `POST /collections/{slug}/upload`) | implemented | ci | |
-| Mail: mbox and `.eml`, attachments as child documents | implemented | ci | no PST or MSG |
-| Archives: zip and tar (gz, bz2, xz), nested, with size, ratio and depth limits | implemented | ci | 7z and rar are recognised but not unpacked |
+| Mail: mbox and `.eml`, attachments as child documents | implemented | ci | no PST or MSG; a message's identity is its Message-ID plus a hash of the message; duplicate attachment names are numbered |
+| Archives: zip and tar (gz, bz2, xz), nested, with size, ratio and depth limits | implemented | ci | members streamed to disk; one byte budget across every nesting level (100 times the archive's size, at most 4 GiB) and a member count across levels; 7z and rar are recognised but not unpacked |
 | Tables: CSV, TSV and XLSX, one document per row, chosen columns as facets | implemented | ci | |
 | RDF files (`.ttl`, `.nt`, `.n3`, `.rdf`, `.owl`, `.jsonld`, `.trig`), one document per subject | implemented | ci | |
 | RDF from a SPARQL endpoint | implemented | ci | tested against Oxigraph |
 | Web pages, sitemaps and bounded same-host crawl, robots.txt respected | implemented | ci | private addresses refused, responses size-capped |
-| RSS and Atom feeds | implemented | ci | |
+| RSS and Atom feeds | implemented | ci | articles that roll off the feed are kept |
 | S3-compatible buckets | implemented | ci | tested against MinIO |
-| Scheduled sources (cron or `every 15m`) and deletion detection | implemented | ci | |
+| Scheduled sources (cron or `every 15m`) and deletion detection | implemented | ci | deletes only after a complete run that saw at least half the documents; a failed run deletes nothing; a deleted document comes back when its source has it again (ADR-0013) |
+| One run per source at a time | implemented | ci | a second start answers 409; a run that lost its source never deletes |
+| Folder path and extension fields from source paths | implemented | ci | `folder_paths` (a tree facet) and `extension_s` |
+| Deletion reaches every store: graph, blobs, previews, work files and uploads; a daily sweep removes leftovers | implemented | ci | |
 | Connector plugins (`oss.connectors` entry point) | implemented | ci | |
 | Text extraction of any format Tika 3 reads | implemented | smoke | |
-| OCR of images and scanned PDFs (Tesseract, English) | implemented | ci (images), bench (scanned PDFs) | other languages need a Tika configuration change; scanned PDFs are measured by the benchmark, not yet asserted in CI |
+| OCR of images and scanned PDFs (Tesseract, English) | implemented | ci (images), bench (scanned PDFs) | English by default; per-collection `ocr_languages` (Tesseract codes; the shipped Tika image has deu, eng, fra, ita, jpn, spa); scanned PDFs are measured by the benchmark, not yet asserted in CI |
 | Language detection | implemented | ci | through Tika |
-| MinerU extraction (`--extract mineru`) | experimental | ci (mock) | PDF, OOXML Word, PowerPoint and Excel, and raster images go to MinerU by media type (fixed after rc.2, which sent only images); legacy `.doc`, `.ppt`, `.xls` stay with Tika |
+| MinerU extraction (`--extract mineru`) | experimental | ci (mock) | PDF, OOXML Word, PowerPoint and Excel, and raster images go to MinerU by media type (fixed after rc.2, which sent only images); legacy `.doc`, `.ppt`, `.xls` stay with Tika; Tika keeps OCR for the formats MinerU does not take; a MinerU provider without an address is a configuration error |
 | Docling extractor | planned | — | after 1.0 |
 
 ## Enrichment
@@ -51,6 +54,7 @@ implemented has none, or names a test that does not exist.
 | Named entities, GLiNER2 zero-shot on GPU, pack classes as labels | experimental | ci (parser), bench | measured on an RTX 3090 |
 | Named entities, remote `/entities` service | experimental | ci (mock) | |
 | Linking entities to pack individuals by label (`link`) | implemented | quality | exact normalised-label match |
+| Text of embedded items (attachments, archive members, images in Office files) indexed with their container | experimental | ci (mock) | not separate documents |
 | SHACL validation of document metadata (`validate`) | implemented | ci | `full` profile only |
 | Previews: PDF pages and image thumbnails | implemented | ci | |
 | Chunk embeddings, FastEmbed bge-small on CPU or CUDA | implemented | bench | model baked into the image |
@@ -70,7 +74,7 @@ implemented has none, or names a test that does not exist.
 | Date histogram and timeline | implemented | ci, smoke | |
 | Query tagging (concepts recognised in the query) | implemented | ci, smoke | |
 | Saved searches | implemented | ci | |
-| Alerts on saved searches | implemented | ci, smoke | switched on and off on the Alerts page, with an in-app list of newest matches |
+| Alerts on saved searches | implemented | ci, smoke | switched on and off on the Alerts page, with an in-app list of newest matches; outbox events carry no owner, name or hits |
 | List search (a batch of names) | implemented | ci, smoke | |
 | Significant terms | implemented | ci, smoke | |
 | Suggest / autocomplete | implemented (API) | ci | `GET /api/suggest?q=` (titles, last word as a prefix), routed after rc.2; the search box does not call it yet |
@@ -139,7 +143,7 @@ implemented has none, or names a test that does not exist.
 |---|---|---|
 | Outbox of decision events, read by cursor | implemented | ci |
 | Proposals, read by cursor (`params.tag` carries the decided tag's evidence) | implemented | ci |
-| Webhooks with HMAC signature | implemented | ci |
+| Webhooks with HMAC signature (one delivery run per hook; the cursor never moves back) | implemented | ci |
 | Pack deltas as `taxonomy.delta.ttl` and `model.delta.yaml` | implemented | ci |
 | Search results as CSV (first 10,000) | implemented | ci |
 | W3C Reconciliation API 0.2 | implemented | ci |
