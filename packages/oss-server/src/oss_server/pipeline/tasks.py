@@ -77,6 +77,7 @@ def build_context(collection: Collection) -> StageContext:
 
 def stage_settings(collection: Collection) -> dict[str, Any]:
     s = get_settings()
+    packs = list(pack_versions_for(collection))  # the collection's bindings, or every active pack
     base: dict[str, Any] = {
         "blob_dir": str(s.semascope_data_dir / "blobs"),
         "tika_url": s.tika_url,
@@ -94,7 +95,7 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "ner_model": s.semascope_ner_model,
         "ner_base_url": s.semascope_ner_base_url,
         "ner_api_key": s.remote_key("ner"),
-        "ner_labels": active_entity_labels(),
+        "ner_labels": active_entity_labels(packs),
         "extract_provider": s.semascope_extract_provider,
         "extract_base_url": s.semascope_extract_base_url,
         "extract_api_key": s.remote_key("extract"),
@@ -105,7 +106,7 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "pseudonymise_secret": s.semascope_secret_key.get_secret_value(),
         "ocr": True,
     }
-    base["shapes_ttl"] = active_shapes()
+    base["shapes_ttl"] = active_shapes(packs)
     base.update(pipeline_overrides(collection.settings))  # tuning only, never addresses
     return base
 
@@ -126,8 +127,11 @@ def pseudonymise_secret(collection: Collection) -> str | None:
 BASE_PACK_ID = "semascope-base"  # its classes are the product's own model, not things to find
 
 
-def active_entity_labels() -> dict[str, dict[str, str]]:
+def active_entity_labels(pack_ids: list[str] | None = None) -> dict[str, dict[str, str]]:
     """Zero-shot entity labels from the active packs' classes: label -> class and description.
+
+    `pack_ids` limits them to those packs (a collection's bindings); None means every active
+    pack (the search page's facets, which span collections).
 
     Only the spaCy provider ignores these; GLiNER (local or remote) asks for every class a
     pack declares, so a mythology pack finds deities and a property pack finds easements.
@@ -139,6 +143,8 @@ def active_entity_labels() -> dict[str, dict[str, str]]:
 
     out: dict[str, dict[str, str]] = {}
     packs = Pack.objects.filter(status=Pack.Status.ACTIVE).exclude(pack_id=BASE_PACK_ID)
+    if pack_ids is not None:
+        packs = packs.filter(pack_id__in=pack_ids)
     rows = Concept.objects.filter(pack__in=packs, kind=Concept.Kind.CLASS).values_list(
         "pack__requirements", "iri", "pref_label", "definition"
     )
@@ -157,15 +163,19 @@ def active_entity_labels() -> dict[str, dict[str, str]]:
     return out
 
 
-def active_shapes() -> str:
-    """Every active pack's shapes.ttl, concatenated; rdflib tolerates repeated prefixes."""
+def active_shapes(pack_ids: list[str] | None = None) -> str:
+    """The active packs' shapes.ttl (only `pack_ids`, a collection's bindings, when given),
+    concatenated; rdflib tolerates repeated prefixes."""
 
     from pathlib import Path
 
     from oss_server.knowledge.models import Pack
 
     parts: list[str] = []
-    for pack in Pack.objects.filter(status=Pack.Status.ACTIVE):
+    active = Pack.objects.filter(status=Pack.Status.ACTIVE)
+    if pack_ids is not None:
+        active = active.filter(pack_id__in=pack_ids)
+    for pack in active:
         file = Path(pack.source_path) / "shapes.ttl"
         if file.exists():
             parts.append(file.read_text(encoding="utf-8"))
