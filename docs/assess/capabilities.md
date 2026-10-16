@@ -68,16 +68,21 @@ implemented has none, or names a test that does not exist.
 | Capability | State | Tests | Notes |
 |---|---|---|---|
 | Keyword search, highlighting | implemented | ci, bench | |
+| Per-language analysis: stemmed fields for 28 languages (ISO 639-1), CJK bigrams, routed on the detected language | implemented | ci, quality | Polish needs Solr's analysis-extras module (compose loads it); collections indexed earlier need `oss reindex --stage index` |
+| Query syntax: fields, `exact:` / `title:` / `text:`, phrases, AND/OR/NOT, wildcards, fuzzy, ranges; match option and word-form switch | implemented | ci, smoke | |
+| Query-time synonyms from the active packs | implemented | ci, quality | individuals' names are equivalent, concepts' labels count at half weight; shared by all collections |
+| Sorting; newest first without words | implemented | ci, smoke | |
+| Search request limits (page, page size, facet values, deep paging, fused candidates) | implemented | ci | |
 | Semantic search over chunks, passages returned | implemented | bench | only chunks of the current model are searched |
 | Hybrid search (reciprocal rank fusion) | implemented | ci, bench | |
-| Facets, hierarchical facets, multi-select | implemented | ci, smoke | |
-| Date histogram and timeline | implemented | ci, smoke | |
+| Facets, hierarchical facets, multi-select | implemented | ci, smoke | excluded values, show more, a filters-in-force box, and folder-path trees once a connector writes a `*_paths` field |
+| Date histogram and timeline | implemented | ci, smoke | click a bar to drill down from year to month to day; date range filter |
 | Query tagging (concepts recognised in the query) | implemented | ci, smoke | |
 | Saved searches | implemented | ci | |
 | Alerts on saved searches | implemented | ci, smoke | switched on and off on the Alerts page, with an in-app list of newest matches; outbox events carry no owner, name or hits |
-| List search (a batch of names) | implemented | ci, smoke | |
-| Significant terms | implemented | ci, smoke | |
-| Suggest / autocomplete | implemented (API) | ci | `GET /api/suggest?q=` (titles, last word as a prefix), routed after rc.2; the search box does not call it yet |
+| List search (a batch of names) | implemented | ci, smoke | phrase, then all words, then near spellings; best score; filters |
+| Significant terms | implemented | ci, smoke | scored against the readable collections searched |
+| Suggest / autocomplete | implemented | ci, smoke | `GET /api/suggest` (titles, last word as a prefix); the search box suggests titles as you type |
 | More like this: documents similar to a document (text and passage vectors fused) | implemented | ci, smoke | read-scoped; at most 50 |
 | Browser search: OpenSearch description and suggestions | implemented | ci | |
 | Relevance evaluation: `oss eval` (P@k, R@k, nDCG@k, MRR@k per mode) with demo judgements | implemented | ci, quality | |
@@ -92,7 +97,7 @@ implemented has none, or names a test that does not exist.
 | Page | State | Tests |
 |---|---|---|
 | Sign-in (local accounts; single sign-on button when configured) | implemented | smoke |
-| Search: list, media grid, terms, timeline, facets, mode switch, CSV export, table, entities and graph views, open original | implemented | smoke |
+| Search: list, media grid, terms, timeline, facets, mode switch, CSV export, table, entities and graph views, open original, title suggestions, sort, match and word-form options, excluded values, date drill-down | implemented | smoke |
 | Document: text per page, page previews, tags with decisions, highlighted occurrences and a "why this tag" panel (provenance and decision history), query highlighting with jump to page, open original and download, annotations, stage runs | implemented | smoke |
 | Packs and pack page: scheme tree, competency questions, deltas | implemented | smoke |
 | Concept and individual page with its documents; propose a change | implemented | smoke |

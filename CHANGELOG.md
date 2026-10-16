@@ -58,6 +58,16 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Per-language search for 28 languages (ar bg ca cs da de el en es fa fi fr
+  hi hu id it ja ko lv nl no pl pt ro ru sv tr zh): each document is also
+  indexed with its language's stop words and stemmer, Chinese, Japanese and
+  Korean as CJK bigrams. Query-time synonyms from the active packs. A
+  documented search syntax (`docs/search.md`) with `exact:`, `title:` and
+  `text:`, a match option and a word-form switch. The search page suggests
+  titles, sorts (newest first without words), leaves facet values out, shows
+  more values, lists the filters in force, drills down the timeline, shows
+  folder-path trees and entity chips. List search tries the phrase, then all
+  words, then near spellings.
 - Per-collection `ocr_languages`; the text of embedded items (attachments,
   archive members, images in Office files) is indexed with their container;
   `folder_paths` and `extension_s` fields from source paths; ADR-0013
@@ -134,6 +144,10 @@ and the project follows semantic versioning.
 
 ### Changed
 
+- Significant terms are scored against the readable collections searched.
+  Search parameters are bounded (page_size 0–100, page 1–500, facet_limit
+  1–100, no paging past the 10,000th hit); hybrid search fuses the whole
+  keyword list. Solr loads the analysis-extras module.
 - Pack import and activate answer 202 with a job, after the same plan check
   and 409. Curation decisions commit to PostgreSQL and the outbox first;
   Solr and Neo4j are written after the commit, and `retry-proposals`
@@ -168,6 +182,12 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- An explicit OR no longer behaves as AND. English stop words and stemming
+  are no longer applied to every language. A numeric query such as `1984`
+  survives the search page; the media view counts its pages; a failed CSV
+  export is reported; saved searches keep their mode, view and options.
+- Backup and restore keep every Solr configset file: configsets have no
+  subfolders, because a Solr backup drops them.
 - Source runs no longer lose documents: a run deletes what its source no
   longer has only when it read everything it tried, did not stop at a limit
   and saw at least half the documents; a site, feed or sitemap that cannot
@@ -249,6 +269,8 @@ and the project follows semantic versioning.
 
 ### Upgrade notes
 
+- Run `./oss reindex --collection <slug> --stage index` for each collection to
+  fill the per-language fields; synonyms need no reindex.
 - Existing mail documents are re-created once under their new URIs.
   Alert webhook payloads are now `{saved_search, new, total}`.
 - Run migrations; reindex collections so their tree facets come from the

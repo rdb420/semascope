@@ -195,12 +195,18 @@
   - scripts/bench.py
 
 "Search | Facets, hierarchical facets, multi-select":
+  - packages/oss-server/tests/test_search_syntax.py::test_excluded_values_are_negative_filters_tagged_for_their_facet
+  - packages/oss-server/tests/test_search_syntax.py::test_show_more_lists_more_values_of_one_facet
+  - packages/oss-server/tests/test_search_syntax.py::test_folder_path_fields_become_tree_facets_whatever_their_name
+  - tests/integration/test_search_languages.py::test_excluded_values_leave_documents_out
   - packages/oss-pipeline/tests/test_stages.py::test_expand_paths
   - tests/integration/test_api.py::test_flat_facets
   - tests/integration/test_api.py::test_hierarchical_facet
   - tests/e2e/ui_smoke.py
 
 "Search | Date histogram and timeline":
+  - packages/oss-server/tests/test_search_syntax.py::test_a_date_range_filters_and_narrows_the_histogram
+  - tests/integration/test_search_languages.py::test_date_range_and_drill_down
   - packages/oss-server/tests/test_api.py::test_histogram_params_and_parse
   - tests/e2e/ui_smoke.py
 
@@ -222,16 +228,20 @@
   - tests/integration/test_outbound.py::test_saved_search_alert_fires_when_the_total_grows
 
 "Search | List search (a batch of names)":
+  - packages/oss-server/tests/test_searchplus.py::test_list_search_cascades_from_the_phrase_to_near_spellings
   - tests/integration/test_api.py::test_list_search
   - tests/integration/test_graph_search.py::test_list_search_counts_and_limits
   - tests/e2e/ui_smoke.py
 
 "Search | Significant terms":
+  - packages/oss-server/tests/test_searchplus.py::test_terms_stand_out_against_the_readable_background
   - packages/oss-server/tests/test_searchplus.py::test_stopwords_include_solr_list_and_extras
   - tests/integration/test_graph_search.py::test_significant_terms_of_a_result_set
   - tests/e2e/ui_smoke.py
 
 "Search | Suggest / autocomplete":
+  - tests/e2e/ui_smoke.py
+  - packages/oss-web/src/__tests__/searchState.test.ts
   - packages/oss-server/tests/test_routes_and_telemetry.py::test_suggest_is_routed
   - packages/oss-server/tests/test_routes_and_telemetry.py::test_suggest_query_escapes_and_prefixes_the_last_word
   - tests/integration/test_graph_search.py::test_suggest_completes_titles
@@ -243,7 +253,7 @@
   - packages/oss-server/tests/test_api.py::test_session_login_and_me
   - tests/integration/test_oidc.py::test_the_sign_in_page_offers_the_provider
 
-"UI surfaces | Search: list, media grid, terms, timeline, facets, mode switch, CSV export, table, entities and graph views, open original":
+"UI surfaces | Search: list, media grid, terms, timeline, facets, mode switch, CSV export, table, entities and graph views, open original, title suggestions, sort, match and word-form options, excluded values, date drill-down":
   - tests/e2e/ui_smoke.py
   - tests/integration/test_graph_search.py::test_csv_export_matches_the_search
 
@@ -629,3 +639,35 @@
   - packages/oss-server/tests/test_discovery_deletion.py::test_deleting_a_source_reaches_the_graph_files_and_work_area
   - packages/oss-server/tests/test_discovery_deletion.py::test_the_sweep_removes_what_no_document_uses_and_spares_young_files
   - tests/integration/test_retention.py::test_deleting_a_collection_removes_its_files_and_graph
+
+"Search | Per-language analysis: stemmed fields for 28 languages (ISO 639-1), CJK bigrams, routed on the detected language":
+  - packages/oss-pipeline/tests/test_languages.py::test_a_document_is_routed_to_its_languages_fields_only
+  - packages/oss-pipeline/tests/test_languages.py::test_the_schema_declares_each_language
+  - packages/oss-pipeline/tests/test_languages.py::test_configsets_have_no_subfolders
+  - tests/integration/test_search_languages.py::test_each_text_is_detected_as_its_language
+  - tests/integration/test_search_languages.py::test_another_form_of_a_word_finds_the_text_in_its_language
+  - tests/integration/test_search_languages.py::test_cjk_text_is_indexed_as_bigrams
+
+"Search | Query syntax: fields, `exact:` / `title:` / `text:`, phrases, AND/OR/NOT, wildcards, fuzzy, ranges; match option and word-form switch":
+  - packages/oss-server/tests/test_search_syntax.py::test_explicit_or_is_an_alternative_not_two_required_words
+  - packages/oss-server/tests/test_search_syntax.py::test_the_operator_switch
+  - packages/oss-server/tests/test_search_syntax.py::test_stemming_off_and_the_exact_alias_use_the_neutral_fields_only
+  - tests/integration/test_search_languages.py::test_explicit_or_finds_either_word
+  - tests/integration/test_search_languages.py::test_negation_phrases_wildcards_and_fuzzy
+  - tests/e2e/ui_smoke.py
+
+"Search | Query-time synonyms from the active packs":
+  - packages/oss-server/tests/test_synonyms.py::test_the_file_holds_the_active_packs_taggable_terms_only
+  - packages/oss-server/tests/test_synonyms.py::test_sync_uploads_the_whole_configset_with_the_file_and_reloads
+  - packages/oss-server/tests/test_synonyms.py::test_activating_a_pack_rewrites_the_synonyms
+  - tests/integration/test_search_languages.py::test_pack_labels_are_query_synonyms
+
+"Search | Sorting; newest first without words":
+  - packages/oss-server/tests/test_search_syntax.py::test_a_search_without_words_is_newest_first_and_sorts_are_allow_listed
+  - tests/integration/test_search_languages.py::test_a_search_without_words_lists_the_newest_first
+
+"Search | Search request limits (page, page size, facet values, deep paging, fused candidates)":
+  - packages/oss-server/tests/test_search_syntax.py::test_paging_and_facet_limits_are_bounded
+  - packages/oss-server/tests/test_search_syntax.py::test_pages_beyond_ten_thousand_hits_are_refused
+  - packages/oss-server/tests/test_search_syntax.py::test_hybrid_fuses_the_whole_keyword_list_not_its_first_hundred
+  - tests/integration/test_search_languages.py::test_paging_and_facet_caps
