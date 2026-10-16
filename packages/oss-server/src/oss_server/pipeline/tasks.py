@@ -31,6 +31,7 @@ from oss_pipeline.clients.solr import quote_term
 from oss_pipeline.registry import connectors, profile
 from oss_pipeline.retry import backoff, is_transient
 from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile
+from oss_pipeline.stages.index import custom_fields
 from oss_server.catalogue.models import Collection, Document, Source, document_id
 from oss_server.pipeline.overrides import pipeline_overrides
 from oss_server.services import solr_client, solr_documents_collection
@@ -308,7 +309,7 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any]) -> str:
         return str(Document.Status.FAILED)
     meta = fetched.item.metadata
     fields: dict[str, Any] = {"local_path": fetched.path} if fetched.path else {}
-    fields.update({k: v for k, v in (meta.get("fields") or {}).items() if str(k).startswith("x_")})
+    fields.update(custom_fields(meta.get("fields") or {}))  # x_ keys, never index fields
     if meta.get("parent_uri"):
         fields["x_parent_uri_s"] = str(meta["parent_uri"])
     for keep in ("curated", "dismissed_violations"):

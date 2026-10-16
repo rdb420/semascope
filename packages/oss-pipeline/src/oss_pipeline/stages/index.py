@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,6 +21,61 @@ ENTITY_FIELDS = (
     "organisations",
     "places",
 )
+
+# Custom fields: `x_<name>` from connectors (table columns, an RDF subject), the tag stage
+# (`x_<scheme>_paths`, scheme slugs may hold hyphens) and zero-shot NER, indexed as <name>.
+CUSTOM_FIELD = re.compile(r"x_[a-z0-9][a-z0-9_-]{0,127}")
+# The index's own fields (the explicit fields of the documents schema, plus what this stage
+# writes): a custom field never replaces one, so nothing a source supplies can change a
+# document's id, collection, source or text.
+RESERVED_FIELDS = frozenset(
+    {
+        "id",
+        "_version_",
+        "collection_s",
+        "source_id_s",
+        "uri_s",
+        "content_hash_s",
+        "parent_id_s",
+        "title_txt",
+        "title_s",
+        "text_txt",
+        "text_txt_en",
+        "language_s",
+        "media_type_s",
+        "content_type_group_s",
+        "size_l",
+        "page_count_i",
+        "ocr_b",
+        "preview_pages_i",
+        "modified_dt",
+        "created_dt",
+        "indexed_dt",
+        "dates_dts",
+        "concept_iris_ss",
+        "concept_labels_ss",
+        "entity_iris_ss",
+        "entity_labels_ss",
+        "pack_versions_ss",
+        "curated_ss",
+        *(f"{name}_ss" for name in ENTITY_FIELDS),
+    }
+)
+
+
+def custom_field_name(key: object) -> str | None:
+    """The index field a custom `x_` key becomes, or None when the key is not allowed."""
+
+    if not isinstance(key, str) or not CUSTOM_FIELD.fullmatch(key):
+        return None
+    name = key[2:]
+    return None if name in RESERVED_FIELDS else name
+
+
+def custom_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """The allowed custom `x_` fields of a mapping (e.g. a connector's metadata `fields`)."""
+
+    return {k: v for k, v in fields.items() if custom_field_name(k) is not None}
 
 
 def effective_tags(doc: WorkingDocument) -> list[Tag]:
@@ -69,11 +126,11 @@ def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -
     if curated:
         out["curated_ss"] = sorted(f"{iri}:{v.get('decision')}" for iri, v in curated.items())
     for key, value in doc.fields.items():
-        if key.startswith("x_") and isinstance(value, str | int | float | bool | list):
-            name = key[2:]  # pre-suffixed custom fields from connectors: x_owner_s -> owner_s
-            if name.endswith("_paths") and isinstance(value, list):
+        field = custom_field_name(key)  # pre-suffixed custom fields: x_owner_s -> owner_s
+        if field and isinstance(value, str | int | float | bool | list):
+            if field.endswith("_paths") and isinstance(value, list):
                 value = expand_paths([str(v) for v in value])
-            out[name] = value
+            out[field] = value
     return {k: v for k, v in out.items() if v is not None}
 
 
