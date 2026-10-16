@@ -161,7 +161,7 @@ def _link_dictionary(monkeypatch: pytest.MonkeyPatch, docs: list[dict[str, Any]]
     monkeypatch.setattr(
         httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
     )
-    link_mod._dictionary.cache_clear()
+    link_mod.clear_cache()
 
 
 ODYSSEUS = {
@@ -190,7 +190,7 @@ def test_link_keeps_the_ner_entity_it_replaced(monkeypatch: pytest.MonkeyPatch) 
         )
     ]
     out = LinkStage().run(doc, _ctx({"myth": "3"}))
-    link_mod._dictionary.cache_clear()
+    link_mod.clear_cache()
     (tag,) = out.tags
     assert tag.iri == "https://myth/odysseus" and tag.pack_version == "3"
     assert tag.stage == "ner" and tag.confidence == 0.85
@@ -228,7 +228,7 @@ def test_link_into_a_dictionary_tag_keeps_its_provenance(monkeypatch: pytest.Mon
     )
     doc.tags = [dictionary, ner]
     out = LinkStage().run(doc, _ctx({"myth": "3"}))
-    link_mod._dictionary.cache_clear()
+    link_mod.clear_cache()
     (tag,) = out.tags
     assert tag.stage == "tag" and tag.label_type == "pref" and len(tag.spans) == 2
     assert tag.linked_from is not None and tag.linked_from.confidence == 0.7

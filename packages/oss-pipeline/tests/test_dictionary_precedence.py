@@ -137,7 +137,7 @@ def test_link_picks_the_higher_precedence_pack_for_a_shared_label(
         "Client",
         lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
     )
-    link_mod._dictionary.cache_clear()
+    link_mod.clear_cache()
     doc = _doc()
     doc.tags = [Tag(iri="base#Place/ithaca", label="Ithaca", kind="entity", stage="ner")]
     out = LinkStage().run(doc, _ctx(packs))
@@ -145,7 +145,7 @@ def test_link_picks_the_higher_precedence_pack_for_a_shared_label(
     assert out.tags[0].iri == f"https://{winner[-1]}/ithaca"
     assert out.tags[0].label == f"Ithaca ({winner})", "the pref label is fetched and used"
     assert 'collection_scope:"texts"' in requests[0].url.params["fq"]
-    link_mod._dictionary.cache_clear()
+    link_mod.clear_cache()
 
 
 def test_tag_records_every_path_of_a_tag_and_drops_stale_schemes() -> None:
