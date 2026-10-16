@@ -38,7 +38,7 @@ case "$cmd" in
     echo "solr collections -> $dest/solr/"
     mkdir -p "$dest/solr"
     for c in documents entities chunks; do
-      docker compose exec -T solr sh -c "rm -rf /var/solr/data/backup-$c && mkdir -p /var/solr/data/backup-$c && curl -s 'http://localhost:8983/solr/admin/collections?action=BACKUP&name=$c&collection=$c&location=/var/solr/data/backup-$c&wt=json' >/dev/null && tar -C /var/solr/data/backup-$c -cf - ." > "$dest/solr/$c.tar"
+      docker compose exec -T solr sh -c "rm -rf /var/solr/data/backup-$c && mkdir -p /var/solr/data/backup-$c && curl -s -u \"semascope:\$SEMASCOPE_SOLR_PASSWORD\" 'http://localhost:8983/solr/admin/collections?action=BACKUP&name=$c&collection=$c&location=/var/solr/data/backup-$c&wt=json' >/dev/null && tar -C /var/solr/data/backup-$c -cf - ." > "$dest/solr/$c.tar"
     done
     echo "blobs, previews, uploads, pack store -> $dest/data.tar.gz"
     docker compose run --rm -T cli sh -c "tar -C /data -czf - --exclude=static --exclude=celerybeat-schedule ." > "$dest/data.tar.gz"
@@ -66,7 +66,7 @@ case "$cmd" in
     for c in documents entities chunks; do
       [ -f "$src/solr/$c.tar" ] || continue
       echo "solr $c <- $src/solr/$c.tar"
-      docker compose exec -T solr sh -c "rm -rf /var/solr/data/restore-$c && mkdir -p /var/solr/data/restore-$c && tar -C /var/solr/data/restore-$c -xf - && curl -s 'http://localhost:8983/solr/admin/collections?action=DELETE&name=$c&wt=json' >/dev/null; curl -s 'http://localhost:8983/solr/admin/collections?action=RESTORE&name=$c&collection=$c&location=/var/solr/data/restore-$c&wt=json' >/dev/null" < "$src/solr/$c.tar"
+      docker compose exec -T solr sh -c "rm -rf /var/solr/data/restore-$c && mkdir -p /var/solr/data/restore-$c && tar -C /var/solr/data/restore-$c -xf - && curl -s -u \"semascope:\$SEMASCOPE_SOLR_PASSWORD\" 'http://localhost:8983/solr/admin/collections?action=DELETE&name=$c&wt=json' >/dev/null; curl -s -u \"semascope:\$SEMASCOPE_SOLR_PASSWORD\" 'http://localhost:8983/solr/admin/collections?action=RESTORE&name=$c&collection=$c&location=/var/solr/data/restore-$c&wt=json' >/dev/null" < "$src/solr/$c.tar"
     done
     if [ -f "$src/neo4j.dump" ]; then
       echo "neo4j <- $src/neo4j.dump"

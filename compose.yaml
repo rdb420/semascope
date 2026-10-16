@@ -110,13 +110,19 @@ services:
 
   solr:
     image: solr:10.0.0
+    init: true
     environment:
       SOLR_HEAP: ${SOLR_HEAP:-1g}
       SOLR_OPTS: -Dsolr.disable.allowUrls=false
+      # basic authentication: deploy/solr/init-security.sh renders security.json from it
+      SEMASCOPE_SOLR_PASSWORD: ${SOLR_PASSWORD:-}
     volumes:
       - solr:/var/solr
+      - ./deploy/solr/init-security.sh:/docker-entrypoint-initdb.d/semascope-security.sh:ro
+      - ./deploy/solr/security.json.tmpl:/opt/semascope/security.json.tmpl:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8983/solr/admin/info/system >/dev/null || exit 1"]
+      # healthy once the semascope user gets in and an anonymous request is refused
+      test: ["CMD-SHELL", "curl -fs -u \"semascope:$${SEMASCOPE_SOLR_PASSWORD}\" http://localhost:8983/solr/admin/info/system >/dev/null && [ \"$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8983/solr/admin/info/system)\" = 401 ]"]
       interval: 10s
       timeout: 5s
       retries: 30

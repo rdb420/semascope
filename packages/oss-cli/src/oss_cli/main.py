@@ -148,7 +148,7 @@ def doctor() -> None:
     table = Table("service", "endpoint", "status")
     checks: dict[str, tuple[str, dict[str, str] | None]] = {
         "server": ("http://server:8000/healthz", None),
-        "solr": (f"{settings.solr_url}/admin/info/system?wt=json", None),
+        "solr": (f"{settings.solr_url}/admin/info/system?wt=json", _solr_auth(settings)),
         "tika": (f"{settings.tika_url}/version", None),
         "neo4j": (settings.neo4j_uri.replace("bolt://", "http://").replace(":7687", ":7474"), None),
     }
@@ -159,7 +159,7 @@ def doctor() -> None:
             try:
                 resp = client.get(url, headers=headers or {})
                 status = f"{resp.status_code}"
-                if resp.status_code >= 400 and name != "solr":
+                if resp.status_code >= 400:
                     failures += 1
             except httpx.HTTPError as exc:
                 status = f"unreachable ({type(exc).__name__})"
@@ -172,6 +172,16 @@ def doctor() -> None:
     )
     if failures:
         raise typer.Exit(code=1)
+
+
+def _solr_auth(settings: Any) -> dict[str, str]:
+    """The basic-auth header the stack's Solr expects (see deploy/solr/init-security.sh)."""
+
+    import base64
+
+    password = settings.solr_password.get_secret_value() if settings.solr_password else ""
+    token = base64.b64encode(f"{settings.solr_user}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
 
 
 def remote_checks(settings: Any) -> dict[str, tuple[str, dict[str, str] | None]]:
