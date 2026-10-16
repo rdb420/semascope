@@ -40,6 +40,10 @@ class SourceNotAllowed(ValueError):  # noqa: N818 - reads better at the raise si
     """A source setting points somewhere a source may not read."""
 
 
+class Unresolvable(SourceNotAllowed):  # noqa: N818
+    """The host name did not resolve: possibly a passing DNS failure, not a refusal."""
+
+
 # --- paths ------------------------------------------------------------------------------------
 
 
@@ -184,7 +188,7 @@ def refuse_private(url: str) -> None:
     try:
         infos = socket.getaddrinfo(host, parts.port or None)
     except socket.gaierror as exc:
-        raise SourceNotAllowed(f"cannot resolve {host}") from exc
+        raise Unresolvable(f"cannot resolve {host}") from exc
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
         if _is_public(address) or any(address in net for net in allowed_nets):

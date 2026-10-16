@@ -15,13 +15,13 @@ JSON-LD files must carry their context inline: a remote `@context` (or
 from __future__ import annotations
 
 import hashlib
-import tempfile
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
 from oss_core.pack import remote_contexts
+from oss_pipeline.connectors.base import RunReport, walk_files, work_dir
 from oss_pipeline.connectors.guard import (
     DEFAULT_MAX_BYTES,
     SourceNotAllowed,
@@ -105,14 +105,22 @@ def _parse(g: Any, file: Path) -> None:
 
 
 def _subjects_from_endpoint(
-    endpoint: str, graph: str | None, types: list[str], limit: int, max_bytes: int
+    endpoint: str,
+    graph: str | None,
+    types: list[str],
+    limit: int,
+    max_bytes: int,
+    report: RunReport | None = None,
 ) -> Iterator[tuple[str, str, list[tuple[str, str]]]]:
+    """Subjects from a SPARQL endpoint, in a stable order (`ORDER BY`), so a run that stops at
+    `limit` stops at the same place each time; such a run is marked truncated."""
+
     import json
 
     type_filter = " UNION ".join(f"{{ ?s a <{t}> }}" for t in types) if types else ""
     from_clause = f"FROM <{graph}>" if graph else ""
     where = f"WHERE {{ {type_filter} ?s ?p ?o . FILTER(isIRI(?s)) }}"
-    query = f"SELECT ?s ?p ?o {from_clause} {where} LIMIT {limit}"
+    query = f"SELECT ?s ?p ?o {from_clause} {where} ORDER BY ?s ?p ?o LIMIT {limit}"
     with guarded_client(timeout=120.0) as client:
         resp, body = get_capped(
             client,
@@ -123,6 +131,8 @@ def _subjects_from_endpoint(
         )
         resp.raise_for_status()
         bindings = json.loads(body).get("results", {}).get("bindings", [])
+    if report is not None and len(bindings) >= limit:
+        report.truncated = True  # subjects past the limit were not looked at
     by_subject: dict[str, list[tuple[str, str]]] = {}
     labels: dict[str, str] = {}
     for b in bindings:
@@ -138,12 +148,16 @@ def _subjects_from_endpoint(
 
 class RdfConnector:
     name = "rdf"
+    deletes_missing = True
+
+    def __init__(self) -> None:
+        self.report = RunReport()
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
+        self.report = RunReport()
         settings = source.settings
         types = [str(t) for t in settings.get("types") or []]
-        tmp = Path(tempfile.gettempdir()) / "semascope-rdf"
-        tmp.mkdir(parents=True, exist_ok=True)
+        tmp = work_dir(source, "rdf")
         if settings.get("endpoint"):
             subjects: Iterable[tuple[str, str, list[tuple[str, str]]]] = _subjects_from_endpoint(
                 str(settings["endpoint"]),
@@ -151,6 +165,7 @@ class RdfConnector:
                 types,
                 int(settings.get("limit", 100000)),
                 byte_cap(settings, 4 * DEFAULT_MAX_BYTES),
+                self.report,
             )
         else:
             from rdflib import Graph
@@ -160,7 +175,7 @@ class RdfConnector:
             files = (
                 [root]
                 if root.is_file()
-                else sorted(p for p in root.rglob("*") if p.suffix.lower() in FORMATS)
+                else [p for p in walk_files(root, self.report) if p.suffix.lower() in FORMATS]
             )
             files = list(confined_files(files, roots))
             g = Graph()
@@ -172,7 +187,8 @@ class RdfConnector:
             content = text.encode("utf-8")
             digest = hashlib.sha256(content).hexdigest()
             out = tmp / f"{digest}.txt"
-            out.write_bytes(content)
+            if not out.exists():
+                out.write_bytes(content)
             yield SourceItem(
                 uri=iri,
                 content_hash=digest,

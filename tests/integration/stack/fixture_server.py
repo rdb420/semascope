@@ -13,6 +13,10 @@ Routes
     GET  /big.html                200 kB of HTML with a Content-Length
     GET  /big-stream.html         200 kB of HTML without one (close-delimited)
     GET  /redirect-private.html   302 to a private address
+    GET  /status/<code>[/...]     answers with that HTTP status
+    PUT  /files/<path>            serve the request body at /<path> (over any file there)
+    DELETE /files/<path>          stop serving it (a file under --root shows again, else 404)
+    POST /answer?path=/p&code=503 answer /p with that status until code=0 (a site going down)
     POST /hook/<name>             records the request; answers 500 while failures are armed
     GET  /hook/<name>             what was recorded, as JSON
     POST /hook/<name>/fail?count=N  answer the next N deliveries with 500
@@ -60,6 +64,8 @@ class State:
         self.hooks: dict[str, list[dict[str, Any]]] = {}
         self.failures: dict[str, int] = {}
         self.codes: dict[str, dict[str, str]] = {}
+        self.files: dict[str, tuple[bytes, str]] = {}  # path -> (body, content type)
+        self.answers: dict[str, int] = {}  # path -> forced status
 
 
 def _b64(data: bytes) -> str:
@@ -137,6 +143,22 @@ def make_handler(root: Path, state: State) -> type[BaseHTTPRequestHandler]:
                 return None
             if path == "/redirect-private.html":
                 return self.send(302, b"", "text/plain", {"Location": PRIVATE_TARGET})
+            if path.startswith("/status/"):
+                code = int(path.split("/")[2])
+                return self.send(code, f"status {code}".encode(), "text/plain")
+            with state.lock:
+                forced = state.answers.get(path)
+                served = state.files.get(path)
+            if forced:
+                return self.send(forced, b"forced answer", "text/plain")
+            if served is not None:
+                body, ctype = served
+                return self.send(
+                    200,
+                    body.replace(b"@BASE@", self.base.encode()),
+                    ctype,
+                    {"Last-Modified": "Tue, 03 Feb 2026 10:00:00 GMT"},
+                )
             if path.startswith("/hook/"):
                 with state.lock:
                     return self.send_json(200, state.hooks.get(path[6:], []))
@@ -166,9 +188,34 @@ def make_handler(root: Path, state: State) -> type[BaseHTTPRequestHandler]:
 
         # --- POST --------------------------------------------------------------------------
 
+        def do_PUT(self) -> None:  # noqa: N802 - stdlib name
+            url = urlparse(self.path)
+            if not url.path.startswith("/files/"):
+                return self.send(404, b"not found", "text/plain")
+            target = url.path[len("/files") :]
+            ctype = self.headers.get("Content-Type") or "text/html; charset=utf-8"
+            with state.lock:
+                state.files[target] = (self.body(), ctype)
+            return self.send_json(200, {"serving": target})
+
+        def do_DELETE(self) -> None:  # noqa: N802 - stdlib name
+            url = urlparse(self.path)
+            target = url.path[len("/files") :] if url.path.startswith("/files/") else ""
+            with state.lock:
+                state.files.pop(target, None)
+            return self.send_json(200, {"removed": target})
+
         def do_POST(self) -> None:  # noqa: N802 - stdlib name
             url = urlparse(self.path)
             parts = url.path.strip("/").split("/")
+            if url.path == "/answer":
+                query = {k: v[0] for k, v in parse_qs(url.query).items()}
+                with state.lock:
+                    if int(query.get("code", "0")):
+                        state.answers[query["path"]] = int(query["code"])
+                    else:
+                        state.answers.pop(query.get("path", ""), None)
+                return self.send_json(200, {"answers": state.answers})
             if parts[0] == "hook" and len(parts) == 3 and parts[2] == "fail":
                 count = int(parse_qs(url.query).get("count", ["1"])[0])
                 with state.lock:

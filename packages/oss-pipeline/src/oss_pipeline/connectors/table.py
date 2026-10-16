@@ -12,13 +12,15 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import tempfile
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
+from oss_pipeline.connectors.base import RunReport, walk_files, work_dir
 from oss_pipeline.connectors.guard import confine_path, confined_files, source_roots
+
+TABLE_SUFFIXES = (".csv", ".tsv", ".xlsx", ".xlsm")
 
 
 def _rows(path: Path, settings: dict[str, Any]) -> Iterator[dict[str, str]]:
@@ -29,15 +31,19 @@ def _rows(path: Path, settings: dict[str, Any]) -> Iterator[dict[str, str]]:
         except ImportError:
             return
         wb = load_workbook(str(path), read_only=True, data_only=True)
-        ws = wb[settings["sheet"]] if settings.get("sheet") in wb.sheetnames else wb.worksheets[0]
-        rows = ws.iter_rows(values_only=True)
-        header = [str(h or f"col{i}") for i, h in enumerate(next(rows, []) or [])]
-        for values in rows:
-            yield {
-                header[i]: ("" if v is None else str(v))
-                for i, v in enumerate(values)
-                if i < len(header)
-            }
+        try:
+            sheet = settings.get("sheet")
+            ws = wb[sheet] if sheet in wb.sheetnames else wb.worksheets[0]
+            rows = ws.iter_rows(values_only=True)
+            header = [str(h or f"col{i}") for i, h in enumerate(next(rows, []) or [])]
+            for values in rows:
+                yield {
+                    header[i]: ("" if v is None else str(v))
+                    for i, v in enumerate(values)
+                    if i < len(header)
+                }
+        finally:
+            wb.close()
         return
     delimiter = "\t" if suffix == ".tsv" else ","
     with path.open(encoding=str(settings.get("encoding") or "utf-8"), newline="") as fh:
@@ -48,14 +54,19 @@ def _rows(path: Path, settings: dict[str, Any]) -> Iterator[dict[str, str]]:
 
 class TableConnector:
     name = "table"
+    deletes_missing = True
+
+    def __init__(self) -> None:
+        self.report = RunReport()
 
     def discover(self, source: SourceConfig, since: Cursor | None) -> Iterable[SourceItem]:
+        self.report = RunReport()
         roots = source_roots()
         root = confine_path(str(source.settings["path"]), roots)
         files = (
             [root]
             if root.is_file()
-            else sorted(p for p in root.rglob("*") if p.suffix.lower() in (".csv", ".tsv", ".xlsx"))
+            else [p for p in walk_files(root, self.report) if p.suffix.lower() in TABLE_SUFFIXES]
         )
         files = list(confined_files(files, roots))
         settings = source.settings
@@ -63,8 +74,7 @@ class TableConnector:
         title_column = str(settings.get("title_column") or "")
         id_column = str(settings.get("id_column") or "")
         field_columns = {str(k): str(v) for k, v in (settings.get("field_columns") or {}).items()}
-        tmp = Path(tempfile.gettempdir()) / "semascope-table"
-        tmp.mkdir(parents=True, exist_ok=True)
+        tmp = work_dir(source, "table")
         for file in files:
             for n, row in enumerate(_rows(file, settings), start=1):
                 columns = text_columns or list(row)
@@ -79,7 +89,8 @@ class TableConnector:
                 digest = hashlib.sha256(content).hexdigest()
                 row_id = row.get(id_column) if id_column else str(n)
                 out = tmp / f"{digest}.txt"
-                out.write_bytes(content)
+                if not out.exists():
+                    out.write_bytes(content)
                 fields = {
                     f"x_{field}": row.get(col, "")
                     for col, field in field_columns.items()
