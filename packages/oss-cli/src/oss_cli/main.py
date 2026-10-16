@@ -1,7 +1,7 @@
 """`oss`: operator and developer command line.
 
-Phase 0 ships `version`, `init`, `doctor` and `pack validate`. The other
-commands listed in the README arrive with the phase that implements them.
+`version`, `init`, `doctor` and `pack validate` need no API token; the other
+commands call the server's API with SEMASCOPE_API_TOKEN.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from oss_cli.vectors import vector_report
 from oss_core import PACK_CONTRACT_VERSION, __version__
 from oss_core.config import get_settings
 from oss_core.pack import load_pack, write_manifest
@@ -165,7 +166,12 @@ def doctor() -> None:
                 status = f"unreachable ({type(exc).__name__})"
                 failures += 1
             table.add_row(name, url, status)
+        vectors, vectors_ok, notes = vector_report(settings, client)
+        failures += not vectors_ok
+        table.add_row("vectors", settings.semascope_embed_model, vectors)
     console.print(table)
+    for note in notes:
+        console.print(f"[yellow]{note}[/yellow]")
     console.print(
         f"runtime {settings.semascope_runtime}: embed={settings.semascope_embedder} "
         f"ner={settings.semascope_ner_provider} extract={settings.semascope_extract_provider}"

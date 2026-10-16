@@ -2,12 +2,15 @@
 
 Chunks come from the structure stage. Old chunks of the document are deleted
 first, so a reindex replaces them. The embedding input is the title and the
-chunk text, which is also what query embeddings are compared against.
+chunk text, which is also what query embeddings are compared against. Each
+vector goes to the field of its dimension (`oss_core.vectors.vector_field`); a
+model whose dimension has no field fails the stage before anything is deleted.
 """
 
 from __future__ import annotations
 
 from oss_core.contracts import StageContext, WorkingDocument
+from oss_core.vectors import vector_field
 from oss_pipeline.clients.solr import SolrClient
 from oss_pipeline.embedders import get_embedder
 from oss_pipeline.stages.base import SkipStageError
@@ -52,6 +55,7 @@ class EmbedStage:
         title = (doc.title or "").strip()
         inputs = [f"{title}\n\n{chunk}" if title else chunk for chunk in chunks]
         vectors = embedder.embed(inputs)
+        field = vector_field(len(vectors[0])) if vectors else "vector"
         collection = str(ctx.settings.get("solr_chunks", "chunks"))
         client = self._client(ctx)
         client.delete_by_query(collection, f'document_id:"{doc.id}"')
@@ -63,7 +67,7 @@ class EmbedStage:
                 "position_i": i,
                 "page_i": pages[i] if i < len(pages) else None,
                 "text_txt": chunk,
-                "vector": [round(x, 6) for x in vec],
+                field: [round(x, 6) for x in vec],
                 "model_s": getattr(embedder, "model_name", "unknown"),
             }
             for i, (chunk, vec) in enumerate(zip(chunks, vectors, strict=True))
