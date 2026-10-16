@@ -173,6 +173,10 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("POST", "/api/annotations/w3c/import"): Rule(
         ("curator", "a"), 200, query="collection=a", json={"type": "AnnotationPage", "items": []}
     ),
+    # the description holds no data and browsers fetch it without cookies; searching needs a session
+    ("GET", "/api/opensearch.xml"): Rule("public", 200),
+    ("GET", "/api/opensearch/suggest"): Rule("auth", 200, query="q=x"),
+    ("GET", "/api/analytics/overview"): Rule(("reader", "a"), 200, query="collection=a"),
 }
 
 

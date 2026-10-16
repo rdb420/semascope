@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from ninja import Router
 
-from oss_server.api import annotations_w3c, exports, similar
+from oss_server.api import analytics, annotations_w3c, exports, opensearch, similar
 
 router = Router()
-for _module in (similar, exports, annotations_w3c):
+for _module in (similar, exports, annotations_w3c, opensearch, analytics):
     _module.mount(router)
