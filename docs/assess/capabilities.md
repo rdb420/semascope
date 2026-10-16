@@ -79,7 +79,7 @@ hand against a live stack); `bench` and `quality` are
 |---|---|---|
 | Sign-in (local accounts; single sign-on button when configured) | implemented | smoke |
 | Search: list, media grid, terms, timeline, facets, mode switch, CSV export | implemented | smoke |
-| Document: text per page, page previews, tags with decisions, annotations, stage runs | implemented | smoke |
+| Document: text per page, page previews, tags with decisions, highlighted occurrences and a "why this tag" panel (provenance and decision history), annotations, stage runs | implemented | smoke |
 | Packs and pack page: scheme tree, competency questions, deltas | implemented | smoke |
 | Concept and individual page with its documents; propose a change | implemented | smoke |
 | Graph: hubs, neighbourhood expansion, shortest path | implemented | smoke (hubs, expansion) |
@@ -107,12 +107,13 @@ hand against a live stack); `bench` and `quality` are
 | Capability | State | Tests | Notes |
 |---|---|---|---|
 | Review queue: low-confidence tags, link candidates, SHACL violations | implemented | ci | |
-| Accept, reject, defer a review item | implemented | ci | |
+| Accept, reject, defer a review item | implemented | ci | every decision, deferrals included, is kept as review history; a decided item answers 409 to a second decision |
 | Accept, reject, add, remove a tag on a document | implemented | ci | |
-| Link an entity to a pack individual | experimental | — | the decision is applied; no test covers it |
+| Link an entity to a pack individual | implemented | ci | the link survives reindexing and records the individual's pack version |
 | Annotations on documents | implemented | ci | |
-| Proposals with stable references, applied at once, kept across reindexing | implemented | ci | append-only log, the newest decision wins, one `external_ref` per decision (fixed after rc.2, where accept, reject, accept was not applied) |
+| Proposals with stable references, applied at once, kept across reindexing | implemented | ci | append-only log, the newest decision wins, one `external_ref` per decision (fixed after rc.2, where accept, reject, accept was not applied); a decision keeps the tag it was taken on and its pack version; a rejected tag stays on the document, flagged, and is left out of Solr and the graph |
 | Curator changes to a pack as deltas | implemented | ci | |
+| Explanation of a tag: occurrences with pages, method and stage version, matched label, model, `linked_from`, decision history (API and document page) | implemented | ci, smoke | |
 | Merge entities | planned | — | |
 | Audit of logins, pack imports, source and collection changes | planned | — | decisions are logged; administrative actions are not |
 
@@ -121,13 +122,23 @@ hand against a live stack); `bench` and `quality` are
 | Target | State | Tests |
 |---|---|---|
 | Outbox of decision events, read by cursor | implemented | ci |
-| Proposals, read by cursor | implemented | — |
+| Proposals, read by cursor (`params.tag` carries the decided tag's evidence) | implemented | ci |
 | Webhooks with HMAC signature | experimental | — |
 | Pack deltas as `taxonomy.delta.ttl` and `model.delta.yaml` | implemented | ci |
 | Search results as CSV (first 10,000) | implemented | — |
 | W3C Reconciliation API 0.2 | implemented | ci |
 | SPARQL over pack graphs (staff) | experimental | — |
 | RDF or JSON-LD export of documents, tags or the graph | planned | — |
+
+## Knowledge packs
+
+| Capability | State | Tests | Notes |
+|---|---|---|---|
+| Pack validation: contract, release manifest, SHACL over the pack's instances, competency questions (`oss pack validate`) | implemented | ci | the ontology skill's own scripts are private; Semascope implements their gates ([ADR-0007](../adr/0007-pack-contract.md)) |
+| Pack upgrade as a diff and a reindex plan; activation needs confirmation | implemented | ci | affected documents per collection, counted from Solr |
+| Remove a pack version (admin) | implemented | ci | tagged documents keep their tags until reindex |
+| Packs in Turtle, N-Triples, RDF/XML or JSON-LD; `skos:notation`; preferred labels in several languages | implemented | ci | shapes must be Turtle |
+| Pack precedence for shared IRIs and labels; curator draft labels scoped to their collection | implemented | ci | |
 
 ## Operation
 

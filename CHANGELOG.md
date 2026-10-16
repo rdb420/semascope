@@ -27,6 +27,31 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Every tag explains itself: the stage version, the dictionary label and
+  label type that matched (and its language), the NER model, and the named
+  entity that linking replaced (`linked_from`); each occurrence records its
+  page and the label it matched. `GET /api/curation/documents/{id}/tags`
+  returns occurrences and provenance, and `…/tags/history?iri=` every
+  decision on a tag. The document page highlights a tag's occurrences and
+  shows a "why this tag" panel.
+- Every decision on a review item, deferrals included, is kept
+  (`ReviewDecision`, migration `curation.0003`); a decision keeps the tag it
+  was taken on and its pack version; graph edges carry `stage_version` and
+  `pack_version`.
+- Packs: `oss pack validate` and import verify `release-manifest.json`
+  (a mismatch is an error unless `--force`), run SHACL over the pack's own
+  instances, check the query manifest, and fail on concepts without a
+  preferred label, duplicate ids and unknown evidence ids; non-semver
+  versions and `owl:imports` warn. Competency questions run over the dataset
+  each manifest entry names, and an unknown expectation type fails.
+- Pack upgrades are a diff and a reindex plan (`oss pack diff`,
+  `POST /api/knowledge/packs/diff`, `GET /api/knowledge/packs/{id}/diff`);
+  replacing an active version needs `--yes` / `confirm=true`; new
+  `oss pack activate`. A non-active version can be removed
+  (`oss pack remove`, `DELETE /api/knowledge/packs/{id}/versions/{version}`,
+  admin).
+- Packs may use N-Triples, RDF/XML or JSON-LD; `skos:notation` and preferred
+  labels in further languages are kept.
 - Integration tests against the real stack (`tests/integration`,
   `just integration`), the browser journey and a backup and restore round
   trip, in a CI workflow on amd64 and weekly on arm64; the clean-room check
@@ -41,8 +66,22 @@ and the project follows semantic versioning.
 - `oss init --size` sets the worker's processes and memory cap;
   `SEMASCOPE_MAP_TILE_URL` (empty for no base map) for offline installs.
 
+### Changed
+
+- A rejected tag stays on the document, flagged, instead of being removed;
+  search and the graph leave it out through the same curated view.
+- CI validates `packs/base` and `packs/demo/pack` without rewriting their
+  manifests; the base pack's stale manifest is regenerated.
+
 ### Fixed
 
+- A rejected tag came back in PostgreSQL after a reindex, and a curator's
+  link to a pack individual was undone by one.
+- Pack import, SPARQL and version removal failed in all but one server
+  process (Oxigraph's lock) and could hang after the server forked; each
+  pack-store operation now runs in its own process. SPARQL ASK over a pack
+  returned no rows. Re-importing an unchanged pack with activation left it
+  inactive.
 - Semantic and hybrid search apply every filter to the vector candidates,
   so totals and pages are right when facets are selected; deletion removes
   a document's passages too.
