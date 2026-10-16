@@ -93,6 +93,20 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
     return base
 
 
+def pseudonymise_secret(collection: Collection) -> str | None:
+    """The HMAC secret the graph stage keys this collection's NER entities with, or None.
+
+    Mirrors what the graph stage reads from `stage_settings` (a `pipeline`
+    override included), so other writers, such as curation, key entities the same way.
+    """
+
+    pipeline = collection.settings.get("pipeline", {}) or {}
+    if not pipeline.get("pseudonymise", collection.settings.get("pseudonymise", False)):
+        return None
+    secret = pipeline.get("pseudonymise_secret") or get_settings().semascope_secret_key
+    return str(secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret)
+
+
 BASE_PACK_ID = "semascope-base"  # its classes are the product's own model, not things to find
 
 

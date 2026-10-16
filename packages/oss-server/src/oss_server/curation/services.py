@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from oss_server.catalogue.models import Collection, Document
@@ -24,6 +24,28 @@ def emit(
     )
 
 
+ACCEPTS = ("accept_tag", "add_tag")
+REJECTS = ("reject_tag", "remove_tag")
+
+
+def _decision(kind: str) -> str:
+    """What a proposal decides about its target: accept, reject, or its own kind."""
+
+    return "accept" if kind in ACCEPTS else "reject" if kind in REJECTS else kind
+
+
+def latest_proposal(
+    collection: Collection, target: str, document: Document | None = None
+) -> Proposal | None:
+    """The decision currently in force for a target (on a document): the newest one."""
+
+    return (
+        Proposal.objects.filter(collection=collection, document=document, target=target)
+        .order_by("-pk")
+        .first()
+    )
+
+
 def propose(
     collection: Collection,
     kind: str,
@@ -36,50 +58,85 @@ def propose(
     pack_id: str = "",
     pack_version: str = "",
 ) -> Proposal:
-    """Record a decision, apply it to the stores, and put it in the outbox."""
+    """Record a decision, apply it to the stores, and put it in the outbox.
+
+    The proposal log is append-only and the newest decision on a target wins, so
+    accept, reject, accept leaves three proposals and the target accepted. Each
+    decision has its own `external_ref`, chained to the one it supersedes, so the
+    outbox carries one stable reference per decision. Repeating the decision that
+    is already in force (a retried request, a double click) records nothing and
+    returns that proposal, applying it again if a store was down the first time.
+    """
 
     params = params or {}
+    doc_id = document.id if document else None
+    previous = latest_proposal(collection, target, document)
+    if (
+        previous is not None
+        and _decision(previous.kind) == _decision(kind)
+        and previous.params == params
+    ):
+        if not previous.applied:
+            _apply(previous)
+        return previous
     ref = Proposal.make_ref(
-        collection.slug, kind, target, params, document.id if document else None
+        collection.slug,
+        kind,
+        target,
+        params,
+        doc_id,
+        previous=previous.external_ref if previous else "",
     )
-    existing = Proposal.objects.filter(external_ref=ref).first()
-    if existing:
-        return existing
-    with transaction.atomic():
-        proposal = Proposal.objects.create(
-            collection=collection,
-            document=document,
-            kind=kind,
-            target=target,
-            params=params,
-            reason=reason,
-            pack_id=pack_id,
-            pack_version=pack_version,
-            decided_by=user if getattr(user, "is_authenticated", False) else None,
-        )
-        try:
-            apply_proposal(proposal)
-        except Exception:  # noqa: BLE001 - the decision is recorded even if a store is down
-            log.exception("could not apply proposal %s", proposal.pk)
-            proposal.applied = False
-            proposal.save(update_fields=["applied"])
-        emit(
-            f"proposal.{kind}",
-            collection=collection.slug,
-            subject=target,
-            payload={
-                "proposal_id": proposal.pk,
-                "external_ref": proposal.external_ref,
-                "document_id": document.id if document else None,
-                "params": params,
-                "reason": reason,
-                "pack_id": pack_id,
-                "pack_version": pack_version,
-                "decided_by": getattr(proposal.decided_by, "username", None),
-                "decided_at": proposal.decided_at.isoformat(),
-            },
-        )
+    try:
+        with transaction.atomic():
+            proposal = Proposal.objects.create(
+                collection=collection,
+                document=document,
+                kind=kind,
+                target=target,
+                params=params,
+                reason=reason,
+                pack_id=pack_id,
+                pack_version=pack_version,
+                decided_by=user if getattr(user, "is_authenticated", False) else None,
+                external_ref=ref,
+            )
+            _apply(proposal)
+            emit(
+                f"proposal.{kind}",
+                collection=collection.slug,
+                subject=target,
+                payload={
+                    "proposal_id": proposal.pk,
+                    "external_ref": proposal.external_ref,
+                    "supersedes": previous.external_ref if previous else None,
+                    "document_id": doc_id,
+                    "params": params,
+                    "reason": reason,
+                    "pack_id": pack_id,
+                    "pack_version": pack_version,
+                    "decided_by": getattr(proposal.decided_by, "username", None),
+                    "decided_at": proposal.decided_at.isoformat(),
+                },
+            )
+    except IntegrityError:
+        # the same decision arrived twice at once: the other request recorded it
+        return Proposal.objects.get(external_ref=ref)
     return proposal
+
+
+def _apply(proposal: Proposal) -> None:
+    """Apply a proposal, recording whether it reached the stores."""
+
+    try:
+        apply_proposal(proposal)
+        applied = True
+    except Exception:  # noqa: BLE001 - the decision is recorded even if a store is down
+        log.exception("could not apply proposal %s", proposal.pk)
+        applied = False
+    if proposal.applied != applied:
+        proposal.applied = applied
+        proposal.save(update_fields=["applied"])
 
 
 def apply_proposal(p: Proposal) -> None:
@@ -87,10 +144,11 @@ def apply_proposal(p: Proposal) -> None:
 
     from oss_server.services import graph_client, solr_client, solr_documents_collection
 
-    if p.document is None or p.kind in (Proposal.Kind.ADD_LABEL, Proposal.Kind.NEW_CONCEPT):
-        return  # pack-level kinds are handled by the knowledge app's deltas
+    if p.document is None:
+        return
     doc = p.document
     tags: list[dict[str, Any]] = list(doc.tags)
+    before = {str(t.get("iri")): t for t in tags}
     curated: dict[str, Any] = dict(doc.fields.get("curated") or {})
     if p.kind in (Proposal.Kind.ACCEPT_TAG, Proposal.Kind.ADD_TAG):
         curated[p.target] = {
@@ -98,11 +156,14 @@ def apply_proposal(p: Proposal) -> None:
             "label": p.params.get("label", ""),
             "kind": p.params.get("kind", "concept"),
         }
-        if p.kind == Proposal.Kind.ADD_TAG and not any(t.get("iri") == p.target for t in tags):
+        if p.pack_id:
+            curated[p.target].update(pack_id=p.pack_id, pack_version=p.pack_version or None)
+        # accepting a tag an earlier decision removed puts it back
+        if not any(t.get("iri") == p.target for t in tags):
             tags.append(
                 {
                     "iri": p.target,
-                    "label": p.params.get("label", p.target),
+                    "label": p.params.get("label") or p.target,
                     "kind": p.params.get("kind", "concept"),
                     "stage": "curated",
                     "confidence": 1.0,
@@ -152,26 +213,17 @@ def apply_proposal(p: Proposal) -> None:
     solr_client().add(solr_documents_collection(), [update])
 
     # graph: a CURATED edge records the human decision beside the machine edge
+    node = curated_node(p, doc, before)
+    if node is None:
+        return
     try:
-        node_kind = (
-            "Concept"
-            if (
-                p.params.get("kind", "concept") == "concept" and p.kind != Proposal.Kind.LINK_ENTITY
-            )
-            else "Entity"
-        )
-        key_prop = "iri" if node_kind == "Concept" else "key"
-        target = (
-            str(p.params.get("iri") or p.target)
-            if p.kind == Proposal.Kind.LINK_ENTITY
-            else p.target
-        )
+        node_kind, key_prop, key = node
         graph_client().execute(
             f"MATCH (d:Document {{id: $doc}}) MERGE (x:{node_kind} {{{key_prop}: $target}}) "
             "MERGE (d)-[c:CURATED]->(x) "
             "SET c.decision = $decision, c.by = $by, c.at = $at, c.note = $note",
             doc=doc.id,
-            target=target,
+            target=key,
             decision="reject"
             if p.kind in (Proposal.Kind.REJECT_TAG, Proposal.Kind.REMOVE_TAG)
             else "accept",
@@ -181,6 +233,38 @@ def apply_proposal(p: Proposal) -> None:
         )
     except Exception:  # noqa: BLE001
         log.exception("graph CURATED edge failed for %s", doc.id)
+
+
+def curated_node(
+    p: Proposal, doc: Document, before: dict[str, dict[str, Any]]
+) -> tuple[str, str, str] | None:
+    """The graph node a decision is about: (label, key property, key), or None for none.
+
+    Concepts are keyed by IRI. Entities are keyed exactly as the graph stage keys
+    them (`entity_key`): the IRI for pack individuals, `<Class>/<label>` for NER
+    entities, or its HMAC when the collection pseudonymises, so the CURATED edge
+    lands on the node the MENTIONS edge points at.
+    """
+
+    from oss_core.contracts import Tag
+    from oss_pipeline.stages.graph import entity_key
+    from oss_server.pipeline.tasks import pseudonymise_secret
+
+    if p.kind == Proposal.Kind.LINK_ENTITY:
+        return "Entity", "key", str(p.params.get("iri") or p.target)
+    if p.kind == Proposal.Kind.DISMISS_VIOLATION:
+        return None  # a dismissed SHACL violation is not a node in the projection
+    if p.params.get("kind", "concept") == "concept":
+        return "Concept", "iri", p.target
+    old = before.get(p.target) or {}
+    tag = Tag(
+        iri=p.target,
+        label=str(old.get("label") or p.params.get("label") or p.target),
+        kind="entity",
+        pack_id=old.get("pack_id") or p.pack_id or None,
+        stage=str(old.get("stage") or "curated"),
+    )
+    return "Entity", "key", entity_key(tag, pseudonymise_secret(doc.collection))
 
 
 def queue_reviews(doc: Document) -> int:

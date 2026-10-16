@@ -6,8 +6,10 @@ SHACL violation). Decision -> Proposal.
 
 Proposal: the record of a curation decision (rebuild specification 10.4):
 applied to Semascope's stores at once and exported through the outbox so an
-external system of record can mirror, reject or audit it. `external_ref`
-is a stable hash so a re-export is idempotent.
+external system of record can mirror, reject or audit it. The log is
+append-only: a new decision on the same target is a new row, and the newest
+one is in force. `external_ref` is a stable hash per decision (chained to the
+decision it supersedes), so a re-export is idempotent.
 
 Annotation: a curator's note or tag on a document.
 
@@ -28,7 +30,6 @@ class Review(models.Model):
         TAG = "tag"  # a machine tag with confidence below the threshold
         LINK = "link"  # an NER entity that resembles a pack individual
         VIOLATION = "violation"  # a SHACL violation on the document graph
-        DELTA = "delta"  # a curator's pack delta awaiting a second pair of eyes
 
     class Status(models.TextChoices):
         OPEN = "open"
@@ -76,9 +77,6 @@ class Proposal(models.Model):
         ADD_TAG = "add_tag"
         REMOVE_TAG = "remove_tag"
         ADD_NOTE = "add_note"
-        ADD_LABEL = "add_label"
-        NEW_CONCEPT = "new_concept"
-        MERGE_ENTITIES = "merge_entities"
         DISMISS_VIOLATION = "dismiss_violation"
 
     collection = models.ForeignKey(
@@ -104,14 +102,26 @@ class Proposal(models.Model):
 
     class Meta:
         ordering = ["-decided_at"]
+        indexes = [
+            models.Index(fields=["collection", "document", "target"], name="proposal_target_idx")
+        ]
 
     @staticmethod
     def make_ref(
-        collection: str, kind: str, target: str, params: dict[str, Any], document_id: str | None
+        collection: str,
+        kind: str,
+        target: str,
+        params: dict[str, Any],
+        document_id: str | None,
+        *,
+        previous: str = "",
     ) -> str:
-        payload = json.dumps(
-            [collection, kind, target, params, document_id], sort_keys=True, default=str
-        )
+        """The decision's stable reference; `previous` is the ref of the decision it supersedes."""
+
+        parts: list[Any] = [collection, kind, target, params, document_id]
+        if previous:  # the first decision on a target keeps the rc.2 formula
+            parts.append(previous)
+        payload = json.dumps(parts, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode()).hexdigest()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
