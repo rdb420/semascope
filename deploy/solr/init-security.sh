@@ -1,15 +1,19 @@
+# shellcheck shell=bash
 # Semascope: basic authentication for Solr. Sourced by the Solr image's entrypoint
 # (/docker-entrypoint-initdb.d) before Solr starts; the work runs in the background
 # because security.json lives in ZooKeeper, which only exists once Solr is up.
 #
 # Once Solr answers, security.json.tmpl is rendered with a salted SHA-256 hash of
-# SEMASCOPE_SOLR_PASSWORD (Solr's BasicAuthPlugin format) and uploaded to ZooKeeper,
+# SEMASCOPE_SOLR_PASSWORD (or the file SEMASCOPE_SOLR_PASSWORD_FILE names; Solr's
+# BasicAuthPlugin format) and uploaded to ZooKeeper,
 # unless authentication is already configured there. Idempotent: it never replaces
 # an existing security.json, so it is safe on every start and on existing installs.
 (
   set +e
   log() { echo "semascope-security: $*" >&2; }
   password="${SEMASCOPE_SOLR_PASSWORD:-}"
+  # Docker secrets: SEMASCOPE_SOLR_PASSWORD_FILE names a file holding the password
+  if [ -n "${SEMASCOPE_SOLR_PASSWORD_FILE:-}" ]; then password="$(cat "$SEMASCOPE_SOLR_PASSWORD_FILE")"; fi
   if [ -z "$password" ]; then
     log "SEMASCOPE_SOLR_PASSWORD is empty; authentication not configured"
     exit 0

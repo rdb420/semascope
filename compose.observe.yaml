@@ -1,33 +1,66 @@
-# Optional observability profile: OpenTelemetry collector, Prometheus and Grafana.
-# Usage: docker compose -f compose.yaml -f compose.observe.yaml up -d
-# The app exports traces and metrics when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+# Optional observability profile: an OpenTelemetry collector, Jaeger for traces, Prometheus
+# for metrics, Grafana (with a Semascope dashboard) and Flower for the task queue.
+# Usage: COMPOSE_FILE=compose.yaml:compose.observe.yaml ./oss up
+#        (or docker compose -f compose.yaml -f compose.observe.yaml up -d --wait)
+#
+# The server, worker and beat export traces and metrics over OTLP to the collector, which
+# sends traces to Jaeger (kept in memory until it restarts) and serves metrics to Prometheus;
+# Prometheus also scrapes Solr with its password. Grafana on 127.0.0.1:3000 reads both
+# (user admin), and Flower on 127.0.0.1:5555 shows the workers, queues and tasks (user admin);
+# both take GRAFANA_PASSWORD, which `oss init` writes. Flower can also stop workers and revoke
+# tasks, which is why it is on loopback only and behind the password. This profile needs the
+# passwords in the env file (not compose.secrets.yaml).
+
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: otlp
 
 services:
   server:
     environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      <<: *otel
       OTEL_SERVICE_NAME: semascope-server
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
   worker:
     environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      <<: *otel
       OTEL_SERVICE_NAME: semascope-worker
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
+  beat:
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: semascope-beat
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.118.0@sha256:3f6274fe609da4f9964fbc2ef36b83d08d47964fbb11629251393590d3924072
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./deploy/observe/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    depends_on: [jaeger]
     restart: unless-stopped
+    # no health check: the image has no shell or HTTP client to run one
+
+  jaeger:
+    # Jaeger's built-in all-in-one configuration: OTLP in from the collector, traces kept in
+    # memory (lost on restart), the query API that Grafana reads
+    image: jaegertracing/jaeger:2.21.0@sha256:3d0ac795ff98aa04d1be04311d2dac6c25b4bfc8322dc02e53bc5b170c5018c3
+    restart: unless-stopped
+    # no health check: the image has no shell or HTTP client to run one
 
   prometheus:
     image: prom/prometheus:v3.2.1@sha256:6927e0919a144aa7616fd0137d4816816d42f6b816de3af269ab065250859a62
+    configs:
+      - source: solr_password
+        target: /etc/prometheus/solr_password
     volumes:
       - ./deploy/observe/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - prometheus:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 1m
+      start_interval: 5s
     restart: unless-stopped
 
   grafana:
@@ -39,8 +72,42 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - ./deploy/observe/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./deploy/observe/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/semascope.yaml:ro
+      - ./deploy/observe/dashboards:/var/lib/semascope-dashboards:ro
       - grafana:/var/lib/grafana
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 1m
+      start_interval: 5s
     restart: unless-stopped
+
+  flower:
+    image: mher/flower:2.1.0@sha256:a05e790ef6b544b1a6c45f2ab192ecb28a36634d04b8b192985777f6c5cf02ba
+    environment:
+      CELERY_BROKER_URL: redis://:${VALKEY_PASSWORD:?VALKEY_PASSWORD is not set; ./oss up adds one}@valkey:6379/0
+      FLOWER_BASIC_AUTH: admin:${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is not set; oss init writes one}
+      FLOWER_PORT: "5555"
+      FLOWER_PURGE_OFFLINE_WORKERS: "300"
+    ports:
+      - "127.0.0.1:5555:5555"
+    depends_on:
+      valkey: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5555/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 1m
+      start_interval: 5s
+    restart: unless-stopped
+
+configs:
+  # Solr requires its password since 1.0.0-rc.4; Prometheus reads it from this file
+  solr_password:
+    content: ${SOLR_PASSWORD:-}
 
 volumes:
   prometheus:

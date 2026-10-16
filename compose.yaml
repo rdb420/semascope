@@ -1,5 +1,13 @@
 # Semascope production-shaped stack. Only Caddy publishes a port.
 # Image tags are pinned; `just bump-images` records digests after a bump.
+#
+# Networks: `edge` joins Caddy and the server only, so the proxy reaches nothing else;
+# `extract` joins Tika, which parses untrusted files, with the worker and the cli only, and
+# is internal (no route out); everything else is on `default`. Tika therefore cannot reach
+# Valkey, Solr, Neo4j, PostgreSQL or the internet.
+#
+# Every service has a health check; `./oss up` (compose up --wait) returns once all pass.
+# Secrets come from the env file, or from files with compose.secrets.yaml (Docker secrets).
 
 name: semascope
 
@@ -18,7 +26,7 @@ x-app: &app
     - path: ${SEMASCOPE_ENV_FILE:-.env}
       required: false
   environment: &app-env
-    DATABASE_URL: postgresql://semascope:${POSTGRES_PASSWORD}@postgres:5432/semascope
+    DATABASE_URL: postgresql://semascope:${POSTGRES_PASSWORD:-}@postgres:5432/semascope
     VALKEY_URL: redis://:${VALKEY_PASSWORD:-}@valkey:6379/0
     SOLR_URL: http://solr:8983/solr
     SOLR_USER: semascope
@@ -40,6 +48,7 @@ x-app: &app
 services:
   caddy:
     image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    networks: [edge]
     ports:
       - "${SEMASCOPE_HTTPS_PORT:-8443}:443"
     volumes:
@@ -49,16 +58,29 @@ services:
     environment:
       SEMASCOPE_HOST: ${SEMASCOPE_HOST:-localhost}
     depends_on: [server]
+    healthcheck:
+      # the admin endpoint answers once the configuration is loaded and the listeners are up
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
     restart: unless-stopped
 
   server:
     <<: *app
     command: oss-server
+    networks: [default, edge]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 10s
       timeout: 5s
-      retries: 12
+      retries: 6
+      # migrations, the Solr configsets and the base pack run before the server answers; on
+      # a first start or an upgrade on a slow host that takes minutes
+      start_period: 10m
+      start_interval: 5s
 
   # Worker processes and their memory cap follow `oss init --size` (small 1, medium 2, large 4
   # processes); a .env written before those settings existed keeps the earlier two processes.
@@ -72,6 +94,7 @@ services:
       <<: *app-env
       REMAP_SIGTERM: SIGQUIT
     stop_grace_period: 90s
+    networks: [default, extract]
     volumes:
       - blobs:/data
       - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro
@@ -79,16 +102,33 @@ services:
       resources:
         limits:
           memory: ${SEMASCOPE_WORKER_MEMORY:-4g}
+    healthcheck:
+      # this container's Celery node answers a ping through Valkey
+      test: ["CMD", "python", "-m", "oss_server.entry", "health", "worker"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 5m
+      start_interval: 10s
 
   beat:
     <<: *app
     command: oss-beat
+    healthcheck:
+      # the schedule file was written in the last five minutes (a task goes out every minute)
+      test: ["CMD", "python", "-m", "oss_server.entry", "health", "beat"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 2m
+      start_interval: 10s
 
   cli:
     <<: *app
     profiles: [cli]
     command: oss --help
     restart: "no"
+    networks: [default, extract]
     volumes:
       - blobs:/data
       - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro
@@ -98,7 +138,7 @@ services:
     environment:
       POSTGRES_DB: semascope
       POSTGRES_USER: semascope
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
@@ -118,6 +158,7 @@ services:
       - sh
       - -c
       - |
+        [ -z "$${VALKEY_PASSWORD_FILE:-}" ] || VALKEY_PASSWORD="$$(cat "$$VALKEY_PASSWORD_FILE")"
         [ -n "$$VALKEY_PASSWORD" ] || { echo "VALKEY_PASSWORD is empty: ./oss up adds one to .env (docs/operations.md#secrets)" >&2; exit 1; }
         umask 077
         printf 'requirepass "%s"\n' "$$VALKEY_PASSWORD" > /tmp/semascope-auth.conf
@@ -127,7 +168,7 @@ services:
       - valkey:/data
     healthcheck:
       # healthy once the password gets in and an anonymous client is refused
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${VALKEY_PASSWORD}\" valkey-cli ping | grep -qx PONG && ! valkey-cli ping | grep -qx PONG"]
+      test: ["CMD-SHELL", "p=\"$${VALKEY_PASSWORD}\"; [ -z \"$${VALKEY_PASSWORD_FILE:-}\" ] || p=\"$$(cat \"$$VALKEY_PASSWORD_FILE\")\"; REDISCLI_AUTH=\"$$p\" valkey-cli ping | grep -qx PONG && ! valkey-cli ping | grep -qx PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -136,6 +177,9 @@ services:
   solr:
     image: solr:10.0.0@sha256:4316295f16175f676ac6798769f7a21729131ab555f1ba8663839dd7abd92e13
     init: true
+    # SolrCloud with its embedded ZooKeeper, Solr 10's default mode (no --user-managed): the
+    # collections, aliases and configsets in ZooKeeper, and security.json, depend on it
+    command: ["solr-foreground"]
     environment:
       SOLR_HEAP: ${SOLR_HEAP:-1g}
       SOLR_OPTS: -Dsolr.disable.allowUrls=false
@@ -147,7 +191,7 @@ services:
       - ./deploy/solr/security.json.tmpl:/opt/semascope/security.json.tmpl:ro
     healthcheck:
       # healthy once the semascope user gets in and an anonymous request is refused
-      test: ["CMD-SHELL", "curl -fs -u \"semascope:$${SEMASCOPE_SOLR_PASSWORD}\" http://localhost:8983/solr/admin/info/system >/dev/null && [ \"$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8983/solr/admin/info/system)\" = 401 ]"]
+      test: ["CMD-SHELL", "p=\"$${SEMASCOPE_SOLR_PASSWORD}\"; [ -z \"$${SEMASCOPE_SOLR_PASSWORD_FILE:-}\" ] || p=\"$$(cat \"$$SEMASCOPE_SOLR_PASSWORD_FILE\")\"; curl -fs -u \"semascope:$$p\" http://localhost:8983/solr/admin/info/system >/dev/null && [ \"$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8983/solr/admin/info/system)\" = 401 ]"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -156,7 +200,7 @@ services:
   neo4j:
     image: neo4j:5.26-community@sha256:f1e52d4dc6da122468c4a3c1050a4f5e117f6d3268625237c34d49166f0d6082
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-}
       NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP:-1g}
       NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP:-1g}
       NEO4J_server_memory_pagecache_size: 512m
@@ -171,6 +215,7 @@ services:
 
   tika:
     image: apache/tika:3.3.0.0-full@sha256:ecdd37e204308266b1f8e28569f8516ebd5b96d7a4518a71d3904710b20c03b3
+    networks: [extract]
     command: ["--config", "/tika-config.xml", "--host", "0.0.0.0", "--port", "9998"]
     environment:
       JAVA_TOOL_OPTIONS: -Xmx${TIKA_HEAP:-1g}
@@ -182,6 +227,12 @@ services:
       timeout: 5s
       retries: 30
     restart: unless-stopped
+
+networks:
+  default:
+  edge:
+  extract:
+    internal: true
 
 volumes:
   blobs:

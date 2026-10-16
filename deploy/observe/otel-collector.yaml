@@ -8,16 +8,20 @@ receivers:
 processors:
   batch: {}
 exporters:
+  # traces to Jaeger (compose.observe.yaml), which Grafana reads
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # metrics for Prometheus to scrape
   prometheus:
     endpoint: 0.0.0.0:8889
-  debug:
-    verbosity: basic
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [otlp/jaeger]
     metrics:
       receivers: [otlp]
       processors: [batch]
