@@ -18,6 +18,7 @@ export type SearchHit = {
   preview_pages: number;
   snippets: string[];
   passages: string[];
+  entities?: Record<string, string[]>;
 };
 export type SearchOut = {
   total: number;
@@ -28,17 +29,25 @@ export type SearchOut = {
   facets: Record<string, FacetValue[]>;
   histogram: FacetValue[];
 };
+export type ListSearchRow = { total: number; hits: SearchHit[]; method: string | null; best_score: number | null };
+export type DateRange = { field?: string; start?: string | null; end?: string | null };
 export type SearchIn = {
   q: string;
   collection?: string | null;
   filters?: Record<string, string[]>;
+  exclude?: Record<string, string[]>;
   facets?: string[];
+  facet_limit?: number;
+  facet_more?: string[];
   page?: number;
   page_size?: number;
   sort?: string | null;
   histogram?: string | null;
   histogram_gap?: string;
+  dates?: DateRange | null;
   mode?: "keyword" | "semantic" | "hybrid";
+  stemming?: boolean;
+  operator?: "all" | "any" | "phrase" | null;
 };
 export type Place = { iri: string; label: string; type: string; lat: number; lon: number; docs: number };
 export type SavedSearch = { id: number; name: string; query: SearchIn; alert: boolean; last_total: number };
@@ -289,6 +298,30 @@ export const api = {
   collections: () => request<Collection[]>("/api/collections"),
   search: (payload: SearchIn) =>
     request<SearchOut>("/api/search", { method: "POST", body: JSON.stringify(payload) }),
+  /** The first 10,000 hits of a search as CSV; throws ApiError on a refused or failed export. */
+  searchCsv: async (payload: SearchIn): Promise<Blob> => {
+    const res = await fetch("/api/search/export.csv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": await ensureCsrf() },
+      body: JSON.stringify(payload),
+      credentials: "same-origin",
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = (await res.json()) as { detail?: unknown };
+        if (body && body.detail) detail = String(body.detail);
+      } catch {
+        // not JSON: keep the status text
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return res.blob();
+  },
+  suggest: (q: string, collection?: string) =>
+    request<{ suggestions: string[] }>(
+      `/api/suggest?q=${encodeURIComponent(q)}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`,
+    ),
   document: (id: string) => request<Document>(`/api/documents/${id}`),
   documentText: (id: string) => request<DocumentText>(`/api/documents/${id}/text`),
   stats: () => request<Stats>("/api/stats"),
@@ -298,10 +331,14 @@ export const api = {
     ),
   graphPath: (a: string, b: string) =>
     request<GraphOut>(`/api/graph/path?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
-  listSearch: (names: string[], collection?: string) =>
-    request<Record<string, { total: number; hits: SearchHit[] }>>("/api/search/list", {
+  listSearch: (
+    names: string[],
+    collection?: string,
+    options: { methods?: string[]; filters?: Record<string, string[]>; exclude?: Record<string, string[]> } = {},
+  ) =>
+    request<Record<string, ListSearchRow>>("/api/search/list", {
       method: "POST",
-      body: JSON.stringify({ names, collection: collection ?? null }),
+      body: JSON.stringify({ names, collection: collection ?? null, ...options }),
     }),
   graphShared: (collection?: string, kind = "Entity") =>
     request<Hub[]>(`/api/graph/shared?kind=${kind}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`),

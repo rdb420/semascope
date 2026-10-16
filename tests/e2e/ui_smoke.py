@@ -13,7 +13,10 @@ review page, runs a list search, and fails on any browser console error.
 It also walks the views of a search: the query highlighted on the document
 page with its original file, the table, entities and co-occurrence graph
 views (with the documents behind an edge), and the alerts page with a feed,
-then the pack import panel and the bulk tagging form (counted, not run).
+then the pack import panel and the bulk tagging form (counted, not run), and
+the search page's own controls: title suggestions, sorting, the match and
+word-form options, leaving a facet value out, a date range and a query that
+is a number.
 Screenshots land in SEMASCOPE_UI_SHOTS (default: the current directory); a
 failure also saves failure.png there.
 
@@ -187,6 +190,7 @@ def run(page: Page) -> None:
     alerts_and_feeds(page)
     extras_pages(page)
     curation_jobs(page)
+    search_features(page)
 
 
 def document_views(page: Page) -> None:
@@ -316,6 +320,73 @@ def curation_jobs(page: Page) -> None:
     accept = form.locator("button", has_text=re.compile(r"^Accept on \d+ documents?$"))
     expect(accept).to_be_visible(timeout=20000)
     shot(page, "20-bulk-tag.png")
+
+
+def go(page: Page, **params: str) -> None:
+    page.goto(f"{BASE}/?{urlencode(params)}", wait_until="networkidle")
+
+
+def search_features(page: Page) -> None:
+    """WS-4: suggestions, sort, options, an excluded facet value, dates, a numeric query."""
+
+    # a query that is a number survives the router's search-param parsing
+    go(page, q="1984", collection=COLLECTION)
+    expect(page.locator("input[role=combobox]")).to_have_value("1984")
+    expect(page.locator("text=/\\d+ results?/").first).to_be_visible(timeout=20000)
+
+    # title suggestions while typing; Enter on one searches for that title
+    go(page, collection=COLLECTION)
+    box = page.locator("input[role=combobox]")
+    box.fill("odys")
+    option = page.locator("[role=listbox] [role=option]").first
+    expect(option).to_be_visible(timeout=20000)
+    shot(page, "21-suggest.png")
+    box.press("ArrowDown")
+    box.press("Enter")
+    page.wait_for_url(re.compile(r"q=%22"), timeout=10000)
+    expect(page.locator("ol li").first).to_be_visible(timeout=20000)
+
+    # a search without words is newest first; sort and the options go into the URL
+    go(page, collection=COLLECTION)
+    expect(page.locator("section p", has_text="newest first")).to_be_visible(timeout=20000)
+    page.select_option("select[aria-label=Sort]", "title")
+    page.wait_for_url(re.compile(r"sort=title"), timeout=10000)
+    page.select_option("select[aria-label=Match]", "any")
+    page.wait_for_url(re.compile(r"op=any"), timeout=10000)
+    page.locator("label:has-text('other word forms') input").uncheck()
+    page.wait_for_url(re.compile(r"stem=false"), timeout=10000)
+
+    # leave a facet value out, see it in the filters box, bring it back
+    go(page, q="Troy", collection=COLLECTION)
+    facet = page.locator("aside[aria-label=Facets] li.group").first
+    expect(facet).to_be_visible(timeout=20000)
+    facet.hover()
+    facet.locator("button[aria-label^='leave out']").click()
+    page.wait_for_url(re.compile(r"[?&]x="), timeout=10000)
+    chips = page.locator("[aria-label='Filters in force']")
+    expect(chips).to_contain_text("not ")
+    shot(page, "22-excluded.png")
+    chips.locator("button[aria-label^='remove not']").click()
+    expect(chips).to_have_count(0, timeout=10000)
+
+    # a date range from the histogram, shown as a filter with a way back to all dates
+    go(page, collection=COLLECTION, **{"from": "2000-01-01", "to": "2100-01-01"})
+    expect(page.locator("[aria-label='Filters in force']")).to_contain_text("Modified")
+    expect(page.locator("button:has-text('all dates')")).to_be_visible(timeout=20000)
+    page.click("button:has-text('all dates')")
+    page.wait_for_url(re.compile(r"^(?!.*from=).*$"), timeout=10000)
+
+    # list search reports how each name was matched, sortable by score
+    page.click("text=Lists")
+    page.fill("textarea", "Odysseus\nOdyseus")
+    page.locator("select").last.select_option(COLLECTION)
+    page.click("button:has-text('Search')")
+    rows = page.locator("tbody tr")
+    expect(rows).to_have_count(2, timeout=20000)
+    expect(page.locator("tbody")).to_contain_text("near spelling")
+    page.click("th button:has-text('Best score')")
+    expect(page.locator("th[aria-sort=descending]")).to_contain_text("Best score")
+    shot(page, "23-list-methods.png")
 
 
 def main() -> int:

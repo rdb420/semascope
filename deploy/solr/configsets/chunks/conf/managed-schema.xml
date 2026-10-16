@@ -36,15 +36,11 @@
   <fieldType name="knn_vector_2560" class="solr.DenseVectorField" vectorDimension="2560" similarityFunction="cosine" knnAlgorithm="hnsw" hnswMaxConnections="16" hnswBeamWidth="100"/>
   <fieldType name="knn_vector_3072" class="solr.DenseVectorField" vectorDimension="3072" similarityFunction="cosine" knnAlgorithm="hnsw" hnswMaxConnections="16" hnswBeamWidth="100"/>
   <fieldType name="knn_vector_4096" class="solr.DenseVectorField" vectorDimension="4096" similarityFunction="cosine" knnAlgorithm="hnsw" hnswMaxConnections="16" hnswBeamWidth="100"/>
+  <!-- passage text is shown, not searched (chunks are found by vector); no language's
+       stop words apply -->
   <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100">
-    <analyzer type="index">
+    <analyzer>
       <tokenizer name="standard"/>
-      <filter name="lowercase"/>
-      <filter name="asciiFolding"/>
-    </analyzer>
-    <analyzer type="query">
-      <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
       <filter name="lowercase"/>
       <filter name="asciiFolding"/>
     </analyzer>

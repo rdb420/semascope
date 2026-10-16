@@ -33,6 +33,9 @@ def on_pack_activated(pack: Pack) -> None:
     """
 
     log.info("pack %s@%s is active", pack.pack_id, pack.version)
+    from oss_server.knowledge.synonyms import sync_synonyms
+
+    sync_synonyms()  # query-time synonyms follow the active packs; never raises (ADR-0003)
 
 
 def busy(pack_id: str) -> PackJob | None:

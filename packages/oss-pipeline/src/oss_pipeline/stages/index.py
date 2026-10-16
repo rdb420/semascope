@@ -10,6 +10,7 @@ from typing import Any
 
 from oss_core.contracts import StageContext, Tag, WorkingDocument
 from oss_pipeline.clients.solr import SolrClient
+from oss_pipeline.languages import all_language_fields, language_fields
 from oss_pipeline.provenance import curated_tags
 
 ENTITY_FIELDS = (
@@ -41,7 +42,7 @@ RESERVED_FIELDS = frozenset(
         "title_txt",
         "title_s",
         "text_txt",
-        "text_txt_en",
+        *all_language_fields(),  # title_txt_<lang>, text_txt_<lang> (oss_pipeline.languages)
         "language_s",
         "media_type_s",
         "content_type_group_s",
@@ -107,6 +108,8 @@ def to_solr_document(doc: WorkingDocument, indexed_at: datetime | None = None) -
         "preview_pages_i": int(doc.fields.get("preview_pages") or 0),
         "indexed_dt": _iso(indexed_at or datetime.now(UTC)),
     }
+    # the stemmed copies for the document's language (docs/search.md#languages)
+    out.update(language_fields(doc.language, out["title_txt"], out["text_txt"]))
     if meta.get("modified_at"):
         out["modified_dt"] = _iso(meta["modified_at"])
     for name in ENTITY_FIELDS:

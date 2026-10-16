@@ -166,8 +166,8 @@ def test_semantic_mode_falls_back_to_keyword_for_match_all() -> None:
         "response": {"numFound": 0, "docs": []},
     }
     with (
-        mock.patch("oss_server.api.search.scheme_facets", return_value=[]),
-        mock.patch("oss_server.api.search.entity_class_facets", return_value=[]),
+        mock.patch("oss_server.api.search.pack_facets", return_value=[]),
+        mock.patch("oss_server.api.search.path_facets", return_value=[]),
     ):
         out = search(client, "documents", SearchIn(q="*:*", mode="semantic"))
     assert out.total == 0 and client.select.call_count == 1

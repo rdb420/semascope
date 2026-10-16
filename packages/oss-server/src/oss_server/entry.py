@@ -118,6 +118,9 @@ def prepare() -> None:
         log.info("packs: %s", import_bundled_packs())
     except Exception:  # noqa: BLE001
         log.exception("bundled pack import failed")
+    from oss_server.knowledge.synonyms import sync_synonyms
+
+    sync_synonyms()  # the upload above reset synonyms_packs.txt; never raises (WS-4)
 
 
 def prepare_in_child() -> None:

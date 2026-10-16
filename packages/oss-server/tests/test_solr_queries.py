@@ -235,4 +235,9 @@ def test_list_search_keeps_each_name_one_phrase(
         headers=admin,
     )
     assert r.status_code == 200, r.content
-    assert seen == [quote_term(WIDEN)]
+    # the phrase first, then the looser methods (nothing found): every word quoted, or
+    # reduced to letters and digits, so no query ever widens to *:*
+    assert seen[0] == quote_term(WIDEN)
+    assert seen[1] == " ".join(quote_term(w) for w in WIDEN.split())
+    assert seen[2] == '"OR" "OR"'  # one-letter words dropped, short ones quoted
+    assert len(seen) == 3

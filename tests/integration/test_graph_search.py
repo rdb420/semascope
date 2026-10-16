@@ -223,8 +223,10 @@ def test_significant_terms_of_a_result_set(api: httpx.Client, indexed: dict[str,
     words = [t["term"] for t in terms]
     assert {"ulysses", "telemachus"} <= set(words), words  # the Odyssey, in Butler's names
     assert not {"the", "and", "of", "unto", "thou"} & set(words), words
-    counts = [t["count"] for t in terms]
-    assert counts == sorted(counts, reverse=True)
+    # ranked by how much more often the hits hold a word than the collection does (O-32)
+    scores = [t["score"] for t in terms]
+    assert scores == sorted(scores, reverse=True)
+    assert all(t["count"] >= t["docs"] and t["background"] >= 0 for t in terms)
     assert all(1 <= t["docs"] <= len(demo_texts()) for t in terms)
     none = api.post("/search/terms", json={"q": "zzqxv", "collection": collection()}).json()
     assert none == []

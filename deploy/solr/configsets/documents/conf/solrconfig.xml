@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!--
   Semascope "documents" collection, written for Apache Solr 10.
-  Nothing removed in Solr 10 is used: no <lib>, no managed synonyms, no
-  language-specific response writers. Schemaless mode is off; every field
-  is declared in managed-schema.xml or matches a declared dynamic field.
+  Nothing removed in Solr 10 is used: no <lib>, no managed (REST) synonyms, no
+  language-specific response writers. Synonyms come from synonyms_packs.txt in this
+  configset; Polish stemming needs Solr's analysis-extras module (compose.yaml).
+  Schemaless mode is off; every field is declared in managed-schema.xml or matches a
+  declared dynamic field.
 -->
 <config>
   <luceneMatchVersion>10.0</luceneMatchVersion>
@@ -56,9 +58,17 @@
       <str name="echoParams">none</str>
       <str name="wt">json</str>
       <str name="defType">edismax</str>
-      <str name="qf">title_txt^4 text_txt^1 uri_s^0.2</str>
+      <!-- The API sends these per request (oss_server/api/search.py query_fields); they are
+           repeated here for direct Solr queries. Neutral fields first, then each language's
+           stemmed fields (docs/search.md). -->
+      <str name="qf">title_txt^4 title_txt_ar^2 title_txt_bg^2 title_txt_ca^2 title_txt_cs^2 title_txt_da^2 title_txt_de^2 title_txt_el^2 title_txt_en^2 title_txt_es^2 title_txt_fa^2 title_txt_fi^2 title_txt_fr^2 title_txt_hi^2 title_txt_hu^2 title_txt_id^2 title_txt_it^2 title_txt_ja^2 title_txt_ko^2 title_txt_lv^2 title_txt_nl^2 title_txt_no^2 title_txt_pl^2 title_txt_pt^2 title_txt_ro^2 title_txt_ru^2 title_txt_sv^2 title_txt_tr^2 title_txt_zh^2 text_txt^1 text_txt_ar^0.5 text_txt_bg^0.5 text_txt_ca^0.5 text_txt_cs^0.5 text_txt_da^0.5 text_txt_de^0.5 text_txt_el^0.5 text_txt_en^0.5 text_txt_es^0.5 text_txt_fa^0.5 text_txt_fi^0.5 text_txt_fr^0.5 text_txt_hi^0.5 text_txt_hu^0.5 text_txt_id^0.5 text_txt_it^0.5 text_txt_ja^0.5 text_txt_ko^0.5 text_txt_lv^0.5 text_txt_nl^0.5 text_txt_no^0.5 text_txt_pl^0.5 text_txt_pt^0.5 text_txt_ro^0.5 text_txt_ru^0.5 text_txt_sv^0.5 text_txt_tr^0.5 text_txt_zh^0.5 uri_s^0.2</str>
+      <str name="f.exact.qf">title_txt^4 text_txt^1</str>
+      <str name="f.title.qf">title_txt^4 title_txt_ar^2 title_txt_bg^2 title_txt_ca^2 title_txt_cs^2 title_txt_da^2 title_txt_de^2 title_txt_el^2 title_txt_en^2 title_txt_es^2 title_txt_fa^2 title_txt_fi^2 title_txt_fr^2 title_txt_hi^2 title_txt_hu^2 title_txt_id^2 title_txt_it^2 title_txt_ja^2 title_txt_ko^2 title_txt_lv^2 title_txt_nl^2 title_txt_no^2 title_txt_pl^2 title_txt_pt^2 title_txt_ro^2 title_txt_ru^2 title_txt_sv^2 title_txt_tr^2 title_txt_zh^2</str>
+      <str name="f.text.qf">text_txt^1 text_txt_ar^0.5 text_txt_bg^0.5 text_txt_ca^0.5 text_txt_cs^0.5 text_txt_da^0.5 text_txt_de^0.5 text_txt_el^0.5 text_txt_en^0.5 text_txt_es^0.5 text_txt_fa^0.5 text_txt_fi^0.5 text_txt_fr^0.5 text_txt_hi^0.5 text_txt_hu^0.5 text_txt_id^0.5 text_txt_it^0.5 text_txt_ja^0.5 text_txt_ko^0.5 text_txt_lv^0.5 text_txt_nl^0.5 text_txt_no^0.5 text_txt_pl^0.5 text_txt_pt^0.5 text_txt_ro^0.5 text_txt_ru^0.5 text_txt_sv^0.5 text_txt_tr^0.5 text_txt_zh^0.5</str>
       <str name="pf">title_txt^6 text_txt^2</str>
       <str name="ps">3</str>
+      <!-- all of one or two words, all but one of three to five, 80% of more; an explicit
+           OR is handled by the API (search.prepare_query) -->
       <str name="mm">2&lt;-1 5&lt;80%</str>
       <str name="q.alt">*:*</str>
       <str name="fl">id,collection_s,source_id_s,uri_s,title_txt,media_type_s,content_type_group_s,language_s,size_l,modified_dt,indexed_dt,page_count_i,preview_pages_i,score</str>

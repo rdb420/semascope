@@ -7,6 +7,7 @@ import io
 import re
 from collections import Counter
 from datetime import datetime
+from functools import cache
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse
@@ -17,12 +18,14 @@ from pydantic import ValidationError
 
 from oss_server.api import search as search_mod
 from oss_server.api.access import read_scope
-from oss_server.api.schemas import SearchIn
+from oss_server.api.schemas import DateRange, SearchIn
 from oss_server.catalogue.models import Document, SavedSearch
+from oss_server.knowledge.synonyms import fold, stopwords
 from oss_server.services import solr_client, solr_documents_collection
 
 router = Router(tags=["search"])
-_WORD = re.compile(r"[A-Za-z][A-Za-z'-]{2,}")
+# a word of the terms view: three or more letters of any script (no digits, no punctuation)
+_WORD = re.compile(r"[^\W\d_]{3,}")
 
 
 class SavedSearchIn(Schema):
@@ -45,6 +48,12 @@ class ListSearchIn(Schema):
     names: list[str]
     collection: str | None = None
     rows_per_name: int = 3
+    # only documents that pass these, as in a search (LIST-04)
+    filters: dict[str, list[str]] = {}
+    exclude: dict[str, list[str]] = {}
+    dates: DateRange | None = None
+    # how far a name may be loosened when the stricter way finds nothing (LIST-02)
+    methods: list[str] = ["phrase", "words", "fuzzy"]
 
 
 def _user(request: HttpRequest) -> Any:
@@ -93,28 +102,76 @@ def delete_saved(request: HttpRequest, saved_id: int) -> tuple[int, None]:
     return 204, None
 
 
+LIST_METHODS = ("phrase", "words", "fuzzy")
+_LIST_WORD = re.compile(r"\w+")
+
+
+def list_queries(name: str) -> dict[str, tuple[str, str | None, bool]]:
+    """The queries a list-search name cascades through: (query, operator, stemming).
+
+    `phrase` is the name as one phrase; `words` every word of it, in any order, other
+    word forms included; `fuzzy` every word with one typing error allowed. The name is
+    data: the phrase is one quoted term, each word is quoted or reduced to letters and
+    digits, so nothing in it is ever read as query syntax.
+    """
+
+    words = name.split()
+    plain = [w for w in _LIST_WORD.findall(name) if len(w) > 1]
+    out: dict[str, tuple[str, str | None, bool]] = {
+        "phrase": (search_mod._escape(name), None, True),
+    }
+    if len(words) > 1:
+        out["words"] = (" ".join(search_mod._escape(w) for w in words), "all", True)
+    if plain:
+        fuzzy = " ".join(f"{w.lower()}~1" if len(w) >= 4 else search_mod._escape(w) for w in plain)
+        out["fuzzy"] = (fuzzy, "all", False)
+    return out
+
+
 @router.post("/list", response=dict[str, Any])
 def list_search(request: HttpRequest, payload: ListSearchIn) -> dict[str, Any]:
-    """Batch search: one phrase query per name, with counts and a few hits each."""
+    """Batch search, one name at a time: its count, best score, a few hits and the match
+    method that found it (the strictest that finds anything: phrase, then all its words,
+    then the words with one typing error each)."""
 
     if len(payload.names) > 500:
         raise HttpError(422, "at most 500 names per call")
+    methods = [m for m in LIST_METHODS if m in payload.methods] or ["phrase"]
     allowed = read_scope(request, payload.collection)
     client = solr_client()
     out: dict[str, Any] = {}
     for name in payload.names:
         name = name.strip()
-        if not name:
+        if not name or name in out:
             continue
-        req = SearchIn(
-            q=search_mod._escape(name),  # one phrase, whatever the name holds
-            collection=payload.collection,
-            facets=[],
-            page_size=max(1, min(payload.rows_per_name, 20)),
-            highlight=True,
-        )
-        res = search_mod.search(client, solr_documents_collection(), req, allowed)
-        out[name] = {"total": res.total, "hits": [h.model_dump() for h in res.hits]}
+        found: dict[str, Any] = {"total": 0, "hits": [], "method": None, "best_score": None}
+        queries = list_queries(name)
+        for method in methods:
+            if method not in queries:
+                continue
+            q, operator, stemming = queries[method]
+            req = SearchIn(
+                q=q,
+                collection=payload.collection,
+                filters=payload.filters,
+                exclude=payload.exclude,
+                dates=payload.dates,
+                facets=[],
+                page_size=max(1, min(payload.rows_per_name, 20)),
+                highlight=True,
+                operator=operator,
+                stemming=stemming,
+            )
+            res = search_mod.search(client, solr_documents_collection(), req, allowed)
+            if res.total:
+                found = {
+                    "total": res.total,
+                    "hits": [h.model_dump() for h in res.hits],
+                    "method": method,
+                    "best_score": res.hits[0].score if res.hits else None,
+                }
+                break
+        out[name] = found
     return out
 
 
@@ -177,7 +234,10 @@ def export_csv(request: HttpRequest, payload: SearchIn) -> HttpResponse:
 def terms(
     request: HttpRequest, payload: SearchIn, top: int = 40, sample: int = 30
 ) -> list[dict[str, Any]]:
-    """The words that stand out in the top hits of a search, against the collection's background."""
+    """The words that stand out in the top hits of a search against the background of the
+    readable collections searched: a word scores by how much more often the hits contain it
+    than the background's documents do (`score`; O-32). `count` is its occurrences in the
+    hits, `docs` the hits that contain it, `background` the documents of the background."""
 
     allowed = read_scope(request, payload.collection)
     client = solr_client()
@@ -188,45 +248,79 @@ def terms(
     ids = [h.id for h in res.hits]
     if not ids:
         return []
-    stop = _stopwords()
+    sampled_docs = list(Document.objects.filter(pk__in=ids).only("text", "language"))
+    # the stop words of the languages of the hits (English always)
+    stop = _stopwords(frozenset({"en", *((d.language or "")[:2] for d in sampled_docs)}))
     counts: Counter[str] = Counter()
     docs_with: Counter[str] = Counter()
-    for doc in Document.objects.filter(pk__in=ids).only("text"):
-        words = [w.lower() for w in _WORD.findall(doc.text[:200000])]
+    for doc in sampled_docs:
         seen = set()
-        for w in words:
+        for w in _WORD.findall(doc.text[:200000]):
+            w = fold(w.lower())
             if w in stop:
                 continue
             counts[w] += 1
             seen.add(w)
         docs_with.update(seen)
+    candidates = [w for w, n in counts.most_common(BACKGROUND_CANDIDATES) if docs_with[w] > 0]
+    total, background = _background(client, candidates, allowed, payload.collection)
+    sampled = len(ids)
+
+    def score(w: str) -> float:
+        fg = docs_with[w] / sampled
+        bg = (background.get(w, 0) + 1) / (total + 1)
+        return (fg - bg) * (fg / bg) if fg > bg else 0.0
+
+    ranked = sorted(candidates, key=lambda w: (-score(w), -counts[w], w))
     return [
-        {"term": w, "count": n, "docs": docs_with[w]}
-        for w, n in counts.most_common(max(1, min(top, 200)))
+        {
+            "term": w,
+            "count": counts[w],
+            "docs": docs_with[w],
+            "background": background.get(w, 0),
+            "score": round(score(w), 4),
+        }
+        for w in ranked[: max(1, min(top, 200))]
     ]
 
 
-def _stopwords() -> set[str]:
-    from pathlib import Path
+# the most frequent words of the hits that are weighed against the background
+BACKGROUND_CANDIDATES = 200
 
-    for candidate in (
-        Path(__file__).resolve().parents[4]
-        / "deploy"
-        / "solr"
-        / "configsets"
-        / "documents"
-        / "conf"
-        / "lang"
-        / "stopwords_en.txt",
-        Path("/app/deploy/solr/configsets/documents/conf/lang/stopwords_en.txt"),
-    ):
-        if candidate.exists():
-            return {
-                line.strip().lower()
-                for line in candidate.read_text().splitlines()
-                if line.strip() and not line.startswith("#")
-            } | _EXTRA_STOP
-    return _EXTRA_STOP
+
+def _background(
+    client: Any, words: list[str], allowed: list[str] | None, collection: str | None
+) -> tuple[int, dict[str, int]]:
+    """Documents in the background (the readable collections searched), and how many of
+    them hold each word: one Solr request, a term query per word (the words are letters
+    only and already in the index's form, so no analysis and no synonyms apply)."""
+
+    fq = search_mod.collection_filter(allowed)
+    if collection:
+        fq.append(f"collection_s:{search_mod._escape(collection)}")
+    queries = {f"{{!term f=text_txt}}{w}": w for w in words}
+    body = client.select(
+        solr_documents_collection(),
+        q="*:*",
+        rows=0,
+        fq=fq,
+        facet=True,
+        **{"facet.query": list(queries)},
+    )
+    total = int(body.get("response", {}).get("numFound", 0))
+    found = body.get("facet_counts", {}).get("facet_queries", {}) or {}
+    return total, {queries[k]: int(v) for k, v in found.items() if k in queries}
+
+
+@cache
+def _stopwords(languages: frozenset[str] = frozenset({"en"})) -> frozenset[str]:
+    """The stop words of these languages from the documents configset, plus `_EXTRA_STOP`
+    (English, archaic English included)."""
+
+    try:
+        return frozenset({fold(w) for w in stopwords(languages)} | _EXTRA_STOP)
+    except FileNotFoundError:
+        return frozenset(_EXTRA_STOP)
 
 
 _EXTRA_STOP = set(

@@ -139,6 +139,8 @@ services:
     environment:
       SOLR_HEAP: ${SOLR_HEAP:-1g}
       SOLR_OPTS: -Dsolr.disable.allowUrls=false
+      # the Polish stemmer of the documents schema (docs/search.md#languages)
+      SOLR_MODULES: analysis-extras
       # basic authentication: deploy/solr/init-security.sh renders security.json from it
       SEMASCOPE_SOLR_PASSWORD: ${SOLR_PASSWORD:-}
     volumes:
