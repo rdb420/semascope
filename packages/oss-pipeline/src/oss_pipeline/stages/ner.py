@@ -18,6 +18,7 @@ from typing import Any, NamedTuple, Protocol
 import httpx
 
 from oss_core.contracts import Span, StageContext, Tag, WorkingDocument
+from oss_pipeline.connectors.guard import service_client
 from oss_pipeline.provenance import assign_pages
 from oss_pipeline.stages.base import SkipStageError
 
@@ -223,7 +224,7 @@ class RemoteProvider:
         self.model = base_url
         self._threshold = threshold
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self._client = httpx.Client(
+        self._client = service_client(
             base_url=base_url.rstrip("/"), headers=headers, timeout=600.0, transport=transport
         )
 

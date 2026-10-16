@@ -135,8 +135,15 @@ def test_s3_items_carry_no_credentials_and_fetch_reads_the_source(
         def get_paginator(self, name: str) -> Paginator:
             return Paginator()
 
-        def download_file(self, bucket: str, key: str, dest: str) -> None:
-            Path(dest).write_bytes(b"abc")
+        def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+            class Body:
+                def iter_chunks(self, size: int) -> list[bytes]:
+                    return [b"abc"]
+
+                def close(self) -> None:
+                    pass
+
+            return {"Body": Body(), "ContentLength": 3}
 
     def fake_client(settings: dict[str, Any]) -> Client:
         made.append(dict(settings))

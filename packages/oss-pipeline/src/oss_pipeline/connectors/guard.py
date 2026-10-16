@@ -6,28 +6,39 @@ mount, and the demo corpus shipped in the image); upload sources only under thei
 upload area. Paths are resolved, symlinks included, before the comparison, so
 a link that points out of a root is refused rather than followed.
 
-Network. Connectors that fetch URLs (web, feed, a SPARQL endpoint, an S3
-endpoint) and webhook deliveries reach only globally routable addresses
-(`ipaddress.is_global`, not multicast): loopback, private, carrier-grade NAT,
-link-local, documentation, reserved and unspecified addresses are refused,
-and so are IPv6 forms that carry an IPv4 address (IPv4-mapped and NAT64
-addresses are judged by the IPv4 address inside; 6to4 and Teredo are
-refused), checked on every request and every redirect. An operator who needs
-an internal host (a MinIO on the LAN, say) lists it in
-`SEMASCOPE_ALLOWED_PRIVATE_HOSTS` (host names or CIDR ranges). Response bodies
-are read with a size cap. A source's `max_bytes` may set a connector's cap,
-but never above `MAX_BYTES_CEILING`.
+Network. Every URL a source, a user or a document supplies (web pages, sitemaps,
+robots.txt, feeds and their links, SPARQL endpoints, S3 endpoints, webhook
+deliveries) goes through `guarded_client` (S3 through `guard_s3_client`), and
+reaches only globally routable addresses (`ipaddress.is_global`, not
+multicast): loopback, private, carrier-grade NAT, link-local, documentation,
+reserved and unspecified addresses are refused, and so are IPv6 forms that
+carry an IPv4 address (IPv4-mapped and NAT64 addresses are judged by the IPv4
+address inside; 6to4 and Teredo are refused). The host is resolved once per
+connection, checked, and the connection made to the checked address (TLS
+still verifies the host name), so a name that resolves differently at
+connection time cannot reach a private address; every request and every
+redirect is also checked before it is sent. An operator who needs an
+internal host (a MinIO on the LAN, say) lists it in
+`SEMASCOPE_ALLOWED_PRIVATE_HOSTS` (host names or CIDR ranges). Every client
+has its timeouts set and a cap on response bodies; a source's `max_bytes`
+may set a connector's cap, but never above `MAX_BYTES_CEILING`.
+
+Services the operator configures (Tika, MinerU, embedding and NER providers)
+use `service_client`: timeouts, no redirects and a body cap, but no address
+policy, since their URLs come only from the deployment's settings.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import httpcore
 import httpx
 
 PATH_CONNECTORS = ("filesystem", "mail", "archive", "table", "rdf", "upload")
@@ -173,43 +184,239 @@ def _is_public(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return address.is_global and not address.is_multicast
 
 
+def _resolve(host: str, port: int | None) -> list[str]:
+    """The addresses a host name resolves to, in the resolver's order, each once."""
+
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError) as exc:
+        raise Unresolvable(f"cannot resolve {host}") from exc
+    out: list[str] = []
+    for info in infos:
+        address = str(info[4][0]).split("%", 1)[0]  # drop an IPv6 zone id
+        if address not in out:
+            out.append(address)
+    return out
+
+
+def checked_addresses(
+    host: str, port: int | None = None, *, label: str = "", resolve_allowed: bool = True
+) -> list[str]:
+    """Resolve `host` once and return its addresses if every one of them may be reached.
+
+    Raises SourceNotAllowed if any address is private and not allowed by
+    SEMASCOPE_ALLOWED_PRIVATE_HOSTS, and Unresolvable if the name does not resolve. The
+    pinned transport connects to exactly these addresses, so the name is never resolved
+    a second time between the check and the connection. A host allowed by name is not
+    checked; with `resolve_allowed` false it is not even resolved (an empty list).
+    """
+
+    host = host.strip("[]").lower()
+    if not host:
+        raise SourceNotAllowed(f"{label or 'a URL'} has no host")
+    allowed_hosts, allowed_nets = _allowed_private()
+    if host in allowed_hosts:
+        return _resolve(host, port) if resolve_allowed else []
+    addresses = _resolve(host, port)
+    for raw in addresses:
+        address = ipaddress.ip_address(raw)
+        if _is_public(address) or any(address in net for net in allowed_nets):
+            continue
+        raise SourceNotAllowed(f"{label or host} resolves to a private address; refused")
+    return addresses
+
+
 def refuse_private(url: str) -> None:
     """Raise SourceNotAllowed unless every address the URL's host resolves to is public."""
 
     parts = urlparse(url)
     if parts.scheme not in ("http", "https"):
         raise SourceNotAllowed(f"{url} is not an http(s) URL")
-    host = (parts.hostname or "").lower()
-    if not host:
+    if not parts.hostname:
         raise SourceNotAllowed(f"{url} has no host")
-    allowed_hosts, allowed_nets = _allowed_private()
-    if host in allowed_hosts:
-        return
     try:
-        infos = socket.getaddrinfo(host, parts.port or None)
-    except socket.gaierror as exc:
-        raise Unresolvable(f"cannot resolve {host}") from exc
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if _is_public(address) or any(address in net for net in allowed_nets):
-            continue
-        raise SourceNotAllowed(f"{url} resolves to a private address; refused")
-
-
-def _check_request(request: httpx.Request) -> None:
-    refuse_private(str(request.url))
-
-
-def guarded_client(**kwargs: Any) -> httpx.Client:
-    """An httpx client that checks every request, redirects included, with refuse_private."""
-
-    hooks = dict(kwargs.pop("event_hooks", None) or {})
-    hooks["request"] = [_check_request, *hooks.get("request", [])]
-    return httpx.Client(event_hooks=hooks, **kwargs)
+        port = parts.port
+    except ValueError as exc:
+        raise SourceNotAllowed(f"{url} has an invalid port") from exc
+    checked_addresses(parts.hostname, port, label=url, resolve_allowed=False)
 
 
 class TooLarge(ValueError):  # noqa: N818
     """A response body went over the size cap."""
+
+
+MAX_BYTES_EXTENSION = "semascope.max_bytes"  # per-request cap: client.get(..., extensions=...)
+SERVICE_MAX_BYTES = 256 * 1024 * 1024  # default cap for an operator-configured service
+CONNECT_TIMEOUT_S = 10.0
+DEFAULT_TIMEOUT_S = 30.0
+MAX_REDIRECTS = 10
+BODY_DEADLINE_S = 900.0  # a guarded response body is read in at most this long, in total
+
+
+class _PinnedBackend(httpcore.SyncBackend):
+    """Connects to the addresses `checked_addresses` approved, never to a fresh resolution.
+
+    httpcore hands the URL's host name to `connect_tcp` and, for https, starts TLS on the
+    returned stream with that same host name as the SNI and certificate name; the Host
+    header comes from the URL. So swapping the name for the checked address here pins the
+    connection without changing what the server or the certificate check sees.
+    """
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[Any] | None = None,
+    ) -> httpcore.NetworkStream:
+        error: Exception | None = None
+        for address in checked_addresses(host, port):
+            try:
+                return super().connect_tcp(
+                    address,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                error = exc
+        raise error or httpcore.ConnectError(f"no address to connect to for {host}")
+
+
+def pinned_transport(**kwargs: Any) -> httpx.HTTPTransport:
+    """An httpx transport whose every new connection goes through `_PinnedBackend`."""
+
+    if kwargs.get("proxy") is not None or kwargs.get("uds") is not None:
+        raise ValueError("a pinned transport connects directly; no proxy or socket path")
+    transport = httpx.HTTPTransport(**kwargs)
+    pool = getattr(transport, "_pool", None)
+    if not isinstance(pool, httpcore.ConnectionPool) or not hasattr(pool, "_network_backend"):
+        # fail closed if a future httpx/httpcore moves this: never fall back to an unpinned one
+        raise RuntimeError("cannot pin addresses with this httpx/httpcore version")
+    pool._network_backend = _PinnedBackend()
+    return transport
+
+
+class _CappedStream(httpx.SyncByteStream):
+    def __init__(
+        self, inner: Any, cap: int, url: str, deadline_s: float | None, request: httpx.Request
+    ) -> None:
+        self.inner = inner
+        self.cap = cap
+        self.url = url
+        self.deadline_s = deadline_s
+        self.request = request
+
+    def __iter__(self) -> Iterator[bytes]:
+        total = 0
+        started = time.monotonic()
+        for chunk in self.inner:
+            total += len(chunk)
+            if total > self.cap:
+                raise TooLarge(f"{self.url} is over the cap of {self.cap} bytes")
+            if self.deadline_s is not None and time.monotonic() - started > self.deadline_s:
+                raise httpx.ReadTimeout(
+                    f"{self.url} took over {self.deadline_s:.0f}s to read", request=self.request
+                )
+            yield chunk
+
+    def close(self) -> None:
+        self.inner.close()
+
+
+def _cap_hook(default: int, deadline_s: float | None) -> Any:
+    """A response hook that caps the body before anything reads it (redirect bodies too)."""
+
+    def hook(response: httpx.Response) -> None:
+        request = response.request
+        cap = min(int(request.extensions.get(MAX_BYTES_EXTENSION) or default), MAX_BYTES_CEILING)
+        declared = response.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > cap:
+            raise TooLarge(f"{request.url} is {declared} bytes; the cap is {cap}")
+        response.stream = _CappedStream(response.stream, cap, str(request.url), deadline_s, request)
+
+    return hook
+
+
+def _timeout(value: Any) -> httpx.Timeout:
+    """A timeout with every part set: a number is the read/write/pool limit, connect shorter."""
+
+    if isinstance(value, httpx.Timeout):
+        parts = (value.connect, value.read, value.write, value.pool)
+        if any(p is None for p in parts):
+            raise ValueError("an outbound client needs every timeout set")
+        return value
+    if value is None or isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("an outbound client needs a timeout in seconds")
+    return httpx.Timeout(float(value), connect=min(float(value), CONNECT_TIMEOUT_S))
+
+
+_TRANSPORT_KEYS = ("verify", "cert", "http1", "http2", "limits", "retries", "local_address")
+
+
+def _hooks(kwargs: dict[str, Any], request: list[Any], response: list[Any]) -> dict[str, Any]:
+    hooks = dict(kwargs.pop("event_hooks", None) or {})
+    hooks["request"] = [*request, *hooks.get("request", [])]
+    hooks["response"] = [*response, *hooks.get("response", [])]
+    return hooks
+
+
+def guarded_client(
+    *,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    deadline_s: float | None = BODY_DEADLINE_S,
+    transport: httpx.BaseTransport | None = None,
+    **kwargs: Any,
+) -> httpx.Client:
+    """The client for any URL a source, a user or a document supplies.
+
+    Every new connection resolves the host once, refuses it unless every address is public
+    (or allowed by SEMASCOPE_ALLOWED_PRIVATE_HOSTS), and connects to the checked address, so
+    a name that resolves differently at connection time (DNS rebinding) cannot reach a
+    private address. TLS still verifies the certificate for the host name. Each request and
+    redirect is also checked up front with `refuse_private`; redirects stop at
+    MAX_REDIRECTS; every timeout is set; bodies stop at `max_bytes` (or the request's
+    MAX_BYTES_EXTENSION) and at `deadline_s`. Environment proxies are ignored: a proxy
+    would resolve the name itself, out of reach of the check. `transport` is for tests.
+    """
+
+    transport_kwargs = {k: kwargs.pop(k) for k in _TRANSPORT_KEYS if k in kwargs}
+    kwargs["timeout"] = _timeout(kwargs.get("timeout", DEFAULT_TIMEOUT_S))
+    kwargs.setdefault("max_redirects", MAX_REDIRECTS)
+    kwargs["trust_env"] = False
+    cap = min(int(max_bytes), MAX_BYTES_CEILING)
+    hooks = _hooks(kwargs, [_check_request], [_cap_hook(cap, deadline_s)])
+    return httpx.Client(
+        transport=transport or pinned_transport(**transport_kwargs),
+        event_hooks=hooks,
+        **kwargs,
+    )
+
+
+def service_client(
+    *,
+    max_bytes: int = SERVICE_MAX_BYTES,
+    transport: httpx.BaseTransport | None = None,
+    **kwargs: Any,
+) -> httpx.Client:
+    """The client for a service the operator configured (Tika, MinerU, an embedding, NER or
+    extraction provider): no address policy, because these usually sit on a private network
+    and their URLs come only from the deployment's settings, never from a source or a user.
+    Without a policy there is nothing for DNS rebinding to get around, so no pinning either.
+    Every timeout is set, redirects are not followed, and bodies stop at `max_bytes`.
+    """
+
+    kwargs["timeout"] = _timeout(kwargs.get("timeout", DEFAULT_TIMEOUT_S))
+    kwargs["follow_redirects"] = False
+    cap = min(int(max_bytes), MAX_BYTES_CEILING)
+    hooks = _hooks(kwargs, [], [_cap_hook(cap, None)])
+    return httpx.Client(transport=transport, event_hooks=hooks, **kwargs)
+
+
+def _check_request(request: httpx.Request) -> None:
+    refuse_private(str(request.url))
 
 
 def get_capped(
@@ -217,15 +424,98 @@ def get_capped(
 ) -> tuple[httpx.Response, bytes]:
     """GET a URL, reading at most `max_bytes` of body (TooLarge beyond that)."""
 
-    with client.stream("GET", url, **kwargs) as resp:
-        declared = resp.headers.get("content-length")
-        if declared and declared.isdigit() and int(declared) > max_bytes:
-            raise TooLarge(f"{url} is {declared} bytes; the cap is {max_bytes}")
+    extensions = {**(kwargs.pop("extensions", None) or {}), MAX_BYTES_EXTENSION: max_bytes}
+    with client.stream("GET", url, extensions=extensions, **kwargs) as resp:
         chunks: list[bytes] = []
         total = 0
         for chunk in resp.iter_bytes():
             total += len(chunk)
-            if total > max_bytes:
+            if total > max_bytes:  # decoded size: a compressed body may expand past the cap
                 raise TooLarge(f"{url} is over the cap of {max_bytes} bytes")
             chunks.append(chunk)
     return resp, b"".join(chunks)
+
+
+# --- S3 (boto3) -------------------------------------------------------------------------------
+
+
+S3_RESPONSE_MAX_BYTES = 8 * 1024 * 1024  # a listing page of 1000 keys is well under 2 MiB
+
+
+class _RawBody:
+    """The part of urllib3's response botocore reads (`stream`, `read`, `close`), over httpx."""
+
+    def __init__(self, response: httpx.Response) -> None:
+        self._response = response
+        self._chunks = response.iter_raw()
+        self._buffer = bytearray()
+
+    def stream(self, amt: int = 65536, decode_content: bool | None = None) -> Iterator[bytes]:
+        while True:
+            data = self.read(amt)
+            if not data:
+                return
+            yield data
+
+    def read(self, amt: int | None = None, *_: Any, **__: Any) -> bytes:
+        while amt is None or len(self._buffer) < amt:
+            chunk = next(self._chunks, None)
+            if chunk is None:
+                break
+            self._buffer += chunk
+        size = len(self._buffer) if amt is None else amt
+        data = bytes(self._buffer[:size])
+        del self._buffer[:size]
+        return data
+
+    def close(self) -> None:
+        self._response.close()
+
+
+def guard_s3_client(client: Any, *, max_bytes: int = MAX_BYTES_CEILING) -> Any:
+    """Send every request of a boto3 client through a guarded, pinned httpx client.
+
+    botocore's `before-send` event lets a handler answer a request itself; this one sends
+    the signed request with `guarded_client` (method, URL and headers unchanged, so the
+    signature still matches) and hands the streamed answer back to botocore. The endpoint
+    host is checked and pinned on every connection, as for any other URL. An object body
+    (GetObject) stops at `max_bytes`; every other answer (listings, errors) at
+    S3_RESPONSE_MAX_BYTES, since botocore reads those whole.
+    """
+
+    from botocore import exceptions as boto_errors
+    from botocore.awsrequest import AWSResponse
+
+    http = guarded_client(
+        timeout=httpx.Timeout(120.0, connect=CONNECT_TIMEOUT_S),
+        follow_redirects=False,
+        max_bytes=max_bytes,
+        deadline_s=None,  # an object download may take long; the read timeout still holds
+    )
+
+    def send(request: Any, event_name: str = "", **_: Any) -> Any:
+        cap = max_bytes if event_name.endswith(".GetObject") else S3_RESPONSE_MAX_BYTES
+        body = request.body
+        if hasattr(body, "read"):
+            body = body.read()
+        outgoing = http.build_request(
+            request.method,
+            request.url,
+            headers=list(request.headers.items()),
+            content=body if body else None,
+            extensions={MAX_BYTES_EXTENSION: cap},
+        )
+        try:
+            response = http.send(outgoing, stream=True)
+        except httpx.ConnectTimeout as exc:
+            raise boto_errors.ConnectTimeoutError(endpoint_url=request.url, error=exc) from exc
+        except httpx.TimeoutException as exc:
+            raise boto_errors.ReadTimeoutError(endpoint_url=request.url, error=exc) from exc
+        except httpx.ConnectError as exc:
+            raise boto_errors.EndpointConnectionError(endpoint_url=request.url, error=exc) from exc
+        except httpx.HTTPError as exc:
+            raise boto_errors.HTTPClientError(error=exc) from exc
+        return AWSResponse(request.url, response.status_code, response.headers, _RawBody(response))
+
+    client.meta.events.register("before-send", send)
+    return client

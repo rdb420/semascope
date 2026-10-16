@@ -6,6 +6,8 @@ import os
 
 import httpx
 
+from oss_pipeline.connectors.guard import service_client
+
 
 class OpenAICompatibleEmbedder:
     name = "openai"
@@ -26,7 +28,7 @@ class OpenAICompatibleEmbedder:
         if not base:
             raise ValueError("SEMASCOPE_EMBED_BASE_URL is not set")
         headers = {"Authorization": f"Bearer {key}"} if key else {}
-        self._client = httpx.Client(
+        self._client = service_client(
             base_url=base.rstrip("/"), headers=headers, timeout=300.0, transport=transport
         )
 
