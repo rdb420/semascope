@@ -298,7 +298,6 @@ def run_cq_tests(pack_dir: Path) -> dict[str, Any]:
     return run_competency_questions(pack_dir)
 
 
-@transaction.atomic
 def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -> Pack:
     """Validate and import a bundle directory; returns the Pack row. Raises on structural errors.
 
@@ -306,6 +305,11 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
     re-derives the vocabulary, for example after an importer change. `force`
     also accepts files that differ from release-manifest.json (a warning, not
     an error).
+
+    The vocabulary is derived and tested, and the triple store loaded, before the
+    database transaction that records the version, so a slow load never holds a
+    transaction open and a failed one leaves the database as it was (a retry
+    replaces the version's named graph).
     """
 
     pack_dir = pack_dir.resolve()
@@ -322,10 +326,10 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
     if existing is not None and unchanged and not force:
         log.info("pack %s@%s unchanged; skipping import", info.id, info.version)
         if activate and existing.status != Pack.Status.ACTIVE:
-            activate_pack(existing)
+            with transaction.atomic():
+                activate_pack(existing)
         return existing
 
-    triple_count = store.load_bundle(info.rdf, info.id, info.version)
     rows = derive(pack_dir, info)
     cq = run_cq_tests(pack_dir)
     requirements = (
@@ -337,6 +341,25 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
     sources = (yaml.safe_load((pack_dir / "sources.yaml").read_text(encoding="utf-8")) or {}).get(
         "sources"
     ) or []
+    triple_count = store.load_bundle(info.rdf, info.id, info.version)
+    with transaction.atomic():
+        pack = _record(info, pack_dir, rows, cq, requirements, decisions, sources, triple_count)
+        if activate:
+            activate_pack(pack)
+    return pack
+
+
+def _record(
+    info: PackInfo,
+    pack_dir: Path,
+    rows: list[dict[str, Any]],
+    cq: dict[str, Any],
+    requirements: dict[str, Any],
+    decisions: list[Any],
+    sources: list[Any],
+    triple_count: int,
+) -> Pack:
+    """The Pack row and its Concept rows (inside the caller's transaction)."""
 
     pack, _ = Pack.objects.update_or_create(
         pack_id=info.id,
@@ -363,8 +386,6 @@ def import_pack(pack_dir: Path, *, activate: bool = True, force: bool = False) -
     )
     pack.concepts.all().delete()
     Concept.objects.bulk_create([Concept(pack=pack, **row) for row in rows], batch_size=500)
-    if activate:
-        activate_pack(pack)
     return pack
 
 

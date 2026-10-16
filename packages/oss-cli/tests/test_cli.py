@@ -81,7 +81,10 @@ def test_demo_only_limits_the_corpus(monkeypatch: pytest.MonkeyPatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/knowledge/packs/import"):
-            return httpx.Response(200, json={"pack_id": "demo", "version": "1", "status": "ok"})
+            return httpx.Response(202, json={"id": 1, "status": "queued"})
+        if path.endswith("/knowledge/pack-jobs/1"):
+            result = {"pack_id": "demo", "version": "1", "status": "active"}
+            return httpx.Response(200, json={"id": 1, "status": "done", "result": result})
         if path.endswith("/collections/demo"):
             return httpx.Response(200, json={"slug": "demo"})
         if path.endswith("/collections/demo/sources") and request.method == "GET":

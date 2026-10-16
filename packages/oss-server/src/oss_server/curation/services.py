@@ -509,3 +509,62 @@ def _candidates(tag: dict[str, Any]) -> list[dict[str, str]]:
                 if all(o["iri"] != c.iri for o in out):
                     out.append({"iri": c.iri, "label": c.pref_label, "type": c.type_label})
     return out[:5]
+
+
+def settle_reviews(
+    document: Document, iri: str, decision: str, *, note: str, user: Any, proposal: Proposal
+) -> int:
+    """Close the open or deferred review items on a tag a direct decision settled; each keeps
+    the decision in its history. Returns how many were closed."""
+
+    from oss_server.curation.models import ReviewDecision
+
+    user = user if getattr(user, "is_authenticated", False) else None
+    status = Review.Status.ACCEPTED if decision == "accept" else Review.Status.REJECTED
+    closed = 0
+    for r in Review.objects.filter(
+        document=document,
+        target=iri,
+        status__in=(Review.Status.OPEN, Review.Status.DEFERRED),
+    ):
+        r.status, r.decided_by, r.decided_at, r.note = status, user, timezone.now(), note
+        r.save(update_fields=["status", "decided_by", "decided_at", "note"])
+        ReviewDecision.objects.create(
+            review=r, decision=decision, note=note, decided_by=user, proposal=proposal
+        )
+        closed += 1
+    return closed
+
+
+def decide_document_tag(
+    document: Document,
+    iri: str,
+    decision: str,
+    *,
+    label: str = "",
+    kind: str = "concept",
+    reason: str = "",
+    user: Any = None,
+) -> Proposal:
+    """A curator's accept or reject of one tag on one document: accept or add, reject or
+    remove (whether the document carries the tag decides which), and the review items on
+    the tag settled."""
+
+    present = any(t.get("iri") == iri for t in document.tags)
+    if decision == "accept":
+        kind_of = Proposal.Kind.ACCEPT_TAG if present else Proposal.Kind.ADD_TAG
+    elif decision == "reject":
+        kind_of = Proposal.Kind.REJECT_TAG if present else Proposal.Kind.REMOVE_TAG
+    else:
+        raise ValueError("decision must be accept or reject")
+    p = propose(
+        document.collection,
+        kind_of,
+        iri,
+        params={"label": label, "kind": kind},
+        reason=reason,
+        document=document,
+        user=user,
+    )
+    settle_reviews(document, iri, decision, note=reason, user=user, proposal=p)
+    return p

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -17,17 +18,12 @@ from oss_core.pack import load_pack
 from oss_pipeline.clients.solr import quote_term
 from oss_server.api.access import check, read_scope
 from oss_server.knowledge import store
-from oss_server.knowledge.importer import (
-    activate_pack,
-    concept_paths,
-    derive,
-    hierarchy,
-    import_pack,
-)
-from oss_server.knowledge.models import Concept, Pack, PackDelta
-from oss_server.knowledge.upgrade import collections_using, concept_row, upgrade_plan
+from oss_server.knowledge.importer import concept_paths, derive, hierarchy
+from oss_server.knowledge.models import Concept, Pack, PackDelta, PackJob
+from oss_server.knowledge.upgrade import concept_row, upgrade_plan
 
 router = Router(tags=["knowledge"])
+log = logging.getLogger(__name__)
 
 
 class PackOut(Schema):
@@ -77,8 +73,22 @@ class ConceptOut(Schema):
     pack_version: str
 
 
-class ActivationOut(PackOut):
-    plan: dict[str, Any] | None = None
+class PackJobOut(Schema):
+    """A pack import or activation running in a worker; follow it at `/pack-jobs/{pack_job_id}`."""
+
+    id: int
+    kind: str
+    status: str
+    pack_id: str
+    version: str
+    params: dict[str, Any]
+    plan: dict[str, Any] | None
+    result: dict[str, Any]
+    error: str
+    created_by: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
 
 
 class PlanRequiredOut(Schema):
@@ -91,6 +101,22 @@ class ImportIn(Schema):
     activate: bool = True
     reindex: bool = True
     force: bool = False
+    confirm: bool = False
+
+
+class ListImportIn(Schema):
+    """A plain list of names as a pack: one line per concept, `Label | other name | …`."""
+
+    pack_id: str
+    version: str = "1.0.0"
+    title: str = ""
+    scheme: str = ""
+    text: str
+    lang: str = "en"
+    licence: str = ""
+    source: str = ""
+    activate: bool = True
+    reindex: bool = True
     confirm: bool = False
 
 
@@ -198,32 +224,144 @@ def _plan_required(plan: dict[str, Any]) -> tuple[int, PlanRequiredOut]:
     )
 
 
-@router.post("/packs/import", response={201: ActivationOut, 409: PlanRequiredOut})
+def _job_out(j: PackJob) -> PackJobOut:
+    return PackJobOut(
+        id=j.id,
+        kind=j.kind,
+        status=j.status,
+        pack_id=j.pack_id,
+        version=j.version,
+        params=j.params,
+        plan=j.plan,
+        result=j.result,
+        error=j.error,
+        created_by=getattr(j.created_by, "username", None),
+        created_at=j.created_at,
+        started_at=j.started_at,
+        finished_at=j.finished_at,
+    )
+
+
+def _bundle_identity(path: Path) -> tuple[str, str]:
+    """The pack id and version a bundle declares (requirements.yaml), without validating it."""
+
+    import yaml
+
+    try:
+        req = yaml.safe_load((path / "requirements.yaml").read_text(encoding="utf-8")) or {}
+        onto = req.get("ontology") or {}
+        return str(onto.get("id") or path.name), str(onto.get("version") or "")
+    except (OSError, yaml.YAMLError, AttributeError) as exc:
+        raise HttpError(422, f"requirements.yaml is unreadable: {exc}") from exc
+
+
+def _queue_job(
+    request: HttpRequest,
+    kind: str,
+    pack_id: str,
+    version: str,
+    params: dict[str, Any],
+    plan: dict[str, Any] | None,
+) -> PackJob:
+    """Record a pack job and hand it to a worker; one job per pack at a time (409)."""
+
+    from oss_server.knowledge.jobs import busy
+    from oss_server.knowledge.tasks import run_pack_job
+
+    running = busy(pack_id)
+    if running is not None:
+        raise HttpError(409, f"pack job {running.pk} on {pack_id} is still {running.status}")
+    job = PackJob.objects.create(
+        kind=kind,
+        pack_id=pack_id,
+        version=version,
+        params=params,
+        plan=plan,
+        created_by=_user_or_none(request),
+    )
+    run_pack_job.delay(job.pk)
+    return job
+
+
+def _import(request: HttpRequest, path: Path, payload: ImportIn | ListImportIn) -> tuple[int, Any]:
+    """The plan check (409 until confirmed), then the import as a job (202)."""
+
+    force = bool(getattr(payload, "force", False))
+    plan: dict[str, Any] | None = None
+    if payload.activate:
+        plan = _candidate_plan(path, force)
+        if plan["requires_confirmation"] and not payload.confirm:
+            return _plan_required(plan)
+    pack_id, version = _bundle_identity(path)
+    params = {
+        "path": str(path),
+        "activate": payload.activate,
+        "reindex": payload.reindex,
+        "force": force,
+    }
+    return 202, _job_out(_queue_job(request, PackJob.Kind.IMPORT, pack_id, version, params, plan))
+
+
+@router.post("/packs/import", response={202: PackJobOut, 409: PlanRequiredOut})
 def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Any]:
     """Import a bundle directory. The path must be under the import folder or the shipped packs.
 
     When `activate` would replace an active version of the pack (a new version, or
     changed content under the same version), the answer is 409 with the diff and
-    reindex plan unless `confirm` is true.
+    reindex plan unless `confirm` is true. Otherwise the import runs as a job in a
+    worker (loading the triple store, deriving the vocabulary, running the competency
+    questions, syncing the dictionary and queuing the reindex): the answer is 202
+    with the job, which `GET /pack-jobs/{id}` follows to `done` or `failed`.
     """
 
-    from oss_server.services import sync_dictionary
+    check(request, "editor")
+    return _import(request, _import_path(payload.path), payload)
+
+
+@router.post("/packs/import-list", response={202: PackJobOut, 409: PlanRequiredOut})
+def import_list(request: HttpRequest, payload: ListImportIn) -> tuple[int, Any]:
+    """Import a plain list of names as a pack (editor): one SKOS concept per line, the first
+    name its preferred label and the others (after `|`) alternative labels. The list is
+    written as a bundle on the data volume and imported like any pack: the same plan,
+    confirmation and job."""
+
+    from oss_server.knowledge.listpack import ListError, write_list_bundle
 
     check(request, "editor")
-    path = _import_path(payload.path)
-    plan: dict[str, Any] | None = None
-    if payload.activate:
-        plan = _candidate_plan(path, payload.force)
-        if plan["requires_confirmation"] and not payload.confirm:
-            return _plan_required(plan)
     try:
-        pack = import_pack(path, activate=payload.activate, force=payload.force)
-    except ValueError as exc:
+        path = write_list_bundle(
+            pack_id=payload.pack_id,
+            version=payload.version,
+            title=payload.title,
+            scheme=payload.scheme,
+            text=payload.text,
+            lang=payload.lang,
+            licence=payload.licence,
+            source=payload.source,
+        )
+    except ListError as exc:
         raise HttpError(422, str(exc)) from exc
-    sync_dictionary(pack.pack_id, pack.version)
-    if payload.activate and payload.reindex:
-        _reindex_collections_using(pack.pack_id)
-    return 201, ActivationOut(**_pack_out(pack).model_dump(), plan=plan)
+    return _import(request, path, payload)
+
+
+@router.get("/pack-jobs", response=list[PackJobOut])
+def list_pack_jobs(
+    request: HttpRequest, pack_id: str | None = None, limit: int = 20
+) -> list[PackJobOut]:
+    """Pack imports and activations, newest first (editor)."""
+
+    check(request, "editor")
+    qs = PackJob.objects.select_related("created_by")
+    if pack_id:
+        qs = qs.filter(pack_id=pack_id)
+    return [_job_out(j) for j in qs[: min(max(limit, 1), 200)]]
+
+
+@router.get("/pack-jobs/{pack_job_id}", response=PackJobOut)
+def get_pack_job(request: HttpRequest, pack_job_id: int) -> PackJobOut:
+    check(request, "editor")
+    job = get_object_or_404(PackJob.objects.select_related("created_by"), pk=pack_job_id)
+    return _job_out(job)
 
 
 @router.post("/packs/diff", response=dict[str, Any])
@@ -232,17 +370,6 @@ def diff_bundle(request: HttpRequest, payload: DiffIn) -> dict[str, Any]:
 
     check(request, "editor")
     return _candidate_plan(_import_path(payload.path), payload.force)
-
-
-def _reindex_collections_using(pack_id: str) -> int:
-    """Queue a reindex of every collection that tags with this pack (bound, or unbound = all)."""
-
-    from oss_server.pipeline.tasks import reindex_collection
-
-    slugs = collections_using(pack_id)
-    for slug in slugs:
-        reindex_collection.delay(slug)
-    return len(slugs)
 
 
 @router.get("/packs/{pack_id}", response=PackDetailOut)
@@ -275,15 +402,13 @@ def diff_version(request: HttpRequest, pack_id: str, version: str) -> dict[str, 
     return upgrade_plan(p.pack_id, p.version, rows, p.manifest_hash)
 
 
-@router.post("/packs/{pack_id}/activate", response={200: ActivationOut, 409: PlanRequiredOut})
+@router.post("/packs/{pack_id}/activate", response={202: PackJobOut, 409: PlanRequiredOut})
 def activate(
-    request: HttpRequest, pack_id: str, version: str, confirm: bool = False
+    request: HttpRequest, pack_id: str, version: str, confirm: bool = False, reindex: bool = True
 ) -> tuple[int, Any]:
-    """Make an imported version the active one (upgrade or roll back), then re-sync the
-    dictionary and queue a reindex. Replacing another active version answers 409 with
-    the diff and reindex plan unless `confirm` is true."""
-
-    from oss_server.services import sync_dictionary
+    """Make an imported version the active one (upgrade or roll back). Replacing another
+    active version answers 409 with the diff and reindex plan unless `confirm` is true.
+    The activation, the dictionary sync and the reindex run as a job (202)."""
 
     check(request, "editor")
     p = get_object_or_404(Pack, pack_id=pack_id, version=version)
@@ -292,10 +417,10 @@ def activate(
     )
     if plan["requires_confirmation"] and not confirm:
         return _plan_required(plan)
-    activate_pack(p)
-    sync_dictionary(p.pack_id, p.version)
-    _reindex_collections_using(p.pack_id)
-    return 200, ActivationOut(**_pack_out(p).model_dump(), plan=plan)
+    params = {"version": p.version, "reindex": reindex}
+    return 202, _job_out(
+        _queue_job(request, PackJob.Kind.ACTIVATE, p.pack_id, p.version, params, plan)
+    )
 
 
 @router.delete("/packs/{pack_id}/versions/{version}", response=RemovedOut)
@@ -408,8 +533,12 @@ def places(request: HttpRequest, collection: str | None = None) -> list[dict[str
     rows = [
         c
         for c in Concept.objects.filter(
-            pack__status=Pack.Status.ACTIVE, kind=Concept.Kind.INDIVIDUAL
+            pack__status=Pack.Status.ACTIVE,
+            kind=Concept.Kind.INDIVIDUAL,
+            extra__has_key="lat",
         )
+        .filter(extra__has_key="lon")
+        .only("iri", "pref_label", "type_label", "extra")
         if c.extra.get("lat") is not None and c.extra.get("lon") is not None
     ]
     if not rows:
@@ -541,6 +670,7 @@ def create_delta(request: HttpRequest, pack_id: str, payload: DeltaIn) -> tuple[
     missing = [k for k in required if not payload.params.get(k)]
     if missing:
         raise HttpError(422, f"params missing {missing}")
+    _check_delta_params(payload.params)
     if (
         "iri" in payload.params
         and not Concept.objects.filter(pack=pack, iri=payload.params["iri"]).exists()
@@ -560,16 +690,38 @@ def create_delta(request: HttpRequest, pack_id: str, payload: DeltaIn) -> tuple[
     return 201, _delta_out(delta)
 
 
+def _check_delta_params(params: dict[str, Any]) -> None:
+    """Values that end up in the exported Turtle or the dictionary: well-formed or refused."""
+
+    from oss_server.knowledge.deltas import valid_iri, valid_lang
+
+    for key in ("label", "text", "definition", "reason"):
+        if key in params and (not isinstance(params[key], str) or len(params[key]) > 4000):
+            raise HttpError(422, f"{key} must be text of at most 4000 characters")
+    if "label" in params and len(str(params["label"]).strip()) < 2:
+        raise HttpError(422, "label must be at least two characters")
+    for key in ("iri", "broader"):
+        if params.get(key) and not valid_iri(params[key]):
+            raise HttpError(422, f"{key} must be an absolute IRI")
+    if params.get("lang") and not valid_lang(params["lang"]):
+        raise HttpError(422, "lang must be a language tag such as en or pt-BR")
+    if params.get("label_type", "alt") not in ("alt", "hidden"):
+        raise HttpError(422, "label_type must be alt or hidden")
+
+
 def _user_or_none(request: HttpRequest) -> Any:
     user = getattr(request, "user", None)
     return user if user is not None and getattr(user, "is_authenticated", False) else None
 
 
 def _apply_draft_label(pack: Pack, collection_slug: str, params: dict[str, Any]) -> None:
-    """A proposed label tags the proposing collection at once, as a draft dictionary entry
-    scoped to that collection (`collection_scope`); `sync_dictionary` rebuilds it."""
+    """A proposed label becomes a draft dictionary entry scoped to the proposing collection
+    (`collection_scope`; `sync_dictionary` rebuilds it), and the collection's documents
+    that contain it are queued for the tag stage, so they are tagged with it once that
+    replay has run (SEMA-024); documents indexed later are tagged as they are processed."""
 
     from oss_server.knowledge.importer import draft_entry
+    from oss_server.knowledge.tasks import retag_label
     from oss_server.services import solr_client, solr_entities_collection
 
     c = Concept.objects.get(pack=pack, iri=params["iri"])
@@ -577,6 +729,11 @@ def _apply_draft_label(pack: Pack, collection_slug: str, params: dict[str, Any])
         return
     entry = draft_entry(pack, c, collection_slug, params)
     solr_client().add(solr_entities_collection(), [entry], commit_within_ms=1000)
+    # after the entry is visible to the Tagger (commitWithin above)
+    try:
+        retag_label.apply_async((collection_slug, str(params["label"])), countdown=5)
+    except Exception:  # noqa: BLE001 - the label is recorded; a reindex tags with it too
+        log.exception("could not queue the retag for a new label in %s", collection_slug)
 
 
 def _draft_deltas(request: HttpRequest, pack_id: str) -> tuple[Pack, list[PackDelta]]:

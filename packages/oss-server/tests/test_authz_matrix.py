@@ -37,8 +37,15 @@ from oss_server.catalogue.models import (
     SavedSearch,
     Source,
 )
-from oss_server.curation.models import Annotation, Event, Proposal, Review, Webhook
-from oss_server.knowledge.models import Concept, Pack, PackDelta
+from oss_server.curation.models import (
+    Annotation,
+    BulkTagJob,
+    Event,
+    Proposal,
+    Review,
+    Webhook,
+)
+from oss_server.knowledge.models import Concept, Pack, PackDelta, PackJob
 
 USERS = ("anonymous", "other", "reader", "curator", "editor", "admin")
 ROLE_ORDER = ("reader", "curator", "editor", "admin")
@@ -106,8 +113,13 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("POST", "/api/knowledge/packs/import"): Rule(("editor", None), 422, json={"path": "/nowhere"}),
     ("GET", "/api/knowledge/packs/{pack_id}"): Rule("auth", 200),
     ("POST", "/api/knowledge/packs/{pack_id}/activate"): Rule(
-        ("editor", None), 200, query="version=1"
+        ("editor", None), 202, query="version=1"
     ),
+    ("POST", "/api/knowledge/packs/import-list"): Rule(
+        ("editor", None), 202, json={"pack_id": "names", "text": "Alpha | A\nBeta"}
+    ),
+    ("GET", "/api/knowledge/pack-jobs"): Rule(("editor", None), 200),
+    ("GET", "/api/knowledge/pack-jobs/{pack_job_id}"): Rule(("editor", None), 200),
     ("POST", "/api/knowledge/packs/diff"): Rule(("editor", None), 422, json={"path": "/nowhere"}),
     ("GET", "/api/knowledge/packs/{pack_id}/diff"): Rule(("editor", None), 200, query="version=0"),
     ("DELETE", "/api/knowledge/packs/{pack_id}/versions/{version}"): Rule(("admin", None), 200),
@@ -158,6 +170,13 @@ TABLE: dict[tuple[str, str], Rule] = {
         ("curator", "a"), 201, json={"text": "note"}
     ),
     ("DELETE", "/api/curation/annotations/{annotation_id}"): Rule(("curator", "a"), 204),
+    ("POST", "/api/curation/bulk-tags"): Rule(
+        ("curator", "a"),
+        202,
+        json={"collection": "a", "q": "x", "iri": CONCEPT_IRI, "decision": "accept"},
+    ),
+    ("GET", "/api/curation/bulk-tags"): Rule(("reader", "a"), 200, query="collection=a"),
+    ("GET", "/api/curation/bulk-tags/{bulk_job_id}"): Rule(("reader", "a"), 200),
     ("GET", "/api/curation/proposals"): Rule(("reader", "a"), 200, query="collection=a"),
     ("GET", "/api/curation/events"): Rule(("reader", "a"), 200, query="collection=a"),
     ("GET", "/api/curation/webhooks"): Rule("staff", 200),
@@ -281,6 +300,12 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(curation_services, "apply_proposal", lambda *a, **k: None)
     for name in ("reindex_collection", "discover_source", "process_document", "reindex_document"):
         monkeypatch.setattr(getattr(tasks, name), "delay", lambda *a, **k: FakeResult())
+    from oss_server.curation import tasks as curation_tasks
+    from oss_server.knowledge import tasks as knowledge_tasks
+
+    monkeypatch.setattr(knowledge_tasks.run_pack_job, "delay", lambda *a, **k: FakeResult())
+    monkeypatch.setattr(knowledge_tasks.retag_label, "apply_async", lambda *a, **k: FakeResult())
+    monkeypatch.setattr(curation_tasks.run_bulk_tag_job, "delay", lambda *a, **k: FakeResult())
 
 
 def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
@@ -361,6 +386,8 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     )
     Event.objects.create(kind="proposal.created", collection="a")
     webhook = Webhook.objects.create(url="https://example.org/hook")
+    pack_job = PackJob.objects.create(kind="import", pack_id="p", version="1", status="done")
+    bulk_job = BulkTagJob.objects.create(collection=a, iri=CONCEPT_IRI, decision="accept")
     return {
         "users": users,
         "ids": {
@@ -373,6 +400,8 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             "review_id": review.id,
             "annotation_id": annotation.id,
             "webhook_id": webhook.id,
+            "pack_job_id": pack_job.id,
+            "bulk_job_id": bulk_job.id,
         },
         "imports": imports,
     }

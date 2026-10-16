@@ -59,6 +59,7 @@ PACK = {
     "counts": {"terms": 9},
     "cq_results": {},
 }
+JOB = {"id": 3, "kind": "import", "status": "queued", "pack_id": "demo", "version": "0.2.0"}
 
 
 def _mock(monkeypatch: pytest.MonkeyPatch, calls: list[httpx.Request]) -> None:
@@ -73,8 +74,10 @@ def _mock(monkeypatch: pytest.MonkeyPatch, calls: list[httpx.Request]) -> None:
         if path.endswith("/knowledge/packs/import") or path.endswith("/activate"):
             if not confirmed:
                 return httpx.Response(409, json={"detail": "review the plan", "plan": PLAN})
-            code = 201 if path.endswith("import") else 200
-            return httpx.Response(code, json={**PACK, "plan": PLAN})
+            kind = "import" if path.endswith("import") else "activate"
+            return httpx.Response(202, json={**JOB, "kind": kind, "plan": PLAN})
+        if path.endswith(f"/knowledge/pack-jobs/{JOB['id']}"):
+            return httpx.Response(200, json={**JOB, "status": "done", "result": PACK})
         if request.method == "DELETE":
             return httpx.Response(
                 200,
@@ -116,7 +119,9 @@ def test_import_and_activate_stop_at_the_plan_without_yes(
     assert "removed concept Islam" in refused.output
     done = runner.invoke(app, ["pack", "import", str(tmp_path), "--yes"])
     assert done.exit_code == 0, done.output
-    assert json.loads(calls[-1].content)["confirm"] is True and "imported demo@0.2.0" in done.output
+    posted = next(c for c in reversed(calls) if c.method == "POST")
+    assert json.loads(posted.content)["confirm"] is True and "imported demo@0.2.0" in done.output
+    assert calls[-1].url.path == "/api/knowledge/pack-jobs/3", "the command follows the job"
     refused = runner.invoke(app, ["pack", "activate", "demo", "--version", "0.1.0"])
     assert refused.exit_code == 1 and "rerun with --yes" in refused.output
     done = runner.invoke(app, ["pack", "activate", "demo", "--version", "0.1.0", "--yes"])
@@ -151,3 +156,42 @@ def test_pack_validate_runs_questions_and_checks_the_manifest(tmp_path: Path) ->
     manifest.write_text(manifest.read_text().replace("value: 4", "value: 400"))
     failed = runner.invoke(app, ["pack", "validate", str(pack), "--force"])
     assert failed.exit_code == 1 and "fail CQ-003" in failed.output
+
+
+def test_a_failed_pack_job_fails_the_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/knowledge/packs/import"):
+            return httpx.Response(202, json=JOB)
+        return httpx.Response(200, json={**JOB, "status": "failed", "error": "bad turtle"})
+
+    monkeypatch.setattr(
+        cli,
+        "_api",
+        lambda: httpx.Client(base_url="http://api/api", transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    result = runner.invoke(app, ["pack", "import", str(tmp_path), "--yes"])
+    assert result.exit_code == 1 and "bad turtle" in result.output
+
+
+def test_import_list_sends_the_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/knowledge/packs/import-list"):
+            sent.append(json.loads(request.content))
+            return httpx.Response(202, json=JOB)
+        return httpx.Response(200, json={**JOB, "status": "done", "result": PACK})
+
+    monkeypatch.setattr(
+        cli,
+        "_api",
+        lambda: httpx.Client(base_url="http://api/api", transport=httpx.MockTransport(handler)),
+    )
+    names = tmp_path / "names.txt"
+    names.write_text("Apple | Malus\nPear\n", encoding="utf-8")
+    result = runner.invoke(app, ["pack", "import-list", str(names), "--id", "fruit"])
+    assert result.exit_code == 0, result.output
+    assert sent[0]["pack_id"] == "fruit" and sent[0]["text"].startswith("Apple | Malus")

@@ -24,6 +24,9 @@
   <field name="case_sensitive" type="boolean" indexed="true" stored="true"/>
   <!-- Set on a curator's draft label only: the collection that proposed it, the only one it tags. -->
   <field name="collection_scope" type="string" indexed="true" stored="true" docValues="true"/>
+  <!-- The dictionary sync that wrote the entry: a sync adds its entries, then deletes the
+       pack version's entries of other syncs, so tagging never sees an empty dictionary. -->
+  <field name="sync" type="string" indexed="true" stored="true" docValues="true"/>
 
   <copyField source="label" dest="label_tag"/>
   <copyField source="label" dest="label_txt"/>
