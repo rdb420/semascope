@@ -34,7 +34,12 @@ def test_a_failed_solr_bootstrap_stops_the_server(monkeypatch: pytest.MonkeyPatc
     imported: list[str] = []
     monkeypatch.setattr(django.core.management, "call_command", lambda *a, **kw: None)
     monkeypatch.setattr(services, "bootstrap_solr", unreachable)
-    monkeypatch.setattr(services, "import_bundled_packs", lambda: imported.append("x") or [])
+
+    def import_bundled_packs() -> list[str]:
+        imported.append("x")
+        return []
+
+    monkeypatch.setattr(services, "import_bundled_packs", import_bundled_packs)
     with pytest.raises(SystemExit, match="Solr bootstrap failed: solr: 401 Unauthorized"):
         entry.prepare()
     assert imported == []
