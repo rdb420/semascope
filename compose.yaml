@@ -57,16 +57,18 @@ services:
       timeout: 5s
       retries: 12
 
+  # Worker processes and their memory cap follow `oss init --size` (small 1, medium 2, large 4
+  # processes); a .env written before those settings existed keeps the earlier two processes.
   worker:
     <<: *app
-    command: oss-worker --queues io,cpu,ocr,nlp,graph
+    command: oss-worker --queues io,cpu,ocr,nlp,graph --concurrency ${SEMASCOPE_WORKER_CONCURRENCY:-2}
     volumes:
       - blobs:/data
       - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro
     deploy:
       resources:
         limits:
-          memory: 4g
+          memory: ${SEMASCOPE_WORKER_MEMORY:-4g}
 
   beat:
     <<: *app

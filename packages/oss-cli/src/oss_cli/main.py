@@ -84,6 +84,8 @@ def init(
         f"SOLR_HEAP={heaps[size]}",
         f"NEO4J_HEAP={heaps[size]}",
         f"TIKA_HEAP={heaps[size]}",
+        f"SEMASCOPE_WORKER_CONCURRENCY={WORKERS[size][0]}",
+        f"SEMASCOPE_WORKER_MEMORY={WORKERS[size][1]}",
         f"SEMASCOPE_RUNTIME={runtime}",
         f"SEMASCOPE_EMBEDDER={providers['embed']}",
         f"SEMASCOPE_EMBED_MODEL={model}",
@@ -106,6 +108,12 @@ def init(
         f"extract={providers['extract']}"
     )
 
+
+# Worker processes and the worker's memory cap per size. Each pool process loads its own spaCy
+# and embedding models; on the CPU runtime one grew to about 2.2 GB resident over 1,000 mixed
+# documents (docs/quality.md, 2026-10-16), and two processes reached a 4 GB cap. So 1 process
+# with 4 GB for a 2-core laptop, 2 with 6 GB for a 4 to 8 core server, 4 with 12 GB for 8+.
+WORKERS = {"small": (1, "4g"), "medium": (2, "6g"), "large": (4, "12g")}
 
 RUNTIME_DEFAULTS = {
     "cpu": {"embed": "fastembed", "ner": "spacy", "extract": "tika"},
