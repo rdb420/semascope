@@ -135,29 +135,33 @@ def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
 
 
 SECRET_SETTING_WORDS = ("secret", "password", "token", "api_key", "apikey", "credential")
+# account identifiers (an S3 access key id, a user name): shown to editors, who manage sources
+IDENTIFIER_SETTING_WORDS = ("access_key", "accesskey", "username", "user_name", "login")
 
 
-def redact_settings(settings: dict[str, Any]) -> dict[str, Any]:
-    """Source settings with credential values masked: they are written, never read back."""
+def redact_settings(settings: dict[str, Any], *, editor: bool = False) -> dict[str, Any]:
+    """Source settings with credential values masked: they are written, never read back.
+    Account identifiers are masked too unless the caller is an editor of the collection."""
 
+    masked = SECRET_SETTING_WORDS + (() if editor else IDENTIFIER_SETTING_WORDS)
     out: dict[str, Any] = {}
     for key, value in settings.items():
-        if any(word in key.lower() for word in SECRET_SETTING_WORDS) and value:
+        if any(word in key.lower() for word in masked) and value:
             out[key] = "********"
         elif isinstance(value, dict):
-            out[key] = redact_settings(value)
+            out[key] = redact_settings(value, editor=editor)
         else:
             out[key] = value
     return out
 
 
-def _source_out(s: Source) -> SourceOut:
+def _source_out(s: Source, *, editor: bool = False) -> SourceOut:
     return SourceOut(
         id=s.id,
         collection=s.collection.slug,
         name=s.name,
         connector=s.connector,
-        settings=redact_settings(s.settings),
+        settings=redact_settings(s.settings, editor=editor),
         enabled=s.enabled,
         schedule=s.schedule,
         status=s.status,
@@ -169,10 +173,14 @@ def _source_out(s: Source) -> SourceOut:
 
 @api.get("/collections/{slug}/sources", response=list[SourceOut], tags=["sources"])
 def list_sources(request: HttpRequest, slug: str) -> list[SourceOut]:
+    from oss_server.api.access import ROLES, role_for
+
     c = get_object_or_404(Collection, slug=slug)
     check(request, "reader", slug)
+    role = role_for(getattr(request, "user", None), slug)
+    editor = bool(role) and ROLES.index(role) >= ROLES.index("editor")
     return [
-        _source_out(s)
+        _source_out(s, editor=editor)
         for s in c.sources.select_related("collection").annotate(document_count=Count("documents"))
     ]
 
@@ -205,7 +213,7 @@ def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[i
     )
     if not created:
         raise HttpError(409, f"source {payload.name} exists in {slug}")
-    return 201, _source_out(s)
+    return 201, _source_out(s, editor=True)
 
 
 @api.post("/sources/{source_id}/run", response={202: RunOut}, tags=["sources"])

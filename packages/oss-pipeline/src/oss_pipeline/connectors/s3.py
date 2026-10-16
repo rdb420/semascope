@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
-from oss_pipeline.connectors.guard import refuse_private
+from oss_pipeline.connectors.guard import byte_cap, refuse_private
 
 CONNECTION_KEYS = ("endpoint_url", "region")  # what an item may carry; never credentials
 
@@ -66,7 +66,7 @@ class S3Connector:
         prefix = str(settings.get("prefix") or "")
         include = list(settings.get("include") or ["*"])
         exclude = list(settings.get("exclude") or [])
-        max_bytes = int(settings.get("max_bytes", 512 * 1024 * 1024))
+        max_bytes = byte_cap(settings, 512 * 1024 * 1024)
         client = self._for(settings)
         paginator = client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):

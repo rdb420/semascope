@@ -25,6 +25,7 @@ from oss_core.pack import remote_contexts
 from oss_pipeline.connectors.guard import (
     DEFAULT_MAX_BYTES,
     SourceNotAllowed,
+    byte_cap,
     confine_path,
     confined_files,
     get_capped,
@@ -149,7 +150,7 @@ class RdfConnector:
                 settings.get("graph"),
                 types,
                 int(settings.get("limit", 100000)),
-                int(settings.get("max_bytes", 4 * DEFAULT_MAX_BYTES)),
+                byte_cap(settings, 4 * DEFAULT_MAX_BYTES),
             )
         else:
             from rdflib import Graph

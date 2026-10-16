@@ -284,7 +284,16 @@ def test_source_settings_never_echo_credentials(world: dict[str, Any], client: C
     out = client.get("/api/collections/c/sources", headers=_auth(staff)).json()[0]["settings"]
     masked = "********"
     assert out["secret_key"] == masked and out["nested"]["token"] == masked
-    assert out["bucket"] == "x"
+    assert out["bucket"] == "x" and out["access_key"] == "AKIA"  # editors see the key id
+
+    # a reader of the collection sees neither the secret nor the access key id
+    reader = User.objects.create_user("c-reader")
+    CollectionRole.objects.create(
+        user=reader, collection=Collection.objects.get(slug="c"), role="reader"
+    )
+    seen = client.get("/api/collections/c/sources", headers=_auth(reader)).json()[0]["settings"]
+    assert seen["secret_key"] == masked and seen["access_key"] == masked
+    assert seen["bucket"] == "x"
 
 
 def test_sources_outside_the_roots_are_refused(
