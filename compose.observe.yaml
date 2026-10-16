@@ -17,21 +17,21 @@ services:
       OTEL_METRICS_EXPORTER: otlp
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.118.0
+    image: otel/opentelemetry-collector-contrib:0.118.0@sha256:3f6274fe609da4f9964fbc2ef36b83d08d47964fbb11629251393590d3924072
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./deploy/observe/otel-collector.yaml:/etc/otelcol/config.yaml:ro
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:v3.2.1
+    image: prom/prometheus:v3.2.1@sha256:6927e0919a144aa7616fd0137d4816816d42f6b816de3af269ab065250859a62
     volumes:
       - ./deploy/observe/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - prometheus:/prometheus
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:11.5.2
+    image: grafana/grafana:11.5.2@sha256:8b37a2f028f164ce7b9889e1765b9d6ee23fec80f871d156fbf436d6198d32b7
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-semascope}
       GF_AUTH_ANONYMOUS_ENABLED: "false"

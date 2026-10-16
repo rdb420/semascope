@@ -1,8 +1,13 @@
 name: release
 
 # Builds the application image for amd64 and arm64 on every tag (v*) and on
-# main, pushes it to GHCR with a build provenance attestation, and publishes
-# the docs site. Users then never build locally: compose pulls the image.
+# main, pushes it to GHCR with a build provenance attestation and a keyless
+# Sigstore signature, and publishes the docs site. Users then never build
+# locally: compose pulls the image. To verify a pulled image:
+#
+#   cosign verify ghcr.io/rdb420/semascope@sha256:<digest> \
+#     --certificate-identity-regexp '^https://github.com/rdb420/semascope/\.github/workflows/release\.yml@' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 on:
   push:
@@ -59,6 +64,14 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      # Keyless signature: the workflow's OIDC identity (id-token: write) is the signer, recorded
+      # in the public Rekor log, so it is skipped for a private repository like the attestation.
+      - if: ${{ !github.event.repository.private }}
+        uses: sigstore/cosign-installer@v3
+      - if: ${{ !github.event.repository.private }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@${DIGEST}"
 
   # The GPU runtime image (amd64 only: CUDA wheels), built on top of the image above.
   image-gpu:
@@ -100,6 +113,12 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}-gpu
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      - if: ${{ !github.event.repository.private }}
+        uses: sigstore/cosign-installer@v3
+      - if: ${{ !github.event.repository.private }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}-gpu@${DIGEST}"
 
   docs:
     runs-on: ubuntu-24.04
