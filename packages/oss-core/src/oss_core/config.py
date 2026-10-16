@@ -44,7 +44,9 @@ class Settings(BaseSettings):
     semascope_https_port: int = 8443  # host port Caddy listens on (oss init --https-port)
     semascope_size: Literal["small", "medium", "large"] = "small"
     semascope_data_dir: Path = Path("./data")
-    semascope_secret_key: SecretStr = Field(default=SecretStr("change-me"))
+    # secrets have no usable default: empty until .env sets them (oss init generates them),
+    # and the server refuses to start without them outside debug mode
+    semascope_secret_key: SecretStr = Field(default=SecretStr(""))
     semascope_debug: bool = False
     semascope_admin_password: SecretStr | None = None
     semascope_api_token: SecretStr | None = None
@@ -71,17 +73,17 @@ class Settings(BaseSettings):
     semascope_oidc_default_role: str = "none"
 
     # Stores
-    database_url: str = "postgresql://semascope:change-me@localhost:5432/semascope"
+    database_url: str = "postgresql://semascope@localhost:5432/semascope"
     postgres_password: SecretStr | None = None  # compose builds DATABASE_URL from it
     valkey_url: str = "redis://localhost:6379/0"
     # Valkey's requirepass; added to VALKEY_URL when that URL carries no password
     valkey_password: SecretStr | None = None
     solr_url: str = "http://localhost:8983/solr"
     solr_user: str = "semascope"
-    solr_password: SecretStr = Field(default=SecretStr("change-me"))
+    solr_password: SecretStr = Field(default=SecretStr(""))
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: SecretStr = Field(default=SecretStr("change-me"))
+    neo4j_password: SecretStr = Field(default=SecretStr(""))
     tika_url: str = "http://localhost:9998"
 
     # Runtime: which models run where. `cpu` is the bundled default, `gpu` the same models on

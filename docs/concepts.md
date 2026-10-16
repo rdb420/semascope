@@ -191,7 +191,8 @@ and the application running.
 ## Operations profiles
 
 `compose.observe.yaml` adds an OpenTelemetry collector, Prometheus and
-Grafana (on `127.0.0.1:3000`); the server, the workers and beat export
+Grafana (on `127.0.0.1:3000`, user `admin`, password `GRAFANA_PASSWORD`
+from `.env`, which `oss init` generates; add one to an older `.env`); the server, the workers and beat export
 traces and metrics over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 The bundled collector logs traces (debug exporter) and sends metrics to
 Prometheus: request and HTTP client durations from the instrumentation,

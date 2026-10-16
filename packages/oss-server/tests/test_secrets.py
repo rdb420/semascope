@@ -109,3 +109,21 @@ def test_valkey_password_goes_into_the_broker_url() -> None:
 def test_placeholders() -> None:
     assert all(is_placeholder(v) for v in ("", " ", "change-me", "Change-Me-Please", "secret"))
     assert not is_placeholder(GOOD["SOLR_PASSWORD"])
+
+
+def test_no_secret_has_a_default() -> None:
+    import re
+
+    fields = Settings.model_fields
+    for name in ("semascope_secret_key", "solr_password", "neo4j_password"):
+        assert fields[name].default.get_secret_value() == "", name
+    for name in ("postgres_password", "valkey_password", "semascope_admin_password"):
+        assert fields[name].default is None, name
+    assert "change-me" not in fields["database_url"].default
+    repo = Path(__file__).resolve().parents[3]
+    for name in ("compose.yaml", "compose.observe.yaml", "compose.gpu.yaml", "compose.dev.yaml"):
+        text = (repo / name).read_text(encoding="utf-8")
+        # ${NAME:-value} or ${NAME-value} with a non-empty value, for a secret-looking name
+        for var, value in re.findall(r"\$\{([A-Z0-9_]+):?-([^}]*)\}", text):
+            if re.search(r"PASSWORD|SECRET|TOKEN|_KEY", var):
+                assert value == "", f"{name}: {var} defaults to {value!r}"

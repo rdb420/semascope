@@ -33,7 +33,7 @@ services:
   grafana:
     image: grafana/grafana:11.5.2@sha256:8b37a2f028f164ce7b9889e1765b9d6ee23fec80f871d156fbf436d6198d32b7
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-semascope}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is not set; oss init writes one}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     ports:
       - "127.0.0.1:3000:3000"

@@ -66,6 +66,7 @@ def test_init_force_rotates_secrets_and_keeps_every_other_setting(tmp_path: Path
         "VALKEY_PASSWORD",
         "SEMASCOPE_ADMIN_PASSWORD",
         "SEMASCOPE_API_TOKEN",
+        "GRAFANA_PASSWORD",
     ):
         assert after[key] and after[key] != before[key], key
     unchanged = {k: v for k, v in before.items() if k in after and after[k] == v}
@@ -78,6 +79,7 @@ def test_init_force_rotates_secrets_and_keeps_every_other_setting(tmp_path: Path
         "VALKEY_PASSWORD",
         "SEMASCOPE_ADMIN_PASSWORD",
         "SEMASCOPE_API_TOKEN",
+        "GRAFANA_PASSWORD",
     }
     assert after["SEMASCOPE_DEFAULT_ROLE"] == "reader"
     assert after["SEMASCOPE_SIZE"] == "large" and after["SOLR_HEAP"] == "4g"

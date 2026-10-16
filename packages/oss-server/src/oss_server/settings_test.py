@@ -4,5 +4,6 @@ import os
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["SEMASCOPE_DEBUG"] = "true"
+os.environ.setdefault("SEMASCOPE_SECRET_KEY", "unit-tests-only-not-a-secret")
 
 from oss_server.settings import *  # noqa: E402, F403

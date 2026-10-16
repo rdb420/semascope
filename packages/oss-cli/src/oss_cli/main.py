@@ -43,6 +43,7 @@ SECRET_KEYS = frozenset(
         "VALKEY_PASSWORD",
         "SEMASCOPE_ADMIN_PASSWORD",
         "SEMASCOPE_API_TOKEN",
+        "GRAFANA_PASSWORD",
     }
 )
 # The lines each init option writes: with --force they change only when the option is given.
@@ -172,6 +173,7 @@ def init(
         f"NEO4J_PASSWORD={secrets.token_urlsafe(24)}",
         f"SOLR_PASSWORD={secrets.token_urlsafe(24)}",
         f"VALKEY_PASSWORD={secrets.token_urlsafe(24)}",
+        f"GRAFANA_PASSWORD={secrets.token_urlsafe(18)}",
         f"SEMASCOPE_ADMIN_PASSWORD={secrets.token_urlsafe(18)}",
         f"SEMASCOPE_API_TOKEN=oss_{secrets.token_urlsafe(32)}",
         f"SEMASCOPE_IMPORT_DIR={import_dir}",
