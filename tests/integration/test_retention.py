@@ -56,9 +56,13 @@ def answer(fixtures: str, path: str, code: int) -> None:
 def run(api: httpx.Client, slug: str, source: dict[str, Any]) -> dict[str, Any]:
     """Start a run once the last one is over; the source when this one has finished."""
 
-    before = wait_for(
-        lambda: source_settled(api, slug, source["id"]), timeout=TIMEOUT, what="the last run"
-    )
+    def idle() -> dict[str, Any] | None:
+        for s in api.get(f"/collections/{slug}/sources").raise_for_status().json():
+            if s["id"] == source["id"] and s["status"] != "running":
+                return dict(s)
+        return None
+
+    before: dict[str, Any] = wait_for(idle, timeout=TIMEOUT, what="the last run")
     api.post(f"/sources/{source['id']}/run").raise_for_status()
     after: dict[str, Any] = wait_for(
         lambda: (
