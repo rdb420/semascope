@@ -82,13 +82,18 @@ with `scripts/bench_size.py` on a sample of your own documents.
 
 ## Authentication and access
 
-- **Local accounts.** `oss init` asks for the `admin` password. Passwords
-  are at least 12 characters.
+- **Local accounts.** `oss init` generates the `admin` password. Passwords
+  are at least 12 characters. There is no self-service sign-up: an
+  administrator creates local accounts (in the admin or with `oss-manage`).
 - **API tokens.** Bearer tokens (`oss_…`), stored hashed, created in the
   admin. `SEMASCOPE_API_TOKEN` in `.env` is the CLI's token.
 - **Single sign-on.** OpenID Connect when `SEMASCOPE_OIDC_SERVER_URL`,
   `SEMASCOPE_OIDC_CLIENT_ID` and `SEMASCOPE_OIDC_CLIENT_SECRET` are set.
-  New users get `SEMASCOPE_DEFAULT_ROLE`.
+  A first sign-in creates the account when `SEMASCOPE_OIDC_AUTO_SIGNUP` is
+  true (the default; set it to `false` to admit only accounts an
+  administrator created, matched by e-mail address). Accounts created that
+  way get `SEMASCOPE_OIDC_DEFAULT_ROLE` as a global role; the default `none`
+  writes no role, so they get `SEMASCOPE_DEFAULT_ROLE` like everyone else.
 - **Roles.** `reader`, `curator`, `editor`, `admin`, global or per
   collection, for reading and writing. With the default
   `SEMASCOPE_DEFAULT_ROLE=reader` every signed-in user can read every

@@ -69,6 +69,10 @@ if OIDC_ENABLED:
             ]
         }
     }
+    # local sign-up is closed; a first single sign-on creates the account only when
+    # SEMASCOPE_OIDC_AUTO_SIGNUP is true, with SEMASCOPE_OIDC_DEFAULT_ROLE (oss_server.signup)
+    ACCOUNT_ADAPTER = "oss_server.signup.ClosedSignupAccountAdapter"
+    SOCIALACCOUNT_ADAPTER = "oss_server.signup.SignOnAccountAdapter"
     SOCIALACCOUNT_AUTO_SIGNUP = True
     SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
     ACCOUNT_EMAIL_VERIFICATION = "none"

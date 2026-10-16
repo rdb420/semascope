@@ -24,6 +24,7 @@ services:
       SEMASCOPE_OIDC_SERVER_URL: http://fixtures:8000/oidc
       SEMASCOPE_OIDC_CLIENT_ID: semascope-it
       SEMASCOPE_OIDC_CLIENT_SECRET: semascope-it-oidc-secret
+      SEMASCOPE_OIDC_DEFAULT_ROLE: curator
 
   worker:
     environment:

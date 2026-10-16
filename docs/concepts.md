@@ -155,9 +155,19 @@ they hold no role on:
 An unknown value counts as `none`. Up to 1.0.0-rc.2 every signed-in user
 could read every collection whatever this setting said. Packs, concepts and
 the Reconciliation API are not collection data and are readable by every
-signed-in user (the Reconciliation API also anonymously, for OpenRefine). Local accounts always
-work; set the `SEMASCOPE_OIDC_*` variables to add single sign-on through
-OpenID Connect. Users who sign in that way get roles the same way.
+signed-in user (the Reconciliation API also anonymously, for OpenRefine).
+
+Nobody signs themselves up. Local accounts are created by an administrator
+(the Django admin or `oss-manage createsuperuser`) and always work; set the
+`SEMASCOPE_OIDC_*` variables to add single sign-on through OpenID Connect.
+Single sign-on creates an account on a user's first sign-in while
+`SEMASCOPE_OIDC_AUTO_SIGNUP` is true (the default); with `false`, only
+accounts an administrator created can sign in that way, matched by e-mail
+address. `SEMASCOPE_OIDC_DEFAULT_ROLE` is the global role those new
+accounts get: `none` (the default) gives them no role row, so they read what
+`SEMASCOPE_DEFAULT_ROLE` allows; `reader`, `curator`, `editor` or `admin`
+gives every new sign-on account that role on every collection. Roles are
+changed afterwards the same way as for any user.
 
 ## Backup and restore
 

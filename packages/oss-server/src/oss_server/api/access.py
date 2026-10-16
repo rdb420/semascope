@@ -131,3 +131,29 @@ def check(request: HttpRequest, role: str, collection_slug: str | None = None) -
         raise HttpError(
             403, f"{role} role required" + (f" on {collection_slug}" if collection_slug else "")
         )
+
+
+def sign_on_role() -> str:
+    """The global role an account created by single sign-on gets ('' for none)."""
+
+    value = (get_settings().semascope_oidc_default_role or "").strip().lower()
+    if value in ROLES:
+        return value
+    if value not in NO_ROLE:
+        log.warning("SEMASCOPE_OIDC_DEFAULT_ROLE=%r is not a role; treating it as none", value)
+    return ""
+
+
+def grant_sign_on_role(user: Any) -> str:
+    """Give a user just created by single sign-on `SEMASCOPE_OIDC_DEFAULT_ROLE` globally.
+
+    With `none` (the default) no row is written, so the user reads what
+    `SEMASCOPE_DEFAULT_ROLE` allows, like any other user without a role.
+    """
+
+    role = sign_on_role()
+    if role:
+        from oss_server.catalogue.models import CollectionRole
+
+        CollectionRole.objects.get_or_create(user=user, collection=None, defaults={"role": role})
+    return role

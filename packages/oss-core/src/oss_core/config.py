@@ -41,7 +41,12 @@ class Settings(BaseSettings):
     semascope_oidc_server_url: str = ""  # issuer, e.g. https://login.example.com/realms/x
     semascope_oidc_client_id: str = ""
     semascope_oidc_client_secret: SecretStr | None = None
-    semascope_oidc_default_role: str = "reader"
+    # a first sign-in through the provider creates the account (false: only accounts an
+    # administrator made can sign in that way); local sign-up is always closed
+    semascope_oidc_auto_signup: bool = True
+    # global role given to accounts created by single sign-on: none (the default: they get
+    # SEMASCOPE_DEFAULT_ROLE like everyone else), reader, curator, editor or admin
+    semascope_oidc_default_role: str = "none"
 
     # Stores
     database_url: str = "postgresql://semascope:change-me@localhost:5432/semascope"
