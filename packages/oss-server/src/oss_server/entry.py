@@ -18,32 +18,62 @@ def _django() -> None:
     _telemetry()
 
 
-def _telemetry() -> None:
-    """Export traces and metrics over OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set."""
+_TELEMETRY_STARTED = False
 
-    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
-        return
+
+def _telemetry(*, django: bool = True) -> bool:
+    """Export traces and metrics over OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+
+    Sets a tracer provider (spans in batches) and a meter provider (metrics every
+    `OTEL_METRIC_EXPORT_INTERVAL` ms, 60 s by default), both over OTLP/HTTP, then
+    instruments Celery and httpx, and Django in the web process. Runs once per
+    process; a Celery worker calls it in every pool process after the fork
+    (`worker_process_init`), because exporter threads do not survive a fork.
+    Returns whether telemetry was started.
+    """
+
+    global _TELEMETRY_STARTED
+    if _TELEMETRY_STARTED or not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return False
     try:
-        from opentelemetry import trace
+        from opentelemetry import metrics, trace
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.instrumentation.celery import CeleryInstrumentor
-        from opentelemetry.instrumentation.django import DjangoInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
     except ImportError:
         log.warning("OTEL endpoint set but the opentelemetry packages are not installed")
-        return
-    provider = TracerProvider(
-        resource=Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", "semascope")})
+        return False
+    resource = Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", "semascope")})
+    tracer_provider = TracerProvider(resource=resource)
+    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(tracer_provider)
+    metrics.set_meter_provider(
+        MeterProvider(
+            resource=resource,
+            metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter())],
+        )
     )
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
-    DjangoInstrumentor().instrument()
+    if django:
+        from opentelemetry.instrumentation.django import DjangoInstrumentor
+
+        DjangoInstrumentor().instrument()
     CeleryInstrumentor().instrument()  # type: ignore[no-untyped-call]
     HTTPXClientInstrumentor().instrument()
-    log.info("telemetry: exporting to %s", os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"])
+    _TELEMETRY_STARTED = True
+    log.info("telemetry: traces and metrics to %s", os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"])
+    return True
+
+
+def _worker_process_telemetry(**_: object) -> None:
+    """Celery `worker_process_init` receiver: start telemetry in a pool process."""
+
+    _telemetry(django=False)
 
 
 def prepare() -> None:
@@ -126,8 +156,11 @@ def worker() -> None:
     parser.add_argument("--queues", default="io,cpu,ocr,nlp,graph")
     parser.add_argument("--concurrency", type=int, default=2)
     args = parser.parse_args()
+    from celery.signals import worker_process_init
+
     from oss_server.celery import app
 
+    worker_process_init.connect(_worker_process_telemetry, weak=False)
     sys.exit(
         app.worker_main(
             ["worker", "-Q", args.queues, "-c", str(args.concurrency), "--loglevel=INFO"]

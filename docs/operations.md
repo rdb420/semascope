@@ -21,7 +21,7 @@ restarting the workers.
 |---|---|---|---|---|
 | `cpu` (default) | `fastembed`, bge-small in the image | `spacy` | `tika` with Tesseract | nothing |
 | `gpu` | `fastembed` on ONNX Runtime CUDA | `gliner` (GLiNER2 zero-shot, in process) | `tika` | an NVIDIA card, driver and container toolkit; `./oss up` adds `compose.gpu.yaml`, which runs the worker from the `-gpu` image (about 15 GB, amd64) |
-| `remote` | `sidecar` or `openai` service | `remote` entity service | `mineru` parse server (PDF, Office, images; Tika keeps the rest) | the service URLs and, usually, a token |
+| `remote` | `sidecar` or `openai` service | `remote` entity service | `mineru` parse server (PDF, Word, PowerPoint and Excel in OOXML, raster images; Tika keeps the rest, legacy `.doc`, `.ppt` and `.xls` included) | the service URLs and, usually, a token |
 
 The remote contracts are small and any service can implement them:
 
@@ -57,13 +57,36 @@ embedded it, and semantic search only reads chunks of the current model,
 so after switching the embed provider or model run
 `./oss reindex --collection <slug> --stage embed` for each collection; until
 it finishes the semantic and hybrid modes see the re-embedded documents
-only. A stage list replays those stages, what they need (`structure` before
+only. The `chunks` index has a vector field per dimension (256, 384, 512,
+768, 1024, 1536, 2560, 3072 and 4096; `vector` is the 384 one, `vector_<n>`
+the others), so a model of another dimension needs no schema change: after
+an upgrade from 1.0.0-rc.2, `./oss up` uploads the new `chunks` configset
+and reloads the collection, then the re-embed above fills the new field.
+`./oss doctor` reports the model's dimension (from
+`SEMASCOPE_EMBED_DIMENSIONS`, the service itself, or a table of common
+models), whether the schema has its field, and the chunks still held for
+other models. A stage list replays those stages, what they need (`structure` before
 `embed`), the stages they feed (`link` after `tag` or `ner`) and the `index`
 and `graph` stages that publish the result; tags of the other stages are
 kept, and a failed replayed stage publishes nothing. `./oss stats` shows the chunk count per model, which is how you know
-when it is done. A remote service that is down fails the stage and the task
-retries; nothing falls back to the CPU model, because a mixed index is worse
-than a late one.
+when it is done.
+
+**Retries.** A stage that fails because a service is unreachable or busy
+(a remote provider, Solr, Neo4j, Tika or MinerU: connection errors,
+timeouts, HTTP 408, 425, 429, 500, 502, 503 or 504, except a Tika 500,
+which is a parser crash) is retried in place twice, after about 2 and 4
+seconds. If it still fails, and every failed stage of the document failed
+that way, the document task stores the result, shows the document as
+queued with the reason, and runs again after about 60, 120 and 240
+seconds; after that the document stays failed and `./oss reindex` retries
+it. A fetch that fails the same way is retried on the same schedule.
+Permanent failures (a format Tika cannot parse, a file above the size cap,
+a missing setting, a MinerU job that failed or timed out, a vector length
+without a field) are never retried. A collection can change the counts
+under `settings.pipeline`: `stage_retries`, `stage_retry_backoff_s`,
+`task_retries`, `task_retry_backoff_s`. Retries go to the same provider;
+nothing falls back to the CPU model, because a mixed index is worse than
+a late one.
 
 ## Upgrade
 
@@ -102,9 +125,13 @@ admin and putting its value in `.env`.
 
 `./oss logs <service>` follows a service. `/healthz` answers on the server;
 every container has a compose health check. `./oss doctor` checks the
-server, Solr, Tika and Neo4j and reports versions. With
-`compose.observe.yaml`, traces and metrics go to the bundled collector and
-Grafana on `127.0.0.1:3000`.
+server, Solr, Tika and Neo4j, the configured remote services and the fit
+of the embedding model to the `chunks` schema. With `compose.observe.yaml`,
+the server, workers and beat send traces and metrics over OTLP to the
+bundled collector: it logs the traces (no trace store is bundled) and
+passes the metrics to Prometheus, which Grafana on `127.0.0.1:3000`
+reads. Point `OTEL_EXPORTER_OTLP_ENDPOINT` at your own collector to keep
+traces.
 
 ## Where the data lives
 

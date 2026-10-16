@@ -16,7 +16,11 @@ import httpx
 
 
 class SolrError(RuntimeError):
-    pass
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        # Solr starting, overloaded or restarting: worth a retry (oss_pipeline.retry)
+        self.transient = status in (408, 429, 500, 502, 503, 504)
 
 
 class SolrClient:
@@ -44,7 +48,9 @@ class SolrClient:
         if resp.status_code >= 400 or (isinstance(body, dict) and body.get("error")):
             err = body.get("error", {}) if isinstance(body, dict) else {}
             msg = err.get("msg") if isinstance(err, dict) else None
-            raise SolrError(f"{resp.request.method} {resp.request.url}: {msg or body}")
+            raise SolrError(
+                f"{resp.request.method} {resp.request.url}: {msg or body}", resp.status_code
+            )
         return body if isinstance(body, dict) else {"raw": body}
 
     def _get(self, path: str, **params: Any) -> dict[str, Any]:

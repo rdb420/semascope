@@ -35,7 +35,7 @@ hand against a live stack); `bench` and `quality` are
 | Text extraction of any format Tika 3 reads | implemented | smoke | |
 | OCR of images and scanned PDFs (Tesseract, English) | implemented | smoke | other languages need a Tika configuration change |
 | Language detection | implemented | — | through Tika |
-| MinerU extraction (`--extract mineru`) | experimental | ci (mock) | only images reach MinerU in rc.2; PDF and Office files still go to Tika |
+| MinerU extraction (`--extract mineru`) | experimental | ci (mock) | PDF, OOXML Word, PowerPoint and Excel, and raster images go to MinerU by media type (fixed after rc.2, which sent only images); legacy `.doc`, `.ppt`, `.xls` stay with Tika |
 | Docling extractor | planned | — | after 1.0 |
 
 ## Enrichment
@@ -52,7 +52,7 @@ hand against a live stack); `bench` and `quality` are
 | SHACL validation of document metadata (`validate`) | implemented | ci | `full` profile only |
 | Previews: PDF pages and image thumbnails | implemented | ci | |
 | Chunk embeddings, FastEmbed bge-small on CPU or CUDA | implemented | bench | model baked into the image |
-| Embeddings through an OpenAI-compatible endpoint or a sidecar | experimental | ci (sidecar mock) | the `chunks` index is fixed at 384 dimensions, so only 384-dimension models work |
+| Embeddings through an OpenAI-compatible endpoint or a sidecar | experimental | ci (sidecar mock, field per dimension) | the `chunks` index has a vector field per dimension (256 to 4096) since the fix after rc.2; `oss doctor` reports a model the schema cannot hold; a change of dimension needs `oss reindex --stage embed` |
 | Duplicate detection | implemented (exact) | ci | by content hash; no near-duplicate detection |
 | Partial replay (`oss reindex --stage …`) | implemented | ci | |
 | Optional LLM answers | planned | — | settings exist; nothing reads them |
@@ -71,7 +71,7 @@ hand against a live stack); `bench` and `quality` are
 | Alerts on saved searches | experimental | — | the UI saves with alerts off |
 | List search (a batch of names) | experimental | ci (partial) | not in the browser journey |
 | Significant terms | implemented | ci, smoke | |
-| Suggest / autocomplete | planned | — | handler configured, endpoint not routed |
+| Suggest / autocomplete | implemented (API) | ci | `GET /api/suggest?q=` (titles, last word as a prefix), routed after rc.2; the search box does not call it yet |
 
 ## UI surfaces
 
@@ -111,7 +111,7 @@ hand against a live stack); `bench` and `quality` are
 | Accept, reject, add, remove a tag on a document | implemented | ci | |
 | Link an entity to a pack individual | experimental | — | the decision is applied; no test covers it |
 | Annotations on documents | implemented | ci | |
-| Proposals with stable references, applied at once, kept across reindexing | experimental | ci | reversing a decision twice is not applied (see [Explainability](explainability.md#gaps)) |
+| Proposals with stable references, applied at once, kept across reindexing | implemented | ci | append-only log, the newest decision wins, one `external_ref` per decision (fixed after rc.2, where accept, reject, accept was not applied) |
 | Curator changes to a pack as deltas | implemented | ci | |
 | Merge entities | planned | — | |
 | Audit of logins, pack imports, source and collection changes | planned | — | decisions are logged; administrative actions are not |
@@ -139,7 +139,7 @@ hand against a live stack); `bench` and `quality` are
 | Single sign-on (OpenID Connect) | experimental | — | |
 | Roles per collection | implemented | ci | roles govern writing; reading is not restricted per collection |
 | Backup and restore | implemented | fresh-clone check | no automated test |
-| OpenTelemetry traces | experimental | — | server only; worker traces and metrics not wired |
+| OpenTelemetry traces and metrics | experimental | ci (set-up) | server, workers and beat export both over OTLP since the fix after rc.2; the bundled collector logs traces and passes metrics to Prometheus; not exercised against a live collector in CI |
 | Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image is amd64 only |
 | Signed releases | planned | — | provenance attestations, not signatures |
 | Helm chart, OpenSearch, multi-instance scaling | planned | — | after 1.0 |

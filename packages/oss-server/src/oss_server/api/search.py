@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from oss_core.vectors import UnsupportedDimensionError, vector_field
 from oss_pipeline.clients.solr import SolrClient
 from oss_server.api.schemas import FacetValue, SearchHit, SearchIn, SearchOut
 
@@ -214,9 +215,15 @@ def _knn_chunks(client: SolrClient, req: SearchIn, k: int) -> list[dict[str, Any
     model = str(getattr(embedder, "model_name", "") or "")
     if model:
         fq.append(f'model_s:"{model}"')
+    try:
+        field = vector_field(len(vector))  # the field of this model's dimension
+    except UnsupportedDimensionError as exc:
+        from ninja.errors import HttpError
+
+        raise HttpError(422, str(exc)) from exc
     body = client.select(
         solr_chunks_collection(),
-        q="{!knn f=vector topK=" + str(k) + "}" + "[" + ",".join(f"{x:.6f}" for x in vector) + "]",
+        q=f"{{!knn f={field} topK={k}}}" + "[" + ",".join(f"{x:.6f}" for x in vector) + "]",
         fq=fq,
         rows=k,
         fl="id,document_id,text_txt,page_i,score",

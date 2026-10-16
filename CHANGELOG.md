@@ -3,6 +3,62 @@
 All notable changes are recorded here. The format follows Keep a Changelog
 and the project follows semantic versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Curation: the proposal log is append-only and the newest decision on a
+  target wins, so accept, reject, accept leaves the tag accepted (rc.2
+  returned the first proposal unapplied). Each decision has its own
+  `external_ref`, chained to the one it supersedes (`supersedes` in the
+  outbox event); repeating the decision in force is a no-op that re-applies
+  it if a store missed it. Migration `curation.0002` also drops the
+  never-produced kinds (review `delta`; proposals `add_label`,
+  `new_concept`, `merge_entities`).
+- `CURATED` edges to named entities use the graph stage's key
+  (`<Class>/<label>`, or its HMAC when the collection pseudonymises), so
+  they land on the node the machine linked.
+- MinerU receives PDF, OOXML Word, PowerPoint and Excel, and raster image
+  files, chosen by media type; rc.2 sent only images.
+- The worker initialises OpenTelemetry in every pool process, and server,
+  worker and beat export metrics as well as traces (`semascope.documents`,
+  `semascope.stage.duration`, plus the instrumentation's own).
+- `GET /api/suggest` is routed (rc.2 listed it but never routed it).
+- Transient failures of remote providers, Solr, Neo4j, Tika and MinerU are
+  retried: twice in place (2 s, 4 s), then the document task up to three
+  times (60, 120, 240 s); permanent failures are not retried and nothing
+  falls back to a CPU model. A failed fetch no longer leaves a document
+  in `processing`.
+- The `chunks` index has a vector field per dimension (256, 384, 512, 768,
+  1024, 1536, 2560, 3072, 4096), so embedding models other than 384
+  dimensions work; `oss doctor` reports a model the schema cannot hold
+  (new optional `SEMASCOPE_EMBED_DIMENSIONS`).
+- `CSRF_TRUSTED_ORIGINS` follows `SEMASCOPE_HTTPS_PORT` (new setting,
+  default 8443) instead of assuming 443 and 8443.
+- Pack conflicts resolve by binding precedence: an IRI in two active packs
+  no longer breaks `GET /api/knowledge/concepts?iri=` (which takes an
+  optional `collection`), and the tag and link stages choose the
+  higher-precedence pack instead of Solr's order.
+- Curator draft labels tag only the collection that proposed them and
+  survive dictionary syncs (new `collection_scope` field in the `entities`
+  schema).
+- A dictionary tag's confidence is the best label type over all its
+  occurrences, not that of its first one.
+- `/healthz` no longer reports a stale `phase`; stale phase notes removed
+  from docstrings, `deploy/neo4j/README.md` and the plan; the concepts page
+  lists the `s3` and `rdf` connectors.
+
+### Upgrade notes
+
+- `./oss up` runs the migration and uploads the new `entities` and
+  `chunks` configsets. To move existing draft labels to their collection,
+  re-activate each pack that has `add_label` deltas
+  (`POST /api/knowledge/packs/{id}/activate?version=`), which re-syncs its
+  dictionary and queues a reindex of the collections that use it; until
+  then, drafts written by rc.2 still tag every collection. Existing 384-dimension chunks stay in the `vector` field and
+  need no reindex; after switching to a model of another dimension, run
+  `./oss reindex --collection <slug> --stage embed` for each collection.
+
 ## [1.0.0-rc.2] - 2026-10-16
 
 ### Added

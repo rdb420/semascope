@@ -135,9 +135,13 @@ and graph class. Individuals with coordinates appear on the map.
 - Several packs can be active at once, one active version per pack `id`.
 - A collection uses the packs bound to it (`PackBinding`, with a
   precedence), or every active pack when it has no bindings.
-- Precedence orders bindings but does not yet resolve conflicts: when two
-  packs share a label, both tags are kept by IRI in the `tag` stage, and the
-  `link` stage takes the first dictionary hit.
+- Precedence resolves conflicts (since the fix after rc.2): a collection's
+  bindings by `precedence` then pack id, otherwise the lowest precedence
+  any binding gives the pack (100 when unbound) then pack id. An IRI in two
+  packs is tagged once and attributed to the first pack; a label two packs
+  give to different individuals links to the first pack's individual; the
+  concept endpoint and the reconciliation preview answer with the first
+  pack's concept.
 
 ## Versioning
 
@@ -214,8 +218,11 @@ workflow, which accepts them into the next pack version.
 4. SHACL shapes are not run against the pack's own instances at import.
 5. There is no command to remove a pack version (retire is the only
    off-switch).
-6. Precedence does not resolve label conflicts between packs, and a concept
-   IRI present in two active packs breaks `GET /knowledge/concepts?iri=`.
+6. Fixed after rc.2: precedence did not resolve label conflicts between
+   packs, and a concept IRI present in two active packs broke
+   `GET /knowledge/concepts?iri=`. Both now resolve by binding precedence.
 7. `semascope.entity_classes` is implemented but not in the ADR.
-8. A draft label added by a curator tags every collection that uses the
-   pack, not only the proposing one, and the next dictionary sync removes it.
+8. Fixed after rc.2: a draft label added by a curator tagged every
+   collection that used the pack, and the next dictionary sync removed it.
+   Draft entries now carry `collection_scope`, tag only the proposing
+   collection, and are rebuilt from the pending deltas on every sync.

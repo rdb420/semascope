@@ -17,10 +17,20 @@ BASE_DIR = Path(__file__).resolve().parent
 SECRET_KEY = _settings.semascope_secret_key.get_secret_value()
 DEBUG = _settings.semascope_debug
 ALLOWED_HOSTS = [_settings.semascope_host, "server", "localhost", "127.0.0.1"]
-CSRF_TRUSTED_ORIGINS = [
-    f"https://{_settings.semascope_host}",
-    f"https://{_settings.semascope_host}:8443",
-]
+
+
+def csrf_trusted_origins(host: str, https_port: int) -> list[str]:
+    """The browser origins Caddy serves: the host, with the port unless it is 443."""
+
+    origins = [f"https://{host}"]
+    if https_port != 443:
+        origins.append(f"https://{host}:{https_port}")
+    return origins
+
+
+CSRF_TRUSTED_ORIGINS = csrf_trusted_origins(
+    _settings.semascope_host, _settings.semascope_https_port
+)
 
 INSTALLED_APPS = [
     "django.contrib.admin",

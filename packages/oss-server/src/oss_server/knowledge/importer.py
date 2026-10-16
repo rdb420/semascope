@@ -415,6 +415,55 @@ def dictionary_entries(pack: Pack) -> list[dict[str, Any]]:
     return out
 
 
+def draft_entry(
+    pack: Pack, concept: Concept, collection_slug: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """The dictionary entry of a curator's proposed label, scoped to the proposing collection."""
+
+    label = str(params["label"]).strip()
+    return {
+        "id": f"{pack}|{concept.iri}|draft|{collection_slug}|{label.lower()}",
+        "iri": concept.iri,
+        "pack_id": pack.pack_id,
+        "pack_version": pack.version,
+        "label": label,
+        "pref_label": concept.pref_label,
+        "label_type": "draft",
+        "lang": str(params.get("lang") or concept.lang or "und"),
+        "kind": concept.kind,
+        "type_iri": concept.type_iri,
+        "scheme": concept.scheme_slug,
+        "path": concept.path,
+        "case_sensitive": False,
+        "collection_scope": collection_slug,
+    }
+
+
+def draft_entries(pack: Pack) -> list[dict[str, Any]]:
+    """Draft entries for this pack version from the pending `add_label` deltas.
+
+    A delta stays a draft entry until a pack version accepts or rejects it, so a
+    dictionary sync (and a new pack version) keeps it; Postgres is the record.
+    """
+
+    from oss_server.knowledge.models import PackDelta
+
+    deltas = PackDelta.objects.filter(
+        pack_id=pack.pack_id,
+        kind=PackDelta.Kind.ADD_LABEL,
+        status__in=(PackDelta.Status.DRAFT, PackDelta.Status.EXPORTED),
+    ).select_related("collection")
+    concepts = {c.iri: c for c in pack.concepts.filter(taggable=True)}
+    out: dict[str, dict[str, Any]] = {}
+    for d in deltas.order_by("created_at", "pk"):
+        concept = concepts.get(str(d.params.get("iri") or ""))
+        if concept is None or len(str(d.params.get("label") or "").strip()) < 2:
+            continue
+        entry = draft_entry(pack, concept, d.collection.slug, d.params)
+        out[entry["id"]] = entry
+    return list(out.values())
+
+
 def hierarchy(pack: Pack, scheme_slug: str | None = None) -> list[dict[str, Any]]:
     """Tree of concepts for the UI: children nested under broader."""
 

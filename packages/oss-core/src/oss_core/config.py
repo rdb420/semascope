@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # Identity and sizing
     semascope_host: str = "localhost"
+    semascope_https_port: int = 8443  # host port Caddy listens on (oss init --https-port)
     semascope_size: Literal["small", "medium", "large"] = "small"
     semascope_data_dir: Path = Path("./data")
     semascope_secret_key: SecretStr = Field(default=SecretStr("change-me"))
@@ -59,6 +60,8 @@ class Settings(BaseSettings):
     semascope_embed_model: str = "BAAI/bge-small-en-v1.5"
     semascope_embed_base_url: str | None = None
     semascope_embed_api_key: SecretStr | None = None
+    # the model's vector length, for `oss doctor` when it cannot tell (oss_core.vectors)
+    semascope_embed_dimensions: int | None = None
     semascope_model_cache: Path = Path("/app/models")
 
     # Named entities: spacy (bundled), gliner (GLiNER2 in-process, needs the gpu image) or

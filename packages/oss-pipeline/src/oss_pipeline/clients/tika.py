@@ -16,7 +16,11 @@ import httpx
 
 
 class TikaError(RuntimeError):
-    pass
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        # busy or restarting; a 500 is a parser crash on this file and is not retried
+        self.transient = status in (408, 429, 502, 503, 504)
 
 
 @dataclass
@@ -84,7 +88,9 @@ class TikaClient:
         if resp.status_code == 422:
             raise TikaError(f"Tika cannot parse {path.name}: {resp.text[:200]}")
         if resp.status_code >= 400:
-            raise TikaError(f"Tika {resp.status_code} on {path.name}: {resp.text[:200]}")
+            raise TikaError(
+                f"Tika {resp.status_code} on {path.name}: {resp.text[:200]}", resp.status_code
+            )
         items: list[dict[str, Any]] = resp.json()
         if not items:
             raise TikaError(f"Tika returned nothing for {path.name}")
