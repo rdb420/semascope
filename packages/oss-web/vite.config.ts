@@ -36,7 +36,14 @@ const outDir = fileURLToPath(
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), maplibreWorker()],
-  build: { outDir, emptyOutDir: true },
+  build: {
+    outDir,
+    emptyOutDir: true,
+    // Pages load on demand (src/router.tsx), so only the map chunk (maplibre,
+    // about 1 MB before gzip) passes vite's 500 kB default, and it loads only
+    // on /map. scripts/bundle-size.mjs holds the real, gzip budgets.
+    chunkSizeWarningLimit: 1100,
+  },
   server: {
     port: 5173,
     proxy: {

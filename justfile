@@ -21,6 +21,35 @@ typecheck:
 test:
     uv run pytest
 
+# Lint, type-check, test and build the web UI, then check the bundle-size budget
+web:
+    pnpm --dir packages/oss-web lint
+    pnpm --dir packages/oss-web typecheck
+    pnpm --dir packages/oss-web test
+    pnpm --dir packages/oss-web exec vite build
+    pnpm --dir packages/oss-web size
+
+# CI's supply-chain job: versions agree, image digests, licence policy, audits
+supply-chain *checks="all":
+    .github/scripts/supply-chain.sh {{checks}}
+
+# Known vulnerabilities in the Python and web dependencies (pip-audit, pnpm audit)
+audit:
+    .github/scripts/supply-chain.sh audit
+
+# Licence policy (.github/licence-policy.toml) over the shipped dependencies
+licences:
+    .github/scripts/supply-chain.sh licences
+
+# Lint the GitHub workflows as CI does (actionlint image pinned by digest; zizmor)
+lint-workflows:
+    docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -no-color
+    uvx zizmor@1.31.1 --offline --min-severity medium .github/workflows
+
+# README quick start in a fresh clone of HEAD (outside CI set COMPOSE_PROJECT_NAME, SEMASCOPE_HTTPS_PORT, SEMASCOPE_IMAGE_TAG)
+fresh-clone *steps="all":
+    .github/scripts/fresh-clone.sh {{steps}}
+
 # Real-stack tests on a throwaway stack (sem-ci, :8473); steps: all | up demo test smoke roundtrip logs down
 integration *steps="all":
     scripts/integration.sh {{steps}}

@@ -275,3 +275,120 @@ and port (`SEMASCOPE_HTTPS_PORT`, default 8473), so a stack you already run
 is never touched. Steps can be run one at a time, e.g. `just integration up
 demo test` and later `just integration down`. It takes about five minutes on
 a workstation once the image layers are cached.
+
+To run the README quick start word for word against a fresh clone of the
+current commit (`./oss init`, `./oss up`, `./oss demo --only dhammapada`,
+`./oss search`, `./oss upload`), as the `fresh-clone` job of the same
+workflow does:
+
+```bash
+COMPOSE_PROJECT_NAME=sem-fresh SEMASCOPE_HTTPS_PORT=8497 SEMASCOPE_IMAGE_TAG=sem-fresh \
+  just fresh-clone
+```
+
+Outside CI it refuses the `semascope` project and port 8443, so it never
+touches a stack you run; it clones the committed `HEAD`, so commit first.
+
+## Continuous integration and releases
+
+Three workflows in `.github/workflows/`:
+
+| Workflow | Runs on | Jobs |
+|---|---|---|
+| `ci` | pushes to `main`, pull requests, and inside `release` | `python` (ruff, mypy, pytest, pack validation, clean-room check), `supply chain` (versions agree, image digests, licence policy, `pip-audit` and `pnpm audit`, all failing the run), `web` (oxlint, `tsc -b`, vitest, build, bundle-size budget), `compose` (every overlay; the shim without an env file), `workflows` (actionlint, zizmor), `docs` (`mkdocs build --strict`) |
+| `integration` | pushes to `main`, pull requests, weekly, by hand, and inside `release` | `stack` ([integration tests](#integration-tests); arm64 too on the schedule and for a release), `fresh-clone` (the README quick start in a clean clone) |
+| `release` | a pushed tag `v*` only | the tag must match the version; then `ci` and `integration` on the tagged commit; then the images, signatures and the docs site |
+
+Every action is pinned by commit SHA with its version in a comment; every
+job declares the least `permissions:` it needs (the workflow default is
+none); every `uv` command runs with `UV_LOCKED=1`, so a `uv.lock` that no
+longer matches the `pyproject.toml` files fails. The same checks run locally:
+`just check`, `just web`, `just supply-chain` (or `just audit`, `just licences`),
+`just lint-workflows`, `just integration` and `just fresh-clone`.
+
+### Licence policy
+
+`.github/licence-policy.toml` is the allow-list the `supply chain` job
+enforces over the runtime Python dependencies (`uv.lock` without the dev
+group) and the web bundle's production dependencies. GPL and AGPL always
+fail; LGPL fails unless the package has an `[[exception]]` naming the ADR
+that accepts it (psycopg, ADR-0011); a licence that is neither allowed nor
+refused fails too, so every new licence is a reviewed edit to that file.
+Packages whose metadata does not say their licence clearly are listed under
+`[override]` with the date they were checked. The GPU image's extra wheels
+(`deploy/docker/Dockerfile.gpu`) are not in `uv.lock` and so are not covered
+yet.
+
+### Image tags
+
+`compose.yaml` and `compose.gpu.yaml` default `SEMASCOPE_IMAGE_TAG` to the
+version of the checkout (for example `1.0.0-rc.2`), which is the tag the
+release of that version publishes. Set `SEMASCOPE_IMAGE_TAG` in `.env` to run
+another release. `:main` is a development tag only: `compose.dev.yaml` builds
+it from the checkout and never pulls it, and nothing publishes it any more.
+Until a version has been released, `./oss up` cannot pull its tag and builds
+the image from the checkout instead.
+
+### Cutting a release
+
+1. In one commit on `main`, set the new version in
+   `packages/*/pyproject.toml` (PEP 440, `1.0.0rc3`),
+   `packages/oss-core/src/oss_core/__init__.py`,
+   `packages/oss-web/package.json` (`1.0.0-rc.3`) and the
+   `${SEMASCOPE_IMAGE_TAG:-…}` defaults in `compose.yaml` and
+   `compose.gpu.yaml`; run `uv lock`; move the *Unreleased* entries in
+   `CHANGELOG.md` under the new version. `just supply-chain` checks that the
+   versions agree.
+2. Wait for `ci` and `integration` to pass on that commit.
+3. `git tag -a v1.0.0-rc.3 -m 1.0.0-rc.3 && git push origin v1.0.0-rc.3`.
+4. The `release` workflow checks the tag against the version, runs `ci` and
+   `integration` again on the tagged commit (integration on amd64 and arm64),
+   and only then builds, pushes, attests and signs
+   `ghcr.io/rdb420/semascope:1.0.0-rc.3` (amd64 and arm64) and
+   `ghcr.io/rdb420/semascope-gpu:1.0.0-rc.3` (amd64), both with a BuildKit
+   SBOM and provenance, and deploys the docs site. A final release
+   (`v1.0.0`) also gets `1.0` and `latest`; a pre-release does not.
+
+To check a published image:
+
+```bash
+cosign verify ghcr.io/rdb420/semascope@sha256:<digest> \
+  --certificate-identity-regexp '^https://github.com/rdb420/semascope/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify oci://ghcr.io/rdb420/semascope@sha256:<digest> --repo rdb420/semascope
+docker buildx imagetools inspect ghcr.io/rdb420/semascope:1.0.0-rc.3 --format '{{ json .SBOM }}'
+```
+
+### Repository settings the release needs
+
+These are owner settings; a workflow cannot change them.
+
+1. **Pages source.** Settings → Pages → *Build and deployment* → Source:
+   **GitHub Actions**. Without it the `pages` job fails (the earlier
+   "Resource not accessible by integration" came from the workflow trying to
+   enable Pages itself, which needs an admin token; it no longer tries).
+2. **Pages environment allows tags.** Settings → Environments →
+   `github-pages` → *Deployment branches and tags* → *Add deployment branch or
+   tag rule* → Ref type **Tag**, name pattern `v*` → *Add rule*. The
+   environment is created with only the default branch allowed, and the docs
+   now deploy from release tags.
+3. **Package visibility.** For each of `semascope` and `semascope-gpu`:
+   your profile → Packages → the package → *Package settings* → *Danger
+   Zone* → *Change visibility* → **Public** (type the name to confirm). Under
+   *Manage Actions access* the repository `rdb420/semascope` must have the
+   **Write** role (it has it if its workflow created the package). Without
+   public packages `./oss up` cannot pull without `docker login`.
+4. **Workflow token default.** Settings → Actions → General → *Workflow
+   permissions* → **Read repository contents and packages permissions**.
+   The workflows ask for more per job where they need it. If the page offers
+   *Require actions to be pinned to a full-length commit SHA*, turn it on.
+5. **Protect releases** (recommended). Settings → Rules → Rulesets → *New
+   ruleset* → *New tag ruleset*: target `v*`, restrict creations, updates and
+   deletions, bypass for Repository admin only. And a branch ruleset for
+   `main` requiring a pull request and the status checks `python`,
+   `supply chain (audit, licences, versions, digests)`, `web`, `compose`,
+   `workflows (actionlint, zizmor)`, `docs`, `stack (ubuntu-24.04)` and
+   `fresh clone (README quick start)`.
+
+The `:main` tags already on GHCR are no longer updated; delete those package
+versions once a release is out so nobody pulls a stale build.

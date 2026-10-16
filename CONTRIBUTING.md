@@ -12,14 +12,26 @@ Search (GPL-3.0) inspired it, and that is where the relationship ends.
   vendored file or build-time download.
 - Behaviour may be described in words (what a feature does, which inputs it
   accepts) and reimplemented from that description.
-- Every pull request confirms the rule in its template. CI runs a similarity
-  check of Python and XML files against the legacy tree.
+- Every pull request confirms the rule: the first box of the pull request
+  template (`.github/pull_request_template.md`) is that confirmation, and a
+  pull request without it ticked is not reviewed. CI runs a similarity check
+  of Python, XML, PHP, JavaScript, TypeScript and CSS files against the
+  legacy tree, fetched at pinned commits into the runner's scratch space
+  (`scripts/cleanroom_check.py`; it fails when it has nothing to compare).
 
 ## Licences we accept for dependencies
 
 Apache-2.0, MIT, BSD-2/3, ISC, MPL-2.0 (file-level), PSF, Unlicense, CC0. Ask
 in an issue before adding anything else. LGPL is acceptable only as an
-optional extra that is not installed by default (for example `pypff`).
+optional extra that is not installed by default (for example `pypff`), or
+where an ADR accepts a specific unmodified, dynamically linked library
+(psycopg, ADR-0011). GPL and AGPL are never accepted.
+
+CI enforces this with `.github/licence-policy.toml` (`just licences`): the
+allowed SPDX identifiers, the ADR-backed LGPL exceptions and hand-checked
+overrides for packages whose metadata is unclear. A dependency under a
+licence the file does not list fails the build; changing the file is a
+policy change and says why in the pull request.
 The GPU image (`deploy/docker/Dockerfile.gpu`) additionally installs
 `fastembed-gpu` and `gliner2` (Apache-2.0), PyTorch (BSD-3) and NVIDIA's
 CUDA runtime libraries from pip, which are redistributable under the CUDA
@@ -42,12 +54,21 @@ accepted in the product.
 ## Checks
 
 ```bash
+uv sync --locked --all-packages       # CI fails when uv.lock is out of date
 uv run ruff check . && uv run ruff format --check .
 uv run mypy packages
 uv run pytest                         # unit tests, no services
+just web                              # oxlint, tsc, vitest, build, bundle-size budget
+just supply-chain                     # versions, image digests, licences, pip-audit, pnpm audit
+just lint-workflows                   # actionlint and zizmor, when .github/ changes
 docker compose config --quiet         # compose files
 uv run mkdocs build --strict          # docs
 ```
+
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request, and
+`integration.yml` adds the real stack and the README quick start in a fresh
+clone (`just fresh-clone`). Releases are cut from tags only, after both pass
+on the tagged commit; see [Operations](docs/operations.md#continuous-integration-and-releases).
 
 Against a running stack with the demo loaded (`./oss up && ./oss demo`):
 

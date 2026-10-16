@@ -2,25 +2,30 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
 } from "@tanstack/react-router";
 import { Shell } from "./components/Shell";
 import { SearchPage, searchSearchSchema } from "./pages/SearchPage";
-import { LoginPage } from "./pages/LoginPage";
-import { DocumentPage } from "./pages/DocumentPage";
-import { PacksPage } from "./pages/PacksPage";
-import { PackPage } from "./pages/PackPage";
-import { ConceptPage } from "./pages/ConceptPage";
-import { GraphPage } from "./pages/GraphPage";
-import { ReviewPage } from "./pages/ReviewPage";
-import { MapPage } from "./pages/MapPage";
-import { ListSearchPage } from "./pages/ListSearchPage";
-import { TablePage } from "./pages/TablePage";
-import { EntitiesPage } from "./pages/EntitiesPage";
-import { AlertsPage } from "./pages/AlertsPage";
-import { SearchGraphPage } from "./pages/GraphPage";
 import { viewSearchSchema } from "./viewParams";
-import { AnalyticsPage } from "./pages/AnalyticsPage";
+
+// Search is the landing page and ships in the entry chunk. Every other page is
+// its own chunk, loaded on first visit (or on hover over a link to it), so the
+// map (maplibre), the graph (cytoscape) and the rest stay off the first load.
+const LoginPage = lazyRouteComponent(() => import("./pages/LoginPage"), "LoginPage");
+const DocumentPage = lazyRouteComponent(() => import("./pages/DocumentPage"), "DocumentPage");
+const PacksPage = lazyRouteComponent(() => import("./pages/PacksPage"), "PacksPage");
+const PackPage = lazyRouteComponent(() => import("./pages/PackPage"), "PackPage");
+const ConceptPage = lazyRouteComponent(() => import("./pages/ConceptPage"), "ConceptPage");
+const GraphPage = lazyRouteComponent(() => import("./pages/GraphPage"), "GraphPage");
+const ReviewPage = lazyRouteComponent(() => import("./pages/ReviewPage"), "ReviewPage");
+const MapPage = lazyRouteComponent(() => import("./pages/MapPage"), "MapPage");
+const ListSearchPage = lazyRouteComponent(() => import("./pages/ListSearchPage"), "ListSearchPage");
+const TablePage = lazyRouteComponent(() => import("./pages/TablePage"), "TablePage");
+const EntitiesPage = lazyRouteComponent(() => import("./pages/EntitiesPage"), "EntitiesPage");
+const AlertsPage = lazyRouteComponent(() => import("./pages/AlertsPage"), "AlertsPage");
+const SearchGraphPage = lazyRouteComponent(() => import("./pages/GraphPage"), "SearchGraphPage");
+const AnalyticsPage = lazyRouteComponent(() => import("./pages/AnalyticsPage"), "AnalyticsPage");
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -85,7 +90,7 @@ const viewRoutes = [tableRoute, entitiesRoute, searchGraphRoute, alertsRoute];
 
 const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute, ...viewRoutes, analyticsRoute]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({ routeTree, defaultPreload: "intent" });
 
 declare module "@tanstack/react-router" {
   interface Register {

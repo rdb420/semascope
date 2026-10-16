@@ -4,5 +4,14 @@
   "rules": {
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+  },
+  "overrides": [
+    {
+      // These export a hook (useUser) or the search route's param parser and
+      // snippet sanitiser next to the component; fast refresh then reloads the
+      // module in full, which only matters in development.
+      "files": ["src/components/Shell.tsx", "src/pages/SearchPage.tsx"],
+      "rules": { "react/only-export-components": "off" }
+    }
+  ]
 }
