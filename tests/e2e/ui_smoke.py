@@ -177,6 +177,23 @@ def run(page: Page) -> None:
         raise AssertionError(f"unexpected list search counts {counts}")
     shot(page, "12-list.png")
 
+    # ADR-0012: similar documents and export links on a document page, the overview page
+    page.goto(BASE + "/?q=Ulysses&collection=" + COLLECTION, wait_until="networkidle")
+    page.click("ol li a >> nth=0")
+    panel = page.locator("[data-testid=similar-panel]")
+    expect(panel.locator("li a").first).to_be_visible(timeout=30000)
+    page.click("[data-testid=similar-panel] button:has-text('Words')")
+    expect(panel.locator("li a").first).to_be_visible(timeout=30000)
+    expect(page.locator("a:has-text('RDF (Turtle)')")).to_be_visible()
+    shot(page, "13-similar.png")
+    page.click("header >> text=Overview")
+    expect(page.locator("h1", has_text="Overview")).to_be_visible(timeout=20000)
+    expect(page.locator("section:has(h2:has-text('Concepts')) li a").first).to_be_visible(
+        timeout=20000
+    )
+    expect(page.locator("link[rel=search]")).to_have_attribute("href", "/api/opensearch.xml")
+    shot(page, "14-overview.png", full_page=True)
+
 
 def main() -> int:
     if not PASSWORD:
