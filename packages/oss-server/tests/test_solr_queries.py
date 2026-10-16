@@ -147,3 +147,46 @@ def test_concept_documents_quote_the_iri(
         call["fq"][0]
         == f"concept_iris_ss:{quote_term(WIDEN)} OR entity_iris_ss:{quote_term(WIDEN)}"
     )
+
+
+@pytest.mark.parametrize("slug", ["..", ".", "a/b", "../x", "a\\b", "", "x" * 65, "a b"])
+def test_an_upload_root_is_built_from_slugs_only(tmp_path: Any, slug: str) -> None:
+    from oss_pipeline.connectors.guard import SourceNotAllowed
+    from oss_pipeline.connectors.upload import upload_root
+
+    with pytest.raises(SourceNotAllowed):
+        upload_root(tmp_path, slug)
+
+
+def test_an_uploaded_file_name_stays_in_its_folder(tmp_path: Any) -> None:
+    from oss_pipeline.connectors.upload import store_upload
+
+    for name in ("..", ".", "../../escape.txt", "/etc/passwd"):
+        path = store_upload(tmp_path, "c", name, b"x")
+        assert path.is_file() and path.parent.parent == tmp_path / "uploads" / "c"
+
+
+@pytest.mark.parametrize("slug", ["..", "."])
+def test_uploads_to_a_dot_slug_cannot_leave_the_upload_area(
+    client: Client,
+    admin: dict[str, str],
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    slug: str,
+) -> None:
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from oss_server.pipeline import tasks
+
+    data = tmp_path / "data"
+    monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(data))
+    monkeypatch.setattr(tasks.process_document, "delay", lambda *a, **k: None)
+    Collection.objects.create(slug=slug, name="made before slugs were checked")
+    r = client.post(
+        f"/api/collections/{quote(slug, safe='')}/upload",
+        {"files": SimpleUploadedFile("note.txt", b"hello")},
+        headers=admin,
+    )
+    assert r.status_code == 400, r.content
+    written = [p for p in tmp_path.rglob("*") if p.is_file()]
+    assert written == [], written

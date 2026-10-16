@@ -242,6 +242,7 @@ def upload(
     """Upload one or more files into the collection's `uploads` source and queue them."""
 
     from oss_core.config import get_settings
+    from oss_pipeline.connectors.guard import SourceNotAllowed
     from oss_pipeline.connectors.upload import store_upload, upload_root
     from oss_server.catalogue.models import document_id
     from oss_server.pipeline.tasks import process_document
@@ -249,10 +250,14 @@ def upload(
     c = get_object_or_404(Collection, slug=slug)
     check(request, "editor", slug)
     data_dir = get_settings().semascope_data_dir
+    try:
+        root = upload_root(data_dir, slug)
+    except SourceNotAllowed as exc:  # a slug saved before slugs were checked
+        raise HttpError(400, f"uploads refused: {exc}") from exc
     source, _ = Source.objects.get_or_create(
         collection=c,
         name="uploads",
-        defaults={"connector": "upload", "settings": {"path": str(upload_root(data_dir, slug))}},
+        defaults={"connector": "upload", "settings": {"path": str(root)}},
     )
     out: list[DocumentOut] = []
     for f in files:

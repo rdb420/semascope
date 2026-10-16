@@ -8,26 +8,38 @@ a restart still finds every upload.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
 from oss_pipeline.connectors.guard import (
+    SourceNotAllowed,
     all_upload_roots,
     confine_path,
     confined_files,
     upload_roots,
 )
 
+# A collection slug: Django's slug (letters, digits, hyphens, underscores), at most as long as
+# Collection.slug. It names a folder, so `.`, `..` and path separators can never be one.
+COLLECTION_SLUG = re.compile(r"[-a-zA-Z0-9_]{1,64}")
+
 
 def upload_root(data_dir: Path, collection: str) -> Path:
+    """`<data>/uploads/<collection>`; refuses anything that is not a collection slug."""
+
+    if not isinstance(collection, str) or not COLLECTION_SLUG.fullmatch(collection):
+        raise SourceNotAllowed(f"{collection!r} is not a collection slug")
     return data_dir / "uploads" / collection
 
 
 def store_upload(data_dir: Path, collection: str, name: str, content: bytes) -> Path:
     digest = hashlib.sha256(content).hexdigest()
-    safe = Path(name).name or "upload"
+    safe = Path(name).name
+    if safe in ("", ".", ".."):
+        safe = "upload"
     dest = upload_root(data_dir, collection) / digest / safe
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():

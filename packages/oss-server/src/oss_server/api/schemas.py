@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Any
 
 from ninja import Schema
 from pydantic import field_validator
 
-# Django's slug (letters, digits, hyphens, underscores), as long as Collection.slug allows
-COLLECTION_SLUG = re.compile(r"[-a-zA-Z0-9_]{1,64}")
+from oss_pipeline.connectors.upload import COLLECTION_SLUG
 
 
 class CollectionIn(Schema):
