@@ -183,12 +183,6 @@ def test_link_reviews_need_a_target(api: httpx.Client) -> None:
     assert api.get("/curation/reviews", params={"kind": "link", "limit": 500}).status_code == 200
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="product bug: a link_entity decision leaves the linked tag without pack_id "
-    "(apply_proposal takes the proposal's pack_id, which decide() never sets), so Solr "
-    "entity_iris_ss and the individual's document list leave the document out",
-)
 def test_a_linked_document_is_one_of_the_individuals_documents(api: httpx.Client) -> None:
     if not linked:
         pytest.skip("no entity was linked")

@@ -27,6 +27,10 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Integration tests against real web, feed, S3 (MinIO), SPARQL (Oxigraph),
+  webhook and OpenID Connect services; `docs/assess/evidence.yaml` maps every
+  capability-matrix row to the tests that prove it, and a test keeps the two
+  in step.
 - Every tag explains itself: the stage version, the dictionary label and
   label type that matched (and its language), the NER model, and the named
   entity that linking replaced (`linked_from`); each occurrence records its
@@ -75,6 +79,11 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- Single sign-on through OpenID Connect failed at the callback: the image
+  lacked PyJWT and cryptography (`django-allauth` now with its
+  `socialaccount` extra).
+- The pack SPARQL console refused a SELECT or ASK that started with PREFIX
+  declarations.
 - A rejected tag came back in PostgreSQL after a reindex, and a curator's
   link to a pack individual was undone by one.
 - Pack import, SPARQL and version removal failed in all but one server

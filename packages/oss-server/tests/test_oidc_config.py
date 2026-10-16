@@ -79,10 +79,5 @@ def test_an_issuer_and_client_turn_on_the_openid_connect_provider(tmp_path: Any)
 
 
 @pytest.mark.parametrize("module", ["jwt", "cryptography"])
-@pytest.mark.xfail(
-    strict=True,
-    reason="product bug: django-allauth is installed without its socialaccount extra, so "
-    "PyJWT (and cryptography) are missing and the OIDC callback fails decoding the ID token",
-)
 def test_the_libraries_the_openid_connect_callback_needs_are_installed(module: str) -> None:
     assert importlib.util.find_spec(module) is not None, f"{module} is not installed"

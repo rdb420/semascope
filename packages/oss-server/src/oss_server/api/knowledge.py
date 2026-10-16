@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -428,6 +429,21 @@ def places(request: HttpRequest, collection: str | None = None) -> list[dict[str
     ]
 
 
+_PROLOGUE = re.compile(
+    r"\s*(?:#[^\n]*\n|PREFIX\s+[^\s:]*:\s*<[^>]*>|BASE\s*<[^>]*>)", re.IGNORECASE
+)
+
+
+def _query_form(q: str) -> str:
+    """The SPARQL query form (SELECT, ASK, …) after comments and PREFIX/BASE declarations."""
+
+    rest = q
+    while m := _PROLOGUE.match(rest):
+        rest = rest[m.end() :]
+    word = rest.strip().split(None, 1)
+    return word[0].upper() if word else ""
+
+
 @router.post("/packs/{pack_id}/sparql", response=list[dict[str, Any]])
 def sparql(request: HttpRequest, pack_id: str, payload: SparqlIn) -> list[dict[str, Any]]:
     """Read-only SELECT or ASK over one pack's triples (staff only)."""
@@ -435,7 +451,7 @@ def sparql(request: HttpRequest, pack_id: str, payload: SparqlIn) -> list[dict[s
     if not getattr(request.user, "is_staff", False):
         raise HttpError(403, "staff only")
     q = payload.query.strip()
-    if not q.lower().lstrip("prefix ").startswith(("select", "ask", "prefix")) or any(
+    if _query_form(q) not in ("SELECT", "ASK") or any(
         w in q.upper() for w in ("INSERT", "DELETE", "LOAD", "CLEAR", "DROP", "CREATE")
     ):
         raise HttpError(422, "SELECT and ASK only")

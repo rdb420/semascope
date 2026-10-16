@@ -256,11 +256,6 @@ def test_sparql_over_a_pack_graph(api: httpx.Client, indexed: dict[str, Any]) ->
     assert missing.status_code == 404
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="product bug: the pack SPARQL endpoint refuses a SELECT that starts with PREFIX "
-    "(knowledge.sparql strips the characters of 'prefix ' with lstrip, not the word)",
-)
 def test_sparql_over_a_pack_graph_with_prefixes(api: httpx.Client, indexed: dict[str, Any]) -> None:
     query = (
         f"PREFIX skos: <{SKOS}> SELECT ?label WHERE {{ <{DEMO}odysseus> skos:prefLabel ?label }}"

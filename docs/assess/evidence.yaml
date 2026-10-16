@@ -316,7 +316,6 @@
   - packages/oss-server/tests/test_curation_log.py::test_linking_keys_the_edge_by_the_individual_iri
   - tests/integration/test_decisions.py::test_linking_an_entity_to_a_pack_individual
   - tests/integration/test_decisions.py::test_link_reviews_need_a_target
-  # xfail: the linked document is missing from the individual's documents
   - tests/integration/test_decisions.py::test_a_linked_document_is_one_of_the_individuals_documents
 
 "Review actions | Annotations on documents":
@@ -359,7 +358,6 @@
 
 "Export targets | SPARQL over pack graphs (staff)":
   - tests/integration/test_graph_search.py::test_sparql_over_a_pack_graph
-  # xfail: a query that starts with PREFIX is refused
   - tests/integration/test_graph_search.py::test_sparql_over_a_pack_graph_with_prefixes
 
 # --- Operation ---------------------------------------------------------------------------------
@@ -385,7 +383,6 @@
   - packages/oss-server/tests/test_oidc_config.py::test_sign_on_is_off_without_an_issuer
   - packages/oss-server/tests/test_oidc_config.py::test_an_issuer_and_client_turn_on_the_openid_connect_provider
   - tests/integration/test_oidc.py::test_the_sign_in_page_offers_the_provider
-  # xfail: PyJWT is not installed, so the callback fails
   - packages/oss-server/tests/test_oidc_config.py::test_the_libraries_the_openid_connect_callback_needs_are_installed
   - tests/integration/test_oidc.py::test_sign_in_through_the_provider
 

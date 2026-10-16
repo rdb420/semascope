@@ -39,11 +39,6 @@ def test_the_sign_in_page_offers_the_provider(browser: httpx.Client) -> None:
     assert out == {"local": True, "oidc": {"name": "Mock IdP", "url": "/accounts/oidc/oidc/login/"}}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="product bug: the image lacks PyJWT (django-allauth is installed without its "
-    "socialaccount extra), so the callback fails decoding the ID token",
-)
 def test_sign_in_through_the_provider(browser: httpx.Client) -> None:
     idp = service_url("fixtures", 8000)
     start = browser.get("/accounts/oidc/oidc/login/")

@@ -23,20 +23,20 @@ implemented has none, or names a test that does not exist.
 | Capability | State | Tests | Notes |
 |---|---|---|---|
 | Folder (`filesystem`), include and exclude globs, change detection by content hash | implemented | ci | files up to 512 MiB |
-| Upload (`oss upload`, `POST /collections/{slug}/upload`) | implemented | ci (connector) | the HTTP endpoint itself has no test |
+| Upload (`oss upload`, `POST /collections/{slug}/upload`) | implemented | ci | |
 | Mail: mbox and `.eml`, attachments as child documents | implemented | ci | no PST or MSG |
 | Archives: zip and tar (gz, bz2, xz), nested, with size, ratio and depth limits | implemented | ci | 7z and rar are recognised but not unpacked |
 | Tables: CSV, TSV and XLSX, one document per row, chosen columns as facets | implemented | ci | |
 | RDF files (`.ttl`, `.nt`, `.n3`, `.rdf`, `.owl`, `.jsonld`, `.trig`), one document per subject | implemented | ci | |
-| RDF from a SPARQL endpoint | experimental | — | |
-| Web pages, sitemaps and bounded same-host crawl, robots.txt respected | experimental | ci (helpers only) | discovery and crawl untested |
-| RSS and Atom feeds | experimental | — | |
-| S3-compatible buckets | experimental | — | |
+| RDF from a SPARQL endpoint | implemented | ci | tested against Oxigraph |
+| Web pages, sitemaps and bounded same-host crawl, robots.txt respected | implemented | ci | private addresses refused, responses size-capped |
+| RSS and Atom feeds | implemented | ci | |
+| S3-compatible buckets | implemented | ci | tested against MinIO |
 | Scheduled sources (cron or `every 15m`) and deletion detection | implemented | ci | |
 | Connector plugins (`oss.connectors` entry point) | implemented | ci | |
 | Text extraction of any format Tika 3 reads | implemented | smoke | |
-| OCR of images and scanned PDFs (Tesseract, English) | implemented | smoke | other languages need a Tika configuration change |
-| Language detection | implemented | — | through Tika |
+| OCR of images and scanned PDFs (Tesseract, English) | implemented | ci (images), bench (scanned PDFs) | other languages need a Tika configuration change; scanned PDFs are measured by the benchmark, not yet asserted in CI |
+| Language detection | implemented | ci | through Tika |
 | MinerU extraction (`--extract mineru`) | experimental | ci (mock) | PDF, OOXML Word, PowerPoint and Excel, and raster images go to MinerU by media type (fixed after rc.2, which sent only images); legacy `.doc`, `.ppt`, `.xls` stay with Tika |
 | Docling extractor | planned | — | after 1.0 |
 
@@ -65,13 +65,13 @@ implemented has none, or names a test that does not exist.
 |---|---|---|---|
 | Keyword search, highlighting | implemented | ci, bench | |
 | Semantic search over chunks, passages returned | implemented | bench | only chunks of the current model are searched |
-| Hybrid search (reciprocal rank fusion) | implemented | bench | |
+| Hybrid search (reciprocal rank fusion) | implemented | ci, bench | |
 | Facets, hierarchical facets, multi-select | implemented | ci, smoke | |
 | Date histogram and timeline | implemented | ci, smoke | |
-| Query tagging (concepts recognised in the query) | implemented | smoke | |
+| Query tagging (concepts recognised in the query) | implemented | ci, smoke | |
 | Saved searches | implemented | ci | |
-| Alerts on saved searches | experimental | — | the UI saves with alerts off |
-| List search (a batch of names) | experimental | ci (partial) | not in the browser journey |
+| Alerts on saved searches | implemented | ci | through the API; the UI saves with alerts off |
+| List search (a batch of names) | implemented | ci, smoke | |
 | Significant terms | implemented | ci, smoke | |
 | Suggest / autocomplete | implemented (API) | ci | `GET /api/suggest?q=` (titles, last word as a prefix), routed after rc.2; the search box does not call it yet |
 
@@ -87,10 +87,10 @@ implemented has none, or names a test that does not exist.
 | Graph: hubs, neighbourhood expansion, shortest path | implemented | smoke (hubs, expansion) |
 | Review queue | implemented | smoke |
 | Map of pack places | implemented | smoke |
-| List search | experimental | — |
+| List search | implemented | smoke |
 | Entity page for named entities that are not pack individuals | planned | — |
 | Upload, source and collection management in the UI | planned | — |
-| Administration (Django admin) | implemented | — |
+| Administration (Django admin) | implemented | ci |
 
 ## Graph operations
 
@@ -98,10 +98,10 @@ implemented has none, or names a test that does not exist.
 |---|---|---|---|
 | Projection of documents, sources, collections, concepts, entities and packs into Neo4j | implemented | ci (keys), smoke | rebuilt by `oss reindex` |
 | Pseudonymised entity keys per collection | implemented | ci | |
-| Neighbours (depth 1 to 3) | implemented | smoke | |
-| Shortest path between two nodes | implemented | — | shown in the UI at the Phase 3 exit check; no automated test |
+| Neighbours (depth 1 to 3) | implemented | ci, smoke | |
+| Shortest path between two nodes | implemented | ci, smoke | |
 | Hubs of a collection | implemented | smoke | |
-| Read-only Cypher console (staff) | experimental | — | |
+| Read-only Cypher console (staff) | implemented | ci | write clauses refused; reads run in a read transaction |
 | Entity-to-entity relations from pack triples | planned | — | pack relations are in the SPARQL store only |
 
 ## Review actions
@@ -125,11 +125,11 @@ implemented has none, or names a test that does not exist.
 |---|---|---|
 | Outbox of decision events, read by cursor | implemented | ci |
 | Proposals, read by cursor (`params.tag` carries the decided tag's evidence) | implemented | ci |
-| Webhooks with HMAC signature | experimental | — |
+| Webhooks with HMAC signature | implemented | ci |
 | Pack deltas as `taxonomy.delta.ttl` and `model.delta.yaml` | implemented | ci |
-| Search results as CSV (first 10,000) | implemented | — |
+| Search results as CSV (first 10,000) | implemented | ci |
 | W3C Reconciliation API 0.2 | implemented | ci |
-| SPARQL over pack graphs (staff) | experimental | — |
+| SPARQL over pack graphs (staff) | implemented | ci |
 | RDF or JSON-LD export of documents, tags or the graph | planned | — |
 
 ## Knowledge packs
@@ -149,10 +149,10 @@ implemented has none, or names a test that does not exist.
 | `oss init`, `oss up`, sizes small, medium and large | implemented | ci (init), fresh-clone check | |
 | Runtimes `cpu`, `gpu`, `remote`, a provider per heavy stage | implemented (cpu), experimental (gpu, remote) | ci, bench | |
 | Local accounts and API tokens | implemented | ci | |
-| Single sign-on (OpenID Connect) | experimental | — | |
+| Single sign-on (OpenID Connect) | implemented | ci | the authorisation-code flow against a test identity provider; rc.2 images lacked the JWT library the callback needs |
 | Roles per collection | implemented | ci | roles govern reading and writing; `SEMASCOPE_DEFAULT_ROLE=none` makes reading per collection (the default `reader` keeps it open to every signed-in user); a route-by-route authorisation test covers every endpoint |
-| Backup and restore | implemented | fresh-clone check | no automated test |
+| Backup and restore | implemented | ci | a round trip onto an emptied stack compares counts, searches, decisions and the outbox cursor |
 | OpenTelemetry traces and metrics | experimental | ci (set-up) | server, workers and beat export both over OTLP since the fix after rc.2; the bundled collector logs traces and passes metrics to Prometheus; not exercised against a live collector in CI |
 | Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image is amd64 only |
-| Signed releases | planned | — | provenance attestations, not signatures |
+| Signed releases | experimental | — | keyless cosign signatures configured in the release workflow, not yet exercised by a release |
 | Helm chart, OpenSearch, multi-instance scaling | planned | — | after 1.0 |
