@@ -284,8 +284,13 @@ def test_deleting_a_collection_removes_its_files_and_graph(api: httpx.Client) ->
     )
 
     assert api.delete(f"/collections/{slug}").status_code == 204
-    found = api.post("/search", json={"q": f"echidna{tag}", "facets": []}).json()
-    assert found["total"] == 0, found  # out of search at once
+    # out of search once Solr's soft commit makes the delete visible
+    wait_for(
+        lambda: api.post("/search", json={"q": f"echidna{tag}", "facets": []}).json()["total"] == 0,
+        timeout=60,
+        every=1.0,
+        what="the documents to leave search",
+    )
     wait_for(lambda: not worker_has(blob), timeout=120, what="the blob to go")
     wait_for(lambda: not worker_has(f"/data/uploads/{slug}"), timeout=120, what="the uploads")
     wait_for(
