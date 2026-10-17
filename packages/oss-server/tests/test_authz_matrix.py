@@ -220,6 +220,43 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("GET", "/api/opensearch.xml"): Rule("public", 200),
     ("GET", "/api/opensearch/suggest"): Rule("auth", 200, query="q=x"),
     ("GET", "/api/analytics/overview"): Rule(("reader", "a"), 200, query="collection=a"),
+    # ADR-0012, the rest of WS-12: analysis views, table and graph exports, synonym tooling,
+    # ranking explain, the Web Annotation Protocol's per-annotation operations
+    ("POST", "/api/analytics/clusters"): Rule(
+        ("reader", "a"), 200, json={"search": {"q": "x", "collection": "a"}}
+    ),
+    ("POST", "/api/analytics/compare"): Rule(
+        ("reader", "a"), 200, json={"search": {"q": "x", "collection": "a"}}
+    ),
+    ("POST", "/api/analytics/wordtree"): Rule(
+        ("reader", "a"), 200, json={"search": {"q": "x", "collection": "a"}, "phrase": "some"}
+    ),
+    ("GET", "/api/analytics/diff"): Rule(("reader", "a"), 200, query="a={doc_id}&b={doc_id}"),
+    ("POST", "/api/export/documents"): Rule(
+        ("reader", "a"), 200, query="format=jsonl", json={"q": "x", "collection": "a"}
+    ),
+    ("POST", "/api/export/entities"): Rule(
+        ("reader", "a"), 200, query="format=parquet", json={"q": "x", "collection": "a"}
+    ),
+    ("GET", "/api/export/graph"): Rule(("reader", "a"), 200, query="collection=a&format=nquads"),
+    # the active packs' labels are every signed-in user's; drafts are filtered to readable ones
+    ("GET", "/api/synonyms/expand"): Rule("auth", 200, query="q=c"),
+    ("GET", "/api/synonyms/suggest"): Rule(("reader", "a"), 200, query=f"iri={IRI_Q}&collection=a"),
+    ("POST", "/api/explain"): Rule(
+        ("reader", "a"), 200, json={"search": {"q": "x", "collection": "a"}, "doc_id": "d" * 32}
+    ),
+    ("POST", "/api/annotations/w3c"): Rule(
+        ("curator", "a"),
+        201,
+        query="collection=a",
+        json={"type": "Annotation", "bodyValue": "n", "target": "urn:semascope:doc:" + "d" * 32},
+    ),
+    ("GET", "/api/annotations/w3c/{annotation_id}"): Rule(("reader", "a"), 200),
+    # the matrix sends no If-Match: past the role check, the protocol asks for one (428)
+    ("PUT", "/api/annotations/w3c/{annotation_id}"): Rule(
+        ("curator", "a"), 428, json={"type": "Annotation", "bodyValue": "changed"}
+    ),
+    ("DELETE", "/api/annotations/w3c/{annotation_id}"): Rule(("curator", "a"), 428),
 }
 
 

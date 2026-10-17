@@ -141,9 +141,17 @@ def export_annotations(
         body["next"] = page_url(page + 1)
     if page > 0:
         body["prev"] = page_url(page - 1)
-    return HttpResponse(
+    resp = HttpResponse(
         json.dumps(body, ensure_ascii=False), content_type=w3c.CONTENT_TYPE, status=200
     )
+    # the Web Annotation Protocol's container (per-annotation routes: annotations_ldp.py)
+    resp["Link"] = (
+        '<http://www.w3.org/ns/ldp#BasicContainer>; rel="type", '
+        '<http://www.w3.org/TR/annotation-protocol/>; rel="http://www.w3.org/ns/ldp#constrainedBy"'
+    )
+    resp["Allow"] = "GET, POST, HEAD, OPTIONS"
+    resp["Accept-Post"] = 'application/ld+json; profile="http://www.w3.org/ns/anno.jsonld"'
+    return resp
 
 
 def _payload(request: HttpRequest) -> Any:
