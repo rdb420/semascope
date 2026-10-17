@@ -4,6 +4,13 @@ GET /api/reconcile returns the service manifest; POST /api/reconcile with
 `queries` (form-encoded JSON, as OpenRefine sends it, or a JSON body) returns
 candidates per query. Matching is by normalised label on pref, alt and hidden
 labels, with a type filter on the pack class or SKOS scheme.
+
+Callers sign in (a bearer token or a session) and need a role on some collection,
+like every other vocabulary route: list packs can name people and clients. An
+operator who wants OpenRefine to reach it without a token sets
+`SEMASCOPE_RECONCILE_PUBLIC=true`; it is then rate-limited per client address. A
+batch holds at most `MAX_QUERIES` queries of at most `MAX_QUERY_CHARS` characters,
+each asking for at most `MAX_LIMIT` candidates; anything else is a 400.
 """
 
 from __future__ import annotations
@@ -15,10 +22,40 @@ from typing import Any
 from django.db.models import Q
 from django.http import HttpRequest
 from ninja import Router
+from ninja.errors import HttpError
+from ninja.security import SessionAuth
 
+from oss_core.config import get_settings
+from oss_server.api.access import check_member
+from oss_server.api.auth import TokenAuth
 from oss_server.knowledge.models import Concept, Pack
 
-router = Router(tags=["reconcile"])
+MAX_QUERIES = 50  # OpenRefine sends 10 per batch
+MAX_QUERY_CHARS = 500
+MAX_LIMIT = 25
+
+
+class PublicIfConfigured:
+    """Lets anyone through when SEMASCOPE_RECONCILE_PUBLIC is true, else no one (the next
+    authentication method decides)."""
+
+    def __call__(self, request: HttpRequest) -> Any:
+        if get_settings().semascope_reconcile_public:
+            return "public"  # any truthy value: the request may go on, anonymous
+        return None
+
+
+# public first: when it is on, a session's CSRF check never refuses an anonymous POST
+RECONCILE_AUTH = [PublicIfConfigured(), TokenAuth(), SessionAuth()]
+
+router = Router(tags=["reconcile"], auth=RECONCILE_AUTH)
+
+
+def _allowed(request: HttpRequest) -> None:
+    if not get_settings().semascope_reconcile_public:
+        check_member(request)
+
+
 _WS = re.compile(r"\s+")
 
 
@@ -89,39 +126,59 @@ def reconcile_one(query: str, type_iri: str | None = None, limit: int = 5) -> li
     return out[:limit]
 
 
-@router.get("", auth=None)
+@router.get("")
 def get_manifest(request: HttpRequest) -> dict[str, Any]:
+    _allowed(request)
     return manifest(request)
 
 
-@router.post("", auth=None)
-def reconcile(request: HttpRequest) -> dict[str, Any]:
+def _queries(request: HttpRequest) -> dict[str, Any]:
     raw = request.POST.get("queries") if request.POST else None
-    if raw is None:
-        try:
+    try:
+        if raw is None:
             body = json.loads(request.body or b"{}")
-        except ValueError:
-            body = {}
-        queries = body.get("queries", body) if isinstance(body, dict) else {}
-    else:
-        queries = json.loads(raw)
+            queries = body.get("queries", body) if isinstance(body, dict) else None
+        else:
+            queries = json.loads(raw)
+    except ValueError as exc:
+        raise HttpError(400, "queries must be a JSON object") from exc
     if not isinstance(queries, dict):
-        return {}
+        raise HttpError(400, "queries must be a JSON object")
+    if len(queries) > MAX_QUERIES:
+        raise HttpError(400, f"at most {MAX_QUERIES} queries per request")
+    return queries
+
+
+def _limit(value: Any) -> int:
+    try:
+        limit = int(value or 5)
+    except (TypeError, ValueError) as exc:
+        raise HttpError(400, "limit must be a whole number") from exc
+    return max(1, min(limit, MAX_LIMIT))
+
+
+@router.post("")
+def reconcile(request: HttpRequest) -> dict[str, Any]:
+    _allowed(request)
     result: dict[str, Any] = {}
-    for key, q in queries.items():
+    for key, q in _queries(request).items():
         if isinstance(q, str):
             q = {"query": q}
         if not isinstance(q, dict):
-            continue
-        limit = int(q.get("limit") or 5)
-        result[str(key)] = {
-            "result": reconcile_one(str(q.get("query") or ""), q.get("type"), limit)
-        }
+            raise HttpError(400, f"query {str(key)[:40]} must be a string or an object")
+        text = str(q.get("query") or "")
+        if len(text) > MAX_QUERY_CHARS:
+            raise HttpError(400, f"queries are at most {MAX_QUERY_CHARS} characters")
+        type_iri = q.get("type")
+        if type_iri is not None and not isinstance(type_iri, str):
+            raise HttpError(400, "type must be a string")
+        result[str(key)] = {"result": reconcile_one(text, type_iri, _limit(q.get("limit")))}
     return result
 
 
-@router.get("/preview", auth=None)
+@router.get("/preview")
 def preview(request: HttpRequest, iri: str) -> dict[str, Any]:
+    _allowed(request)
     from oss_server.knowledge.precedence import pack_order, preferred
 
     c = preferred(

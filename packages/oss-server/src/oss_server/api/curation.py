@@ -8,12 +8,13 @@ from typing import Any
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from ninja import Router, Schema
+from ninja import Router, Schema, Status
 from ninja.errors import HttpError
 from pydantic import field_validator
 
 from oss_pipeline.provenance import curated_tags
 from oss_server.api.access import check, read_scope, role_for
+from oss_server.audit.log import record
 from oss_server.catalogue.models import Collection, Document
 from oss_server.curation.models import (
     Annotation,
@@ -25,6 +26,7 @@ from oss_server.curation.models import (
     Webhook,
 )
 from oss_server.curation.services import decide_document_tag, propose
+from oss_server.redact import mask_url
 
 router = Router(tags=["curation"])
 
@@ -485,7 +487,7 @@ def _bulk_out(j: BulkTagJob) -> BulkTagJobOut:
 
 
 @router.post("/bulk-tags", response={200: BulkTagCountOut, 202: BulkTagJobOut})
-def bulk_tag(request: HttpRequest, payload: BulkTagIn) -> tuple[int, Any]:
+def bulk_tag(request: HttpRequest, payload: BulkTagIn) -> Status[Any]:
     """Accept or reject one tag on every document a search finds in a collection (curator).
 
     `dry_run` answers how many documents match. Otherwise a job decides the tag on each
@@ -518,7 +520,7 @@ def bulk_tag(request: HttpRequest, payload: BulkTagIn) -> tuple[int, Any]:
         raise HttpError(422, "iri is not a concept or individual of an active pack")
     matched = count_matches(collection.slug, payload.q, payload.filters)
     if payload.dry_run:
-        return 200, BulkTagCountOut(matched=matched, limit=MAX_DOCUMENTS)
+        return Status(200, BulkTagCountOut(matched=matched, limit=MAX_DOCUMENTS))
     if matched > MAX_DOCUMENTS:
         raise HttpError(422, f"the search finds {matched} documents; at most {MAX_DOCUMENTS}")
     job = BulkTagJob.objects.create(
@@ -533,7 +535,18 @@ def bulk_tag(request: HttpRequest, payload: BulkTagIn) -> tuple[int, Any]:
         created_by=_user_or_none(request),
     )
     run_bulk_tag_job.delay(job.pk)
-    return 202, _bulk_out(job)
+    record(
+        "curation.bulk_tags",
+        target=job,
+        collection=collection.slug,
+        detail={
+            "q": payload.q,
+            "iri": payload.iri,
+            "decision": payload.decision,
+            "matched": matched,
+        },
+    )
+    return Status(202, _bulk_out(job))
 
 
 @router.get("/bulk-tags", response=list[BulkTagJobOut])
@@ -583,7 +596,7 @@ def list_annotations(request: HttpRequest, doc_id: str) -> list[AnnotationOut]:
 @router.post("/documents/{doc_id}/annotations", response={201: AnnotationOut})
 def add_annotation(
     request: HttpRequest, doc_id: str, payload: AnnotationIn
-) -> tuple[int, AnnotationOut]:
+) -> Status[AnnotationOut]:
     d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
     check(request, "curator", d.collection.slug)
     a = Annotation.objects.create(
@@ -601,19 +614,22 @@ def add_annotation(
         document=d,
         user=request.user,
     )
-    return 201, AnnotationOut(
-        id=a.id,
-        document_id=a.document_id,
-        author=getattr(a.author, "username", None),
-        text=a.text,
-        tags=a.tags,
-        span=a.span,
-        created_at=a.created_at,
+    return Status(
+        201,
+        AnnotationOut(
+            id=a.id,
+            document_id=a.document_id,
+            author=getattr(a.author, "username", None),
+            text=a.text,
+            tags=a.tags,
+            span=a.span,
+            created_at=a.created_at,
+        ),
     )
 
 
 @router.delete("/annotations/{annotation_id}", response={204: None})
-def delete_annotation(request: HttpRequest, annotation_id: int) -> tuple[int, None]:
+def delete_annotation(request: HttpRequest, annotation_id: int) -> Status[None]:
     """Curators of the document's collection may delete any note; authors their own."""
 
     a = get_object_or_404(
@@ -625,7 +641,7 @@ def delete_annotation(request: HttpRequest, annotation_id: int) -> tuple[int, No
     if not (own and role_for(user, slug)):
         check(request, "curator", slug)
     a.delete()
-    return 204, None
+    return Status(204, None)
 
 
 # --- proposals, events, webhooks ---------------------------------------------------------------
@@ -693,7 +709,7 @@ def list_webhooks(request: HttpRequest) -> list[WebhookOut]:
     return [
         WebhookOut(
             id=w.id,
-            url=w.url,
+            url=mask_url(w.url),
             kinds=w.kinds,
             enabled=w.enabled,
             last_event_id=w.last_event_id,
@@ -704,7 +720,7 @@ def list_webhooks(request: HttpRequest) -> list[WebhookOut]:
 
 
 @router.post("/webhooks", response={201: WebhookOut})
-def add_webhook(request: HttpRequest, payload: WebhookIn) -> tuple[int, WebhookOut]:
+def add_webhook(request: HttpRequest, payload: WebhookIn) -> Status[WebhookOut]:
     if not getattr(request.user, "is_staff", False):
         raise HttpError(403, "staff only")
     w = Webhook.objects.create(
@@ -714,22 +730,25 @@ def add_webhook(request: HttpRequest, payload: WebhookIn) -> tuple[int, WebhookO
         enabled=payload.enabled,
         last_event_id=Event.objects.order_by("-pk").values_list("pk", flat=True).first() or 0,
     )
-    return 201, WebhookOut(
-        id=w.id,
-        url=w.url,
-        kinds=w.kinds,
-        enabled=w.enabled,
-        last_event_id=w.last_event_id,
-        last_error=w.last_error,
+    return Status(
+        201,
+        WebhookOut(
+            id=w.id,
+            url=mask_url(w.url),
+            kinds=w.kinds,
+            enabled=w.enabled,
+            last_event_id=w.last_event_id,
+            last_error=w.last_error,
+        ),
     )
 
 
 @router.delete("/webhooks/{webhook_id}", response={204: None})
-def delete_webhook(request: HttpRequest, webhook_id: int) -> tuple[int, None]:
+def delete_webhook(request: HttpRequest, webhook_id: int) -> Status[None]:
     if not getattr(request.user, "is_staff", False):
         raise HttpError(403, "staff only")
     get_object_or_404(Webhook, pk=webhook_id).delete()
-    return 204, None
+    return Status(204, None)
 
 
 __all__ = ["router", "Collection"]

@@ -60,9 +60,25 @@ def test_suggest_is_routed(client: Client, monkeypatch: pytest.MonkeyPatch) -> N
     assert client.get("/api/suggest?q=", headers=auth).json() == {"suggestions": []}
 
 
-def test_healthz_reports_the_version(client: Client) -> None:
-    body = client.get("/healthz").json()
-    assert body == {"status": "ok", "version": __version__}
+def test_healthz_reports_the_version(client: Client, db: None) -> None:
+    resp = client.get("/healthz")
+    assert resp.json() == {"status": "ok", "version": __version__}
+    assert "no-cache" in resp["Cache-Control"]
+
+
+def test_healthz_fails_without_the_database(
+    client: Client, db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server import urls
+
+    class Down:
+        def cursor(self) -> Any:
+            raise OSError("connection refused by db.internal:5432")
+
+    monkeypatch.setattr(urls, "connection", Down())
+    resp = client.get("/healthz")
+    assert resp.status_code == 503 and resp.json()["status"] == "unavailable"
+    assert b"db.internal" not in resp.content
 
 
 def test_csrf_origins_follow_the_https_port() -> None:

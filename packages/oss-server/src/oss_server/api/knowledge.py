@@ -10,13 +10,15 @@ from typing import Any
 
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
-from ninja import Router, Schema
+from ninja import Router, Schema, Status
 from ninja.errors import HttpError
 
 from oss_core.config import get_settings
 from oss_core.pack import load_pack
 from oss_pipeline.clients.solr import quote_term
-from oss_server.api.access import check, read_scope
+from oss_server.api.access import check, check_member, read_scope
+from oss_server.api.errors import console_error
+from oss_server.audit.log import record
 from oss_server.knowledge import store
 from oss_server.knowledge.importer import concept_paths, derive, hierarchy
 from oss_server.knowledge.models import Concept, Pack, PackDelta, PackJob
@@ -185,6 +187,7 @@ def _concept_out(c: Concept) -> ConceptOut:
 
 @router.get("/packs", response=list[PackOut])
 def list_packs(request: HttpRequest, status: str | None = None) -> list[PackOut]:
+    check_member(request)
     qs = Pack.objects.all()
     if status:
         qs = qs.filter(status=status)
@@ -214,13 +217,16 @@ def _candidate_plan(path: Path, force: bool) -> dict[str, Any]:
     return upgrade_plan(info.id, info.version, derive(path, info), info.manifest_hash)
 
 
-def _plan_required(plan: dict[str, Any]) -> tuple[int, PlanRequiredOut]:
-    return 409, PlanRequiredOut(
-        detail=(
-            f"activating {plan['pack_id']}@{plan['candidate_version']} replaces the active "
-            f"version {plan['active_version']}; review the plan and repeat with confirm=true"
+def _plan_required(plan: dict[str, Any]) -> Status[PlanRequiredOut]:
+    return Status(
+        409,
+        PlanRequiredOut(
+            detail=(
+                f"activating {plan['pack_id']}@{plan['candidate_version']} replaces the active "
+                f"version {plan['active_version']}; review the plan and repeat with confirm=true"
+            ),
+            plan=plan,
         ),
-        plan=plan,
     )
 
 
@@ -283,7 +289,7 @@ def _queue_job(
     return job
 
 
-def _import(request: HttpRequest, path: Path, payload: ImportIn | ListImportIn) -> tuple[int, Any]:
+def _import(request: HttpRequest, path: Path, payload: ImportIn | ListImportIn) -> Status[Any]:
     """The plan check (409 until confirmed), then the import as a job (202)."""
 
     force = bool(getattr(payload, "force", False))
@@ -299,11 +305,18 @@ def _import(request: HttpRequest, path: Path, payload: ImportIn | ListImportIn) 
         "reindex": payload.reindex,
         "force": force,
     }
-    return 202, _job_out(_queue_job(request, PackJob.Kind.IMPORT, pack_id, version, params, plan))
+    job = _queue_job(request, PackJob.Kind.IMPORT, pack_id, version, params, plan)
+    record(
+        "pack.import",
+        target=job,
+        target_name=f"{pack_id}@{version}",
+        detail={"activate": payload.activate, "reindex": payload.reindex, "force": force},
+    )
+    return Status(202, _job_out(job))
 
 
 @router.post("/packs/import", response={202: PackJobOut, 409: PlanRequiredOut})
-def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Any]:
+def import_pack_view(request: HttpRequest, payload: ImportIn) -> Status[Any]:
     """Import a bundle directory. The path must be under the import folder or the shipped packs.
 
     When `activate` would replace an active version of the pack (a new version, or
@@ -319,7 +332,7 @@ def import_pack_view(request: HttpRequest, payload: ImportIn) -> tuple[int, Any]
 
 
 @router.post("/packs/import-list", response={202: PackJobOut, 409: PlanRequiredOut})
-def import_list(request: HttpRequest, payload: ListImportIn) -> tuple[int, Any]:
+def import_list(request: HttpRequest, payload: ListImportIn) -> Status[Any]:
     """Import a plain list of names as a pack (editor): one SKOS concept per line, the first
     name its preferred label and the others (after `|`) alternative labels. The list is
     written as a bundle on the data volume and imported like any pack: the same plan,
@@ -374,6 +387,7 @@ def diff_bundle(request: HttpRequest, payload: DiffIn) -> dict[str, Any]:
 
 @router.get("/packs/{pack_id}", response=PackDetailOut)
 def get_pack(request: HttpRequest, pack_id: str, version: str | None = None) -> PackDetailOut:
+    check_member(request)
     qs = Pack.objects.filter(pack_id=pack_id)
     p = get_object_or_404(
         qs.filter(version=version) if version else qs.filter(status=Pack.Status.ACTIVE)
@@ -405,7 +419,7 @@ def diff_version(request: HttpRequest, pack_id: str, version: str) -> dict[str, 
 @router.post("/packs/{pack_id}/activate", response={202: PackJobOut, 409: PlanRequiredOut})
 def activate(
     request: HttpRequest, pack_id: str, version: str, confirm: bool = False, reindex: bool = True
-) -> tuple[int, Any]:
+) -> Status[Any]:
     """Make an imported version the active one (upgrade or roll back). Replacing another
     active version answers 409 with the diff and reindex plan unless `confirm` is true.
     The activation, the dictionary sync and the reindex run as a job (202)."""
@@ -418,9 +432,14 @@ def activate(
     if plan["requires_confirmation"] and not confirm:
         return _plan_required(plan)
     params = {"version": p.version, "reindex": reindex}
-    return 202, _job_out(
-        _queue_job(request, PackJob.Kind.ACTIVATE, p.pack_id, p.version, params, plan)
+    job = _queue_job(request, PackJob.Kind.ACTIVATE, p.pack_id, p.version, params, plan)
+    record(
+        "pack.activate",
+        target=job,
+        target_name=f"{p.pack_id}@{p.version}",
+        detail={"reindex": reindex, "confirmed": confirm},
     )
+    return Status(202, _job_out(job))
 
 
 @router.delete("/packs/{pack_id}/versions/{version}", response=RemovedOut)
@@ -437,6 +456,12 @@ def remove_version(request: HttpRequest, pack_id: str, version: str) -> RemovedO
     if p.status == Pack.Status.ACTIVE:
         raise HttpError(409, "the active version cannot be removed; activate another first")
     concepts = remove_pack_version(p)
+    record(
+        "pack.remove",
+        target_type="pack",
+        target_name=f"{pack_id}@{version}",
+        detail={"concepts_removed": concepts},
+    )
     removed = True
     still: int | None = None
     try:
@@ -462,6 +487,7 @@ def remove_version(request: HttpRequest, pack_id: str, version: str) -> RemovedO
 
 @router.get("/packs/{pack_id}/tree", response=list[dict[str, Any]])
 def tree(request: HttpRequest, pack_id: str, scheme: str | None = None) -> list[dict[str, Any]]:
+    check_member(request)
     p = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
     return hierarchy(p, scheme)
 
@@ -475,6 +501,7 @@ def list_concepts(
     q: str | None = None,
     limit: int = 200,
 ) -> list[ConceptOut]:
+    check_member(request)
     p = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
     qs = p.concepts.select_related("pack")
     qs = qs.filter(kind=kind) if kind else qs.exclude(kind=Concept.Kind.SCHEME)
@@ -493,6 +520,9 @@ def get_concept(request: HttpRequest, iri: str, collection: str | None = None) -
     from oss_server.catalogue.models import Collection
     from oss_server.knowledge.precedence import pack_order, preferred
 
+    check_member(request)
+    if collection:  # a collection's pack bindings are read with that collection
+        check(request, "reader", collection)
     scope = get_object_or_404(Collection, slug=collection) if collection else None
     rows = Concept.objects.select_related("pack").filter(pack__status=Pack.Status.ACTIVE, iri=iri)
     c = preferred(rows, pack_order(scope))
@@ -597,10 +627,11 @@ def sparql(request: HttpRequest, pack_id: str, payload: SparqlIn) -> list[dict[s
     ):
         raise HttpError(422, "SELECT and ASK only")
     p = get_object_or_404(Pack, pack_id=pack_id, status=Pack.Status.ACTIVE)
+    record("console.sparql", target=p, detail={"query": q})
     try:
         return store.query(q, pack_id=p.pack_id, version=p.version, limit=min(payload.limit, 1000))
     except Exception as exc:  # noqa: BLE001
-        raise HttpError(422, str(exc)[:300]) from exc
+        raise console_error("SPARQL", exc) from exc
 
 
 # --- curator deltas ---------------------------------------------------------------------------
@@ -651,7 +682,7 @@ def list_deltas(request: HttpRequest, pack_id: str, status: str | None = None) -
 
 
 @router.post("/packs/{pack_id}/deltas", response={201: DeltaOut})
-def create_delta(request: HttpRequest, pack_id: str, payload: DeltaIn) -> tuple[int, DeltaOut]:
+def create_delta(request: HttpRequest, pack_id: str, payload: DeltaIn) -> Status[DeltaOut]:
     """Propose a change to a pack: add_label, new_concept, retire_label or note."""
 
     from oss_server.catalogue.models import Collection
@@ -687,7 +718,7 @@ def create_delta(request: HttpRequest, pack_id: str, payload: DeltaIn) -> tuple[
     )
     if payload.kind == "add_label":
         _apply_draft_label(pack, collection.slug, payload.params)
-    return 201, _delta_out(delta)
+    return Status(201, _delta_out(delta))
 
 
 def _check_delta_params(params: dict[str, Any]) -> None:
@@ -771,6 +802,7 @@ def export_and_mark_deltas(request: HttpRequest, pack_id: str) -> dict[str, str]
     check(request, "editor")
     pack, deltas = _draft_deltas(request, pack_id)
     files = build_delta(pack, deltas)
+    record("pack.deltas_export", target=pack, detail={"deltas": len(deltas)})
     PackDelta.objects.filter(pk__in=[d.pk for d in deltas]).update(
         status=PackDelta.Status.EXPORTED, exported_at=timezone.now()
     )

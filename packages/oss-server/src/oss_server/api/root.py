@@ -8,14 +8,25 @@ from typing import Any
 from django.db.models import Count
 from django.http import FileResponse, HttpRequest
 from django.shortcuts import get_object_or_404
-from ninja import File, NinjaAPI, Schema
+from ninja import Field, File, NinjaAPI, Schema, Status
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
 from oss_core import __version__
-from oss_server.api import accounts, curation, extras, graph, knowledge, reconcile, searchplus, ui
+from oss_server.api import (
+    accounts,
+    curation,
+    errors,
+    extras,
+    graph,
+    knowledge,
+    reconcile,
+    searchplus,
+    ui,
+)
+from oss_server.api import audit as audit_api
 from oss_server.api import search as search_mod
-from oss_server.api.access import check, read_scope
+from oss_server.api.access import check, check_member, read_scope
 from oss_server.api.auth import AUTH
 from oss_server.api.schemas import (
     CollectionIn,
@@ -30,7 +41,10 @@ from oss_server.api.schemas import (
     StatsOut,
     SuggestOut,
 )
+from oss_server.audit.log import record
 from oss_server.catalogue.models import Collection, Document, Source
+from oss_server.ratelimit import apply_rate_limits
+from oss_server.redact import connector_credentials, mask_text, redact
 from oss_server.services import solr_client, solr_documents_collection
 
 api = NinjaAPI(title="Semascope", version=__version__, auth=AUTH, urls_namespace="api")
@@ -43,6 +57,8 @@ api.add_router("/search", searchplus.router)
 api.add_router("/ui", ui.router)
 api.add_router("", "oss_server.api.views.router")  # originals, views of a search, feeds
 api.add_router("", extras.router)  # ADR-0012 capabilities (api/extras.py)
+api.add_router("/audit", audit_api.router)  # the audit log, staff only (oss_server.audit)
+errors.install(api)  # unexpected errors: JSON 500 with a log reference, no traceback
 
 
 # --- collections ------------------------------------------------------------------------------
@@ -54,7 +70,7 @@ def _collection_out(c: Collection) -> CollectionOut:
         name=c.name,
         description=c.description,
         profile=c.profile,
-        settings=c.settings,
+        settings=redact(c.settings, identifiers=True),
         created_at=c.created_at,
         document_count=getattr(c, "document_count", 0),
     )
@@ -70,7 +86,7 @@ def list_collections(request: HttpRequest) -> list[CollectionOut]:
 
 
 @api.post("/collections", response={201: CollectionOut}, tags=["collections"])
-def create_collection(request: HttpRequest, payload: CollectionIn) -> tuple[int, CollectionOut]:
+def create_collection(request: HttpRequest, payload: CollectionIn) -> Status[CollectionOut]:
     check(request, "editor")
     if Collection.objects.filter(slug=payload.slug).exists():
         raise HttpError(409, f"collection {payload.slug} exists")
@@ -81,7 +97,7 @@ def create_collection(request: HttpRequest, payload: CollectionIn) -> tuple[int,
         profile=payload.profile,
         settings=payload.settings,
     )
-    return 201, _collection_out(c)
+    return Status(201, _collection_out(c))
 
 
 @api.get("/collections/{slug}", response=CollectionOut, tags=["collections"])
@@ -106,7 +122,7 @@ def _stage_list(stages: str | None) -> list[str]:
 @api.post("/collections/{slug}/reindex", response={202: dict[str, int]}, tags=["collections"])
 def reindex_collection_view(
     request: HttpRequest, slug: str, stages: str | None = None
-) -> tuple[int, dict[str, int]]:
+) -> Status[dict[str, int]]:
     """Replay enrichment and indexing for every indexed document from stored text.
 
     `stages=embed` (a comma list) replays only those stages, in profile order.
@@ -116,57 +132,60 @@ def reindex_collection_view(
 
     get_object_or_404(Collection, slug=slug)
     check(request, "editor", slug)
-    reindex_collection.delay(slug, _stage_list(stages) or None)
-    return 202, {"queued": 1}
+    wanted = _stage_list(stages) or None
+    reindex_collection.delay(slug, wanted)
+    record(
+        "collection.reindex",
+        collection=slug,
+        target_type="collection",
+        target_id=slug,
+        detail={"stages": wanted or "all"},
+    )
+    return Status(202, {"queued": 1})
 
 
 @api.delete("/collections/{slug}", response={204: None}, tags=["collections"])
-def delete_collection(request: HttpRequest, slug: str) -> tuple[int, None]:
+def delete_collection(request: HttpRequest, slug: str) -> Status[None]:
     check(request, "admin", slug)
     from oss_server.pipeline.retention import purge_collection
 
     c = get_object_or_404(Collection, slug=slug)
     purge_collection(c)  # Solr now; graph, files and uploads in the background
     c.delete()
-    return 204, None
+    return Status(204, None)
 
 
 # --- sources ----------------------------------------------------------------------------------
 
 
-SECRET_SETTING_WORDS = ("secret", "password", "token", "api_key", "apikey", "credential")
-# account identifiers (an S3 access key id, a user name): shown to editors, who manage sources
-IDENTIFIER_SETTING_WORDS = ("access_key", "accesskey", "username", "user_name", "login")
-
-
-def redact_settings(settings: dict[str, Any], *, editor: bool = False) -> dict[str, Any]:
-    """Source settings with credential values masked: they are written, never read back.
+def redact_settings(
+    settings: dict[str, Any], *, editor: bool = False, connector: str = ""
+) -> dict[str, Any]:
+    """Source settings with credentials masked: they are written, never read back.
     Account identifiers are masked too unless the caller is an editor of the collection."""
 
-    masked = SECRET_SETTING_WORDS + (() if editor else IDENTIFIER_SETTING_WORDS)
-    out: dict[str, Any] = {}
-    for key, value in settings.items():
-        if any(word in key.lower() for word in masked) and value:
-            out[key] = "********"
-        elif isinstance(value, dict):
-            out[key] = redact_settings(value, editor=editor)
-        else:
-            out[key] = value
+    out: dict[str, Any] = redact(
+        settings, identifiers=editor, credentials=connector_credentials(connector)
+    )
     return out
 
 
 def _source_out(s: Source, *, editor: bool = False) -> SourceOut:
+    """A source as the caller may see it: editors (who manage sources) get its settings with
+    credentials masked; readers and curators get no settings at all, since paths, hosts
+    and bucket names are the deployment's business, not theirs."""
+
     return SourceOut(
         id=s.id,
         collection=s.collection.slug,
         name=s.name,
         connector=s.connector,
-        settings=redact_settings(s.settings, editor=editor),
+        settings=redact_settings(s.settings, editor=True, connector=s.connector) if editor else {},
         enabled=s.enabled,
         schedule=s.schedule,
         status=s.status,
         last_run_at=s.last_run_at,
-        last_error=s.last_error,
+        last_error=mask_text(s.last_error or ""),
         document_count=getattr(s, "document_count", 0),
     )
 
@@ -186,7 +205,7 @@ def list_sources(request: HttpRequest, slug: str) -> list[SourceOut]:
 
 
 @api.post("/collections/{slug}/sources", response={201: SourceOut}, tags=["sources"])
-def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[int, SourceOut]:
+def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> Status[SourceOut]:
     from oss_pipeline.registry import connectors
 
     c = get_object_or_404(Collection, slug=slug)
@@ -213,11 +232,11 @@ def create_source(request: HttpRequest, slug: str, payload: SourceIn) -> tuple[i
     )
     if not created:
         raise HttpError(409, f"source {payload.name} exists in {slug}")
-    return 201, _source_out(s, editor=True)
+    return Status(201, _source_out(s, editor=True))
 
 
 @api.post("/sources/{source_id}/run", response={202: RunOut}, tags=["sources"])
-def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
+def run_source(request: HttpRequest, source_id: int) -> Status[RunOut]:
     from oss_server.pipeline.runs import is_running
     from oss_server.pipeline.tasks import discover_source
 
@@ -226,25 +245,29 @@ def run_source(request: HttpRequest, source_id: int) -> tuple[int, RunOut]:
     if is_running(s):
         raise HttpError(409, f"source {s.id} is running; try again when its run has finished")
     result = discover_source.delay(s.id)
-    return 202, RunOut(source_id=s.id, task_id=str(result.id))
+    record("source.run", target=s, collection=s.collection.slug)
+    return Status(202, RunOut(source_id=s.id, task_id=str(result.id)))
 
 
 @api.delete("/sources/{source_id}", response={204: None}, tags=["sources"])
-def delete_source(request: HttpRequest, source_id: int) -> tuple[int, None]:
+def delete_source(request: HttpRequest, source_id: int) -> Status[None]:
     s = get_object_or_404(Source, pk=source_id)
     check(request, "editor", s.collection.slug)
     from oss_server.pipeline.retention import purge_source
 
     purge_source(s)  # Solr now; graph, files and the work area in the background
     s.delete()
-    return 204, None
+    return Status(204, None)
 
 
 @api.post("/collections/{slug}/upload", response={202: list[DocumentOut]}, tags=["sources"])
 def upload(
     request: HttpRequest, slug: str, files: File[list[UploadedFile]]
-) -> tuple[int, list[DocumentOut]]:
-    """Upload one or more files into the collection's `uploads` source and queue them."""
+) -> Status[list[DocumentOut]]:
+    """Upload one or more files into the collection's `uploads` source and queue them.
+
+    Each file may be at most `SEMASCOPE_UPLOAD_MAX_MB` (413 otherwise, before anything is
+    stored); Caddy caps the whole request first."""
 
     from oss_core.config import get_settings
     from oss_pipeline.connectors.guard import SourceNotAllowed
@@ -254,7 +277,14 @@ def upload(
 
     c = get_object_or_404(Collection, slug=slug)
     check(request, "editor", slug)
-    data_dir = get_settings().semascope_data_dir
+    settings = get_settings()
+    cap = max(1, settings.semascope_upload_max_mb) * 1024 * 1024
+    too_big = [f.name or "upload" for f in files if (f.size or 0) > cap]
+    if too_big:
+        raise HttpError(
+            413, f"files larger than {settings.semascope_upload_max_mb} MB: {', '.join(too_big)}"
+        )
+    data_dir = settings.semascope_data_dir
     try:
         root = upload_root(data_dir, slug)
     except SourceNotAllowed as exc:  # a slug saved before slugs were checked
@@ -292,7 +322,14 @@ def upload(
         }
         process_document.delay(doc.id, item)
         out.append(_document_out(doc))
-    return 202, out
+    record(
+        "collection.upload",
+        collection=slug,
+        target_type="collection",
+        target_id=slug,
+        detail={"files": [d.uri.rsplit("/", 1)[-1] for d in out][:50], "count": len(out)},
+    )
+    return Status(202, out)
 
 
 # --- documents --------------------------------------------------------------------------------
@@ -351,13 +388,13 @@ def get_preview(request: HttpRequest, doc_id: str, page: int) -> FileResponse:
 @api.post("/documents/{doc_id}/reindex", response={202: dict[str, str]}, tags=["documents"])
 def reindex_document(
     request: HttpRequest, doc_id: str, stages: str | None = None
-) -> tuple[int, dict[str, str]]:
+) -> Status[dict[str, str]]:
     from oss_server.pipeline.tasks import reindex_document as task
 
     d = get_object_or_404(Document.objects.select_related("collection"), pk=doc_id)
     check(request, "editor", d.collection.slug)
     result = task.delay(d.id, _stage_list(stages) or None)
-    return 202, {"task_id": str(result.id)}
+    return Status(202, {"task_id": str(result.id)})
 
 
 # --- search -----------------------------------------------------------------------------------
@@ -369,21 +406,25 @@ def search(request: HttpRequest, payload: SearchIn) -> SearchOut:
     return search_mod.search(solr_client(), solr_documents_collection(), payload, allowed)
 
 
+TAG_QUERY_MAX_WORDS = 12
+
+
 class TagQueryIn(Schema):
-    q: str
+    q: str = Field(max_length=1000)
 
 
 @api.post("/search/tag-query", response=list[dict[str, Any]], tags=["search"])
 def tag_query(request: HttpRequest, payload: TagQueryIn) -> list[dict[str, Any]]:
-    """Concepts and entities a query names, for facet suggestions."""
+    """Concepts and entities a query names, for facet suggestions (the first 12 words)."""
 
+    check_member(request)
     from oss_server.api.reconcile import reconcile_one
 
     q = payload.q.strip()
     if not q:
         return []
     found: list[dict[str, Any]] = []
-    words = q.split()
+    words = q.split()[:TAG_QUERY_MAX_WORDS]  # at most 3n-3 lookups, whatever the query
     seen: set[str] = set()
     for size in (3, 2, 1):
         for i in range(0, max(0, len(words) - size + 1)):
@@ -506,3 +547,7 @@ def chunk_models(allowed: list[str] | None = None) -> dict[str, int]:
         return {}
     flat = body.get("facet_counts", {}).get("facet_fields", {}).get("model_s", [])
     return {str(flat[i]): int(flat[i + 1]) for i in range(0, len(flat), 2)}
+
+
+# last: every router is mounted, so the expensive routes get their throttles (ratelimit.py)
+apply_rate_limits(api)

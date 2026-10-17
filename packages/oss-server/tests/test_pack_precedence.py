@@ -71,7 +71,8 @@ def test_concept_lookup_with_the_iri_in_two_active_packs(
     assert client.get(url, headers=auth).json()["pack_id"] == "beta"
     assert client.get(url + "&collection=texts", headers=auth).json()["pack_id"] == "beta"
     assert client.get("/api/knowledge/concepts?iri=https://nope", headers=auth).status_code == 404
-    assert client.get(f"/api/reconcile/preview?iri={IRI}").json()["label"] == "Ithaca (beta)"
+    preview = client.get(f"/api/reconcile/preview?iri={IRI}", headers=auth)
+    assert preview.json()["label"] == "Ithaca (beta)"
 
 
 class FakeSolr:

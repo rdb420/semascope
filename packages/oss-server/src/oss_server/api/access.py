@@ -10,6 +10,10 @@ row for a collection (and no global row) gets the deployment default,
 `SEMASCOPE_DEFAULT_ROLE`: `none` (the default) makes every collection private
 to the users given a role on it; `reader` opens reading to every signed-in
 user. An unknown value counts as `none`.
+
+Vocabulary that is not collection data (packs, concepts, the Reconciliation API) needs
+a signed-in user who holds a role somewhere (`is_member`): an account given no role
+reads nothing.
 """
 
 from __future__ import annotations
@@ -88,6 +92,28 @@ def readable_collections(user: Any) -> set[str] | None:
     if any(slug is None for slug in rows) or default_role():
         return None
     return {slug for slug in rows if slug}
+
+
+def is_member(user: Any) -> bool:
+    """True when the user may read at least one collection: staff, a role on any collection
+    or globally, or a deployment default role. A signed-in account with none of these (a
+    new single sign-on account under the default settings) reads nothing at all, not even
+    the packs' vocabulary, which can name people and clients (list packs)."""
+
+    if not _authenticated(user) or not getattr(user, "is_active", True):
+        return False
+    if _is_admin(user) or default_role():
+        return True
+    from oss_server.catalogue.models import CollectionRole
+
+    return CollectionRole.objects.filter(user=user, role__in=ROLES).exists()
+
+
+def check_member(request: HttpRequest) -> None:
+    """403 unless the caller holds a role somewhere (`is_member`)."""
+
+    if not is_member(getattr(request, "user", None)):
+        raise HttpError(403, "a role on at least one collection is required")
 
 
 def can_read(user: Any, collection_slug: str) -> bool:

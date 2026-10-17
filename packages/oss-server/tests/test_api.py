@@ -16,7 +16,7 @@ def token(db: None) -> str:
     return issue_token(user, "test")
 
 
-def test_healthz(client: Client) -> None:
+def test_healthz(client: Client, db: None) -> None:
     assert client.get("/healthz").json()["status"] == "ok"
 
 
