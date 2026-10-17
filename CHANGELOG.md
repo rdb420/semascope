@@ -7,6 +7,40 @@ and the project follows semantic versioning.
 
 ### Security
 
+- An audit log records sign-ins (including failures and lockout refusals),
+  sign-outs, changes to users, roles, API and feed tokens, collections,
+  sources, webhooks and pack versions (through the API, the Django admin or a
+  shell), pack imports and activations, exports, bulk tagging, reindexing,
+  uploads, annotation imports and deletions, and console queries, with the
+  actor, channel, client address and user agent. Entries are append-only, hold
+  no credentials, are kept for `SEMASCOPE_AUDIT_RETENTION_DAYS` (365) and are
+  read by staff at `GET /api/audit` or in the admin.
+- Sign-in needs the CSRF token, and repeated failures lock the account
+  (`SEMASCOPE_LOGIN_MAX_FAILURES`, 5) and the client address (50) out for
+  `SEMASCOPE_LOGIN_LOCKOUT_S` (15 minutes) on every sign-in path; the API
+  answers 429 with Retry-After.
+- The expensive routes (searches, exports, list search, graph, the Cypher and
+  SPARQL consoles, queued jobs, uploads, reconciliation) are rate-limited per
+  token, with the rates in `SEMASCOPE_RATE_LIMITS`; the CLI waits and retries.
+  Counters live in Valkey (its own database). Uploaded files are capped by
+  `SEMASCOPE_UPLOAD_MAX_MB` and other request bodies by
+  `SEMASCOPE_REQUEST_MAX_MB`; reconciliation batches, query tags and the Cypher
+  console (now streamed in a read transaction with a timeout) are bounded.
+- Packs, concepts and reconciliation need a role on at least one collection;
+  the Reconciliation API is anonymous only with `SEMASCOPE_RECONCILE_PUBLIC=true`.
+- Credentials are masked wherever they could be shown: source settings
+  (withheld entirely below editor), collection settings, source errors,
+  webhook addresses, the admin forms (which keep stored secrets), audit
+  details and log lines (URL passwords, tracebacks included). The CLI token
+  generated at first start goes to `/data/cli-token` instead of the log, and
+  the access log leaves out query strings.
+- The server's pages carry a Content-Security-Policy; Caddy sets HSTS,
+  Permissions-Policy and the other headers once each, removes the Server
+  header, redirects plain HTTP on the HTTPS port, caps request bodies, takes its
+  certificate from `SEMASCOPE_TLS` and can limit `/admin/` to
+  `SEMASCOPE_ADMIN_ALLOW`.
+- Unexpected errors answer with a log reference instead of a traceback; store
+  errors are logged, not echoed. `/healthz` answers 503 without its database.
 - Outbound requests to any URL a source, user or document supplies resolve
   the host once per connection, refuse it unless every address is public or
   allowed by `SEMASCOPE_ALLOWED_PRIVATE_HOSTS`, and connect to the checked
@@ -175,6 +209,14 @@ and the project follows semantic versioning.
 
 ### Changed
 
+- Scripts that sign in through `POST /api/auth/login` must send the CSRF token
+  (bearer tokens are unaffected). OpenRefine needs
+  `SEMASCOPE_RECONCILE_PUBLIC=true`. Readers and curators no longer see source
+  settings.
+- API tokens record their last use at most every five minutes.
+- Importing the settings no longer creates `data/static`.
+- Routes return django-ninja `Status` objects; its deprecation warnings fail the
+  tests.
 - Stages and their clients live as long as the worker process (one Neo4j
   driver per process); the OpenAI-compatible embedder sends 64 inputs per
   request (`SEMASCOPE_EMBED_BATCH`).
@@ -317,6 +359,8 @@ and the project follows semantic versioning.
 
 ### Upgrade notes
 
+- Run migrations (`audit.0001`). Scripts that sign in with a password need the
+  CSRF token; OpenRefine needs `SEMASCOPE_RECONCILE_PUBLIC=true`.
 - Stage versions changed (tag 3, index 3, validate 2): run `./oss reindex
   --collection <slug>` for corrected spans and the events facet.
 - `./oss up` adds `SEMASCOPE_PSEUDONYM_KEY` to an older `.env` as a copy of the

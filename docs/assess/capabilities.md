@@ -154,7 +154,7 @@ implemented has none, or names a test that does not exist.
 | Bulk tagging: accept or reject a concept on every document of a search, as a job, one proposal per document | implemented | ci, smoke | at most 10,000 documents; keyword search and filters; a dry run counts first |
 | Explanation of a tag: occurrences with pages, method and stage version, matched label, model, `linked_from`, decision history (API and document page) | implemented | ci, smoke | |
 | Merge entities | planned | — | |
-| Audit of logins, pack imports, source and collection changes | planned | — | decisions are logged; administrative actions are not |
+| Audit log: sign-ins and sign-outs, users, roles, tokens, collections, sources, webhooks, packs, exports, bulk jobs, console queries | implemented | ci, integration | through the API, the admin or a shell; actor, channel, client address and user agent; append-only (a PostgreSQL trigger refuses updates); details never hold a credential; staff read it at `GET /api/audit` and in the admin; kept `SEMASCOPE_AUDIT_RETENTION_DAYS` (365); not sent to webhooks |
 
 ## Export targets
 
@@ -165,7 +165,7 @@ implemented has none, or names a test that does not exist.
 | Webhooks with HMAC signature (one delivery run per hook; the cursor never moves back) | implemented | ci |
 | Pack deltas as `taxonomy.delta.ttl` and `model.delta.yaml` | implemented | ci |
 | Search results as CSV (first 10,000) | implemented | ci |
-| W3C Reconciliation API 0.2 | implemented | ci |
+| W3C Reconciliation API 0.2 (signed in unless `SEMASCOPE_RECONCILE_PUBLIC=true`; bounded batches; rate-limited) | implemented | ci |
 | SPARQL over pack graphs (staff) | implemented | ci |
 | Documents with their tags in force, notes and decisions as RDF (Turtle, JSON-LD) in the base vocabulary: one document or a search's hits (first 10,000), `oss export` | implemented | ci |
 | Notes and decisions as W3C Web Annotations (`GET /api/annotations/w3c`, `oss export annotations`) | implemented | ci |
@@ -192,7 +192,7 @@ implemented has none, or names a test that does not exist.
 | Runtimes `cpu`, `gpu`, `remote`, a provider per heavy stage | implemented (cpu), experimental (gpu, remote) | ci, bench | |
 | Local accounts and API tokens | implemented | ci | |
 | Single sign-on (OpenID Connect) | implemented | ci | the authorisation-code flow against a test identity provider; rc.2 images lacked the JWT library the callback needs; local sign-up is closed; account creation on first sign-in (`SEMASCOPE_OIDC_AUTO_SIGNUP`) and the new account's role (`SEMASCOPE_OIDC_DEFAULT_ROLE`, default `none`) are configurable |
-| Roles per collection | implemented | ci | roles govern reading and writing; reading is per collection by default (`SEMASCOPE_DEFAULT_ROLE=none`; `reader` opens it to every signed-in user); a route-by-route authorisation test covers every endpoint, run with the default |
+| Roles per collection | implemented | ci | roles govern reading and writing; reading is per collection by default (`SEMASCOPE_DEFAULT_ROLE=none`; `reader` opens it to every signed-in user); a route-by-route authorisation test covers every endpoint, run with the default; packs, concepts, query tags and reconciliation need a role on some collection; reconciliation is anonymous only with `SEMASCOPE_RECONCILE_PUBLIC`; the route test runs as seven kinds of user |
 | Backup and restore | implemented | ci | a round trip onto an emptied stack compares counts, searches, decisions and the outbox cursor; every step fails loudly; restore stages Postgres and Solr beside the live data and switches only when all of it loaded, so a corrupt backup changes nothing |
 | Worker loss: no document lost, stuck or processed twice when a worker process or container dies | implemented | ci, bench | a dead process hands its task back; `recover` requeues stale documents every 2 minutes; redelivered work for an unchanged document is skipped |
 | Crash-loop guard: a document that kills its worker three times is held as failed | implemented | ci | shown by `oss stats` and `oss doctor`; `oss reindex` retries it |
@@ -207,8 +207,14 @@ implemented has none, or names a test that does not exist.
 | Files on the host for upload, pack import, diff and validate, eval and export | implemented | ci, fresh-clone check | sent into the cli container as a tar on stdin; no bind mounts |
 | Secret rotation in the stores and `.env` together (`./oss rotate`) | implemented | ci | PostgreSQL, Neo4j, Solr, admin, API token, Grafana; the pseudonym key is never rotated |
 | Secrets from files (`*_FILE`, Docker secrets overlay) | implemented | ci | `compose.secrets.yaml`; the observability profile needs `.env` |
-| Health checks on every long-running service; `oss doctor` checks every store, the collections, versions and the base pack | implemented | ci, integration | the collector and Jaeger images have none (no shell) |
+| Health checks on every long-running service; `oss doctor` checks every store, the collections, versions and the base pack | implemented | ci, integration | the collector and Jaeger images have none (no shell); `/healthz` answers 503 without its database |
 | Network split: Tika on an internal network, Caddy only with the server | implemented | ci | |
+| Sign-in lockout per account and client address; sign-in needs the CSRF token | implemented | ci, integration | every sign-in path (API, admin, allauth); 429 with Retry-After; counted in Valkey; fails open when Valkey is down |
+| Per-token rate limits on expensive routes (searches, exports, list search, graph, consoles, jobs, uploads, reconciliation) | implemented | ci, integration | django-ninja throttles; rates in `SEMASCOPE_RATE_LIMITS`; the CLI waits on 429 |
+| Request caps: uploaded file size, request body size (server and Caddy), reconciliation batches, query tags, the Cypher console streamed with a timeout | implemented | ci, integration | |
+| Credentials masked in API answers, the admin and log lines | implemented | ci | source and collection settings, source errors, webhook addresses, audit details; URL passwords in log lines and tracebacks; the generated CLI token goes to a mode-600 file; access log without query strings |
+| Security headers and proxy hardening: page Content-Security-Policy, HSTS, Permissions-Policy, COOP, each once; no server banner; plain HTTP redirected; TLS 1.2+ from `SEMASCOPE_TLS`; optional `/admin/` allow-list | implemented | ci, integration | the policy names the map-tile and sign-on hosts from the settings |
+| Error answers without internals (500 with a log reference; store errors logged, not echoed) | implemented | ci | |
 | Web UI lint, type-check, tests and bundle budget | implemented | ci | first load about 114 kB of gzipped JavaScript |
 | Service secrets: none has a default, placeholders refused at start, Valkey requires a password | implemented | ci | |
 | Collection settings accept tuning keys only (no service addresses or credentials) | implemented | ci | |
