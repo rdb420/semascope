@@ -147,6 +147,25 @@ is shared by every collection, and kept under 900 kB (ZooKeeper's limit on a
 configset file is 1 MB); a larger vocabulary leaves terms out and says so in
 the server log.
 
+### Testing and growing synonyms
+
+The **Synonyms** page (`GET /api/synonyms/expand?q=`) shows what a query
+expands to: each run of its words that is a label of an active pack, the
+concept or individual it names, and the labels it brings in with their
+weight; the labels curators have proposed that wait for a new pack version
+(in the collections you may read); and the tokens Solr's query analysis
+makes of it, synonyms marked.
+
+For a concept or individual, **Suggest labels** (`GET /api/synonyms/suggest?iri=`)
+lists candidates from the documents you may read: spelling variants of its
+labels among the names the index holds (an edit distance of one per four
+letters, at most three), names that occur with it at least twice as often
+as without it, and the significant words of the documents tagged with it.
+A curator proposes a candidate as an alternative or hidden label (a pack
+delta, as on the concept page): it tags the proposing collection's
+documents at once, and becomes a search synonym when a pack version that
+accepts it is activated.
+
 ## Filters, facets and sorting
 
 - **Facets** list the values of the documents found, with counts. Click a value
