@@ -854,3 +854,47 @@
   - packages/oss-server/tests/test_hardening.py::test_console_errors_name_the_kind_not_the_message
   - packages/oss-server/tests/test_similar.py::test_similar_reports_a_missing_signal_and_checks_access
   - packages/oss-server/tests/test_routes_and_telemetry.py::test_healthz_fails_without_the_database
+
+"Export targets | RDF of a collection's graph (documents, concepts and entities in force, schemes and broader concepts) as Turtle, JSON-LD or N-Quads; N-Quads for every RDF export (`oss export graph`)":
+  - packages/oss-server/tests/test_exports_table.py::test_graph_export_of_a_collection
+  - packages/oss-server/tests/test_exports_table.py::test_document_export_as_nquads_names_the_document_graph
+  - packages/oss-cli/tests/test_export_tables.py::test_export_entities_and_graph
+  - tests/integration/test_extras_analysis.py::test_graph_and_nquads_exports
+
+"Export targets | Documents and their concepts and entities as CSV, JSON Lines or Parquet (first 10,000; `oss export documents`, `oss export entities`)":
+  - packages/oss-server/tests/test_exports_table.py::test_documents_as_csv_jsonl_and_parquet_read_scoped
+  - packages/oss-server/tests/test_exports_table.py::test_entities_one_row_per_tag_and_pseudonymised
+  - packages/oss-server/tests/test_exports_table.py::test_parquet_streams_one_row_group_per_batch
+  - packages/oss-cli/tests/test_export_tables.py::test_export_documents_as_parquet
+  - packages/oss-server/tests/test_audit.py::test_table_and_graph_exports_are_recorded
+  - tests/integration/test_extras_analysis.py::test_documents_and_entities_as_tables
+
+"Export targets | Web Annotation Protocol: create, read, replace and delete one annotation with ETags and If-Match":
+  - packages/oss-server/tests/test_annotations_ldp.py::test_create_read_replace_delete
+  - packages/oss-server/tests/test_annotations_ldp.py::test_readers_may_not_create_and_authors_edit_their_own
+  - packages/oss-server/tests/test_annotations_ldp.py::test_entity_tags_survive_a_compressing_proxy
+  - tests/integration/test_extras_analysis.py::test_annotation_protocol_round_trip
+
+"Search | Ranking explanation per hit: keyword rank, score and clauses (the whole Solr explanation for staff only), nearest passages, fused shares":
+  - packages/oss-server/tests/test_explain_hit.py::test_keyword_explain_for_a_reader
+  - packages/oss-server/tests/test_explain_hit.py::test_staff_get_the_whole_tree_and_hybrid_shares
+  - tests/integration/test_extras_analysis.py::test_explain_a_hit
+  - tests/e2e/ui_smoke.py
+
+"Search | Synonym tooling: what a query expands to, candidate labels for a concept, proposals as pack deltas":
+  - packages/oss-server/tests/test_synonym_tools.py::test_expand_route_shows_matches_drafts_and_tokens
+  - packages/oss-server/tests/test_synonym_tools.py::test_suggest_route_finds_variants_and_co_occurring_names
+  - tests/integration/test_extras_analysis.py::test_query_expansion_and_label_suggestions
+  - tests/e2e/ui_smoke.py
+
+"Search | Analysis of a search's results: clusters, corpus comparison, word tree; diff of two documents":
+  - packages/oss-server/tests/test_analysis.py::test_kmeans_separates_two_topics_and_is_deterministic
+  - packages/oss-server/tests/test_analysis.py::test_clusters_route_groups_the_readable_hits
+  - packages/oss-server/tests/test_analysis.py::test_compare_route_weighs_every_word_of_two_searches
+  - packages/oss-server/tests/test_analysis.py::test_word_tree_route
+  - packages/oss-server/tests/test_analysis.py::test_diff_route_needs_reader_on_both
+  - tests/integration/test_extras_analysis.py::test_clusters_put_the_homeric_epics_together
+  - tests/integration/test_extras_analysis.py::test_diff_two_documents
+
+"UI surfaces | Analysis (clusters, compare, word tree), diff, synonyms, why this result, export and annotation import pages":
+  - tests/e2e/ui_smoke.py

@@ -98,6 +98,9 @@ implemented has none, or names a test that does not exist.
 | Significant terms | implemented | ci, smoke | scored against the readable collections searched |
 | Suggest / autocomplete | implemented | ci, smoke | `GET /api/suggest` (titles, last word as a prefix); the search box suggests titles as you type |
 | More like this: documents similar to a document (text and passage vectors fused) | implemented | ci, smoke | read-scoped; at most 50 |
+| Ranking explanation per hit: keyword rank, score and clauses (the whole Solr explanation for staff only), nearest passages, fused shares | implemented | ci, smoke | read-scoped |
+| Synonym tooling: what a query expands to, candidate labels for a concept, proposals as pack deltas | implemented | ci, smoke | |
+| Analysis of a search's results: clusters, corpus comparison, word tree; diff of two documents | implemented | ci, smoke | read-scoped; sampled and capped |
 | Browser search: OpenSearch description and suggestions | implemented | ci | |
 | Relevance evaluation: `oss eval` (P@k, R@k, nDCG@k, MRR@k per mode) with demo judgements | implemented | ci, quality | |
 | Original files: authorised download, safe types inline, byte ranges | implemented | ci, smoke | HTML, SVG and unknown types are only sent as attachments |
@@ -119,6 +122,7 @@ implemented has none, or names a test that does not exist.
 | Alerts and feeds page (saved searches, alerts on and off, feed token, Atom and RSS links) | implemented | smoke |
 | Document: similar documents panel and export links | implemented | smoke |
 | Overview: counts, top entities and concepts, documents over time | implemented | ci, smoke |
+| Analysis (clusters, compare, word tree), diff, synonyms, why this result, export and annotation import pages | implemented | smoke |
 | Review queue | implemented | smoke |
 | Map of pack places | implemented | smoke |
 | List search | implemented | smoke |
@@ -169,7 +173,10 @@ implemented has none, or names a test that does not exist.
 | SPARQL over pack graphs (staff) | implemented | ci |
 | Documents with their tags in force, notes and decisions as RDF (Turtle, JSON-LD) in the base vocabulary: one document or a search's hits (first 10,000), `oss export` | implemented | ci |
 | Notes and decisions as W3C Web Annotations (`GET /api/annotations/w3c`, `oss export annotations`) | implemented | ci |
-| RDF of the graph; N-Quads; SPARQL Update push | planned | — |
+| RDF of a collection's graph (documents, concepts and entities in force, schemes and broader concepts) as Turtle, JSON-LD or N-Quads; N-Quads for every RDF export (`oss export graph`) | implemented | ci |
+| SPARQL Update push | planned | — |
+| Documents and their concepts and entities as CSV, JSON Lines or Parquet (first 10,000; `oss export documents`, `oss export entities`) | implemented | ci |
+| Web Annotation Protocol: create, read, replace and delete one annotation with ETags and If-Match | implemented | ci |
 
 ## Knowledge packs
 

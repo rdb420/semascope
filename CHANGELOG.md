@@ -109,6 +109,16 @@ and the project follows semantic versioning.
 
 ### Added
 
+- Analysis of a search's results (ADR-0012): clusters of documents by their
+  words or meaning, comparison of a search's words with another search or
+  the whole collection, a word tree around a phrase, and a line and word
+  diff of two documents. Exports as tables: documents and their concepts and
+  entities as CSV, JSON Lines or Parquet (`oss export documents|entities`),
+  with recipes for DuckDB, Superset and Grafana; RDF exports also write
+  N-Quads, and a collection's graph exports as RDF (`oss export graph`). The
+  Web Annotation Protocol's per-annotation create, read, replace and delete
+  with ETags. Synonym tooling: what a query expands to, and suggested labels
+  curators can propose. "Why?" on each result explains its rank.
 - OCR later (`settings.pipeline.ocr: now|later|off`): documents are indexed
   from their text layer at once and scans are OCRed afterwards on a
   low-priority task (ADR-0014). New connectors: `warc` (web archives),
