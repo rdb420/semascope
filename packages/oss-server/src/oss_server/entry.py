@@ -163,6 +163,9 @@ def server() -> None:
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    from oss_server.logredact import redact_handlers
+
+    redact_handlers()
     prepare_in_child()
     _django()
     if args.reload:

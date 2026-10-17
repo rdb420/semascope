@@ -233,3 +233,11 @@ def test_public_reconciliation_counts_per_client_address(
     ]
     assert codes == [200, 200, 200, 429]
     assert client.get("/api/reconcile", headers={"X-Forwarded-For": "192.0.2.2"}).status_code == 200
+
+
+def test_the_counters_never_share_the_task_queue_database() -> None:
+    from oss_server.settings import cache_url
+
+    assert cache_url("redis://:pw@valkey:6379/0") == "redis://:pw@valkey:6379/1"
+    assert cache_url("redis://valkey:6379") == "redis://valkey:6379/1"
+    assert cache_url("redis://valkey:6379/15") == "redis://valkey:6379/0"

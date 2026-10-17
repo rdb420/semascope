@@ -352,3 +352,24 @@ def test_importing_the_settings_creates_no_folder(tmp_path: Path) -> None:
         check=True,
     )
     assert list(tmp_path.iterdir()) == []
+
+
+def test_log_lines_mask_url_passwords_in_messages_and_tracebacks() -> None:
+    import io
+    import logging
+
+    from oss_server.celery import _redact_logs
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    logger = logging.getLogger("test.redaction")
+    logger.handlers, logger.propagate = [handler], False
+    _redact_logs(logger)  # what Celery's after_setup_logger signal calls in a worker
+    try:
+        raise ConnectionError(f"failed to fetch https://crawler:{SECRET}@intranet.example/a")
+    except ConnectionError:
+        logger.exception("source %s failed", f"https://crawler:{SECRET}@intranet.example/")
+    out = stream.getvalue()
+    assert SECRET not in out and "https://crawler:********@intranet.example/" in out
+    assert "Traceback" in out and out.startswith("ERROR ")

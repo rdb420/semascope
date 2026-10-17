@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlsplit, urlunsplit
 
 import django_stubs_ext
 from django.core.exceptions import ImproperlyConfigured
@@ -171,17 +171,28 @@ STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 
+
+def cache_url(valkey_url: str) -> str:
+    """The Valkey database after the broker's (`/0` -> `/1`): the cache never shares a
+    database with Celery's queues, so clearing it cannot drop a queued task."""
+
+    parts = urlsplit(valkey_url)
+    db = parts.path.strip("/")
+    number = int(db) if db.isdigit() else 0
+    return urlunsplit(parts._replace(path=f"/{(number + 1) % 16}"))
+
+
 # Rate limits and the sign-in lockout count here (oss_server.ratelimit), as do allauth's
-# own limits: Valkey, so every server process shares the counters. Keys are prefixed;
-# Celery's queues are untouched. Without a stack (an SQLite database: tests, a laptop)
-# the counters stay in this process's memory.
+# own limits: Valkey, so every server process shares the counters, in a database of its
+# own. Without a stack (an SQLite database: tests, a laptop) the counters stay in this
+# process's memory.
 CACHES: dict[str, dict[str, object]] = {
     "default": (
         {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
         if _settings.database_url.startswith("sqlite")
         else {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": _settings.valkey_url,
+            "LOCATION": cache_url(_settings.valkey_url),
             "KEY_PREFIX": "semascope",
             "TIMEOUT": 3600,
             "OPTIONS": {"socket_connect_timeout": 2, "socket_timeout": 2},
@@ -209,7 +220,9 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    # URL passwords masked in every line, tracebacks included (oss_server.logredact)
+    "formatters": {"redacted": {"()": "oss_server.logredact.RedactingFormatter"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "redacted"}},
     "root": {"handlers": ["console"], "level": "INFO"},
 }
 

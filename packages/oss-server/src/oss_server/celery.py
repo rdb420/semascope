@@ -8,7 +8,10 @@ Task discovery is lazy, so importing this module needs no Django set-up.
 
 from __future__ import annotations
 
+import logging
 import os
+
+from celery.signals import after_setup_logger, after_setup_task_logger
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "oss_server.settings")
 
@@ -17,6 +20,18 @@ from oss_pipeline.celery_app import app  # noqa: E402
 app.autodiscover_tasks(
     ["oss_server.pipeline", "oss_server.curation", "oss_server.knowledge", "oss_server.audit"]
 )
+
+
+@after_setup_logger.connect
+@after_setup_task_logger.connect
+def _redact_logs(logger: logging.Logger, **_: object) -> None:
+    """URL passwords masked in the worker's and beat's log lines (oss_server.logredact)."""
+
+    from oss_server.logredact import redact_handlers
+
+    redact_handlers(logger)
+
+
 app.conf.beat_schedule = {
     "tick": {"task": "semascope.tick", "schedule": 60.0, "options": {"queue": "io"}},
     # requeue documents whose worker died, re-project graphs that waited for Neo4j
