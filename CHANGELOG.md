@@ -7,6 +7,14 @@ and the project follows semantic versioning.
 
 ### Security
 
+- Any setting can be read from a file named by `<NAME>_FILE`; `oss init
+  --secrets-dir` and `compose.secrets.yaml` keep every secret out of `.env`.
+  `./oss rotate` changes secrets in PostgreSQL, Neo4j, Solr, the admin
+  account, the API token and Grafana together with `.env`.
+  `SEMASCOPE_PSEUDONYM_KEY` keys graph pseudonyms apart from the secret key and
+  is never rotated. Tika runs on an internal network shared only with the
+  worker and the cli; Caddy reaches only the server. Build bakes fail the
+  build.
 - Deleting a document, source or collection also removes its graph nodes,
   blobs, previews, work files and uploads; a daily `gc` sweeps leftovers.
   Alert events in the outbox carry no owner, search name or hits; webhook
@@ -58,6 +66,12 @@ and the project follows semantic versioning.
 
 ### Added
 
+- `./oss upload`, `pack import|diff|validate`, `eval` and `export --out`
+  work with files on the host; `./oss init` works without uv. `oss doctor`
+  checks PostgreSQL, Valkey, the Solr collections and SolrCloud mode,
+  versions and the base pack. Health checks for the worker, beat and Caddy.
+  The observability profile has traces in Jaeger, a Grafana dashboard and
+  Flower on loopback behind a password. `.env.example` lists every setting.
 - Per-language search for 28 languages (ar bg ca cs da de el en es fa fi fr
   hi hu id it ja ko lv nl no pl pt ro ru sv tr zh): each document is also
   indexed with its language's stop words and stemmer, Chinese, Japanese and
@@ -182,6 +196,10 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- `./oss upload` of a host file; the shim creates the import folder before
+  Docker can create it as root; the server no longer runs healthy without its
+  Solr collections; restore puts the Solr configsets back from the image
+  after any RESTORE; `DATABASE_URL` passwords are URL-decoded.
 - An explicit OR no longer behaves as AND. English stop words and stemming
   are no longer applied to every language. A numeric query such as `1984`
   survives the search page; the media view counts its pages; a failed CSV
@@ -269,6 +287,8 @@ and the project follows semantic versioning.
 
 ### Upgrade notes
 
+- `./oss up` adds `SEMASCOPE_PSEUDONYM_KEY` to an older `.env` as a copy of the
+  old secret key, so existing pseudonyms stay the same.
 - Run `./oss reindex --collection <slug> --stage index` for each collection to
   fill the per-language fields; synonyms need no reindex.
 - Existing mail documents are re-created once under their new URIs.

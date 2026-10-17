@@ -426,6 +426,7 @@
   - packages/oss-server/tests/test_read_access.py::test_default_none_limits_reading_to_granted_collections
 
 "Operation | Backup and restore":
+  - packages/oss-cli/tests/test_shim.py::test_a_refused_restore_uploads_the_configsets_before_the_app_starts
   - tests/integration/test_roundtrip.py::test_a_corrupt_backup_leaves_the_data_as_it_was
   - tests/integration/test_roundtrip.py::test_backup_wipe_restore
   - "check: fresh-clone check (docs/assess/deployment.md)"
@@ -671,3 +672,31 @@
   - packages/oss-server/tests/test_search_syntax.py::test_pages_beyond_ten_thousand_hits_are_refused
   - packages/oss-server/tests/test_search_syntax.py::test_hybrid_fuses_the_whole_keyword_list_not_its_first_hundred
   - tests/integration/test_search_languages.py::test_paging_and_facet_caps
+
+"Operation | Files on the host for upload, pack import, diff and validate, eval and export":
+  - packages/oss-cli/tests/test_shim.py::test_upload_sends_the_host_files_into_the_container
+  - packages/oss-cli/tests/test_shim.py::test_pack_import_of_a_host_bundle_goes_to_the_data_volume
+  - packages/oss-cli/tests/test_shim.py::test_eval_sends_the_judgement_file
+  - packages/oss-cli/tests/test_shim.py::test_export_out_writes_the_file_on_this_machine
+
+"Operation | Secret rotation in the stores and `.env` together (`./oss rotate`)":
+  - packages/oss-cli/tests/test_shim.py::test_rotate_changes_each_store_then_the_env_file
+  - packages/oss-cli/tests/test_shim.py::test_rotate_stops_at_the_first_refusal_with_the_file_matching_the_stores
+
+"Operation | Secrets from files (`*_FILE`, Docker secrets overlay)":
+  - packages/oss-core/tests/test_settings_files.py::test_a_secret_is_read_from_its_file
+  - packages/oss-core/tests/test_settings_files.py::test_store_passwords_from_files_complete_the_urls
+  - packages/oss-cli/tests/test_init_secrets_dir.py::test_secrets_go_to_files_and_the_settings_read_them
+  - packages/oss-cli/tests/test_compose_files.py::test_secrets_overlay_gives_every_app_service_every_secret_file
+
+"Operation | Health checks on every long-running service; `oss doctor` checks every store, the collections, versions and the base pack":
+  - packages/oss-cli/tests/test_compose_files.py::test_every_long_running_service_has_a_health_check
+  - packages/oss-cli/tests/test_doctor_stores.py::test_doctor_fails_on_a_missing_collection
+  - packages/oss-server/tests/test_entry_prepare.py::test_a_failed_solr_bootstrap_stops_the_server
+
+"Operation | Network split: Tika on an internal network, Caddy only with the server":
+  - packages/oss-cli/tests/test_compose_files.py::test_tika_and_caddy_sit_on_their_own_networks
+
+"Operation | README quick start on a fresh clone":
+  - .github/scripts/fresh-clone.sh
+  - packages/oss-cli/tests/test_shim.py::test_upload_sends_the_host_files_into_the_container

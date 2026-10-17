@@ -184,12 +184,17 @@ implemented has none, or names a test that does not exist.
 | Crash-loop guard: a document that kills its worker three times is held as failed | implemented | ci | shown by `oss stats` and `oss doctor`; `oss reindex` retries it |
 | Graph projection survives a Neo4j outage | implemented | ci, bench | documents stay searchable with the graph pending, and are projected when Neo4j answers |
 | Worker memory: pool processes are replaced past their share of the memory cap | implemented | ci, bench | |
-| OpenTelemetry traces and metrics | experimental | ci (set-up) | server, workers and beat export both over OTLP since the fix after rc.2; the bundled collector logs traces and passes metrics to Prometheus; not exercised against a live collector in CI |
+| OpenTelemetry traces and metrics | experimental | ci (set-up) | traces to Jaeger (in memory), metrics to Prometheus, a provisioned Grafana dashboard; server, workers and beat export; Flower on loopback behind a password; checked live by hand, not in CI |
 | Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image (amd64 only) has an SBOM too; not yet exercised by a tag |
 | Signed releases | experimental | — | keyless cosign signatures in the release workflow, not yet exercised by a tag |
 | Release gated on CI and integration (tags only) | experimental | release workflow | the tag must match the version; `ci` and `integration` run on the tagged commit before any image is pushed; not yet exercised |
 | Dependency audit and licence policy | implemented | ci | pip-audit and pnpm audit fail the build; GPL and AGPL refused, LGPL only with an ADR (psycopg, ADR-0011); the `-gpu` image's extra wheels are not covered yet |
-| README quick start on a fresh clone | experimental | integration (fresh-clone job) | init, up, demo and search pass; `./oss upload` fails until SEMA-019 is fixed |
+| README quick start on a fresh clone | implemented | integration (fresh-clone job) | init, up, demo, search and upload of a host file pass in a clean clone |
+| Files on the host for upload, pack import, diff and validate, eval and export | implemented | ci, fresh-clone check | sent into the cli container as a tar on stdin; no bind mounts |
+| Secret rotation in the stores and `.env` together (`./oss rotate`) | implemented | ci | PostgreSQL, Neo4j, Solr, admin, API token, Grafana; the pseudonym key is never rotated |
+| Secrets from files (`*_FILE`, Docker secrets overlay) | implemented | ci | `compose.secrets.yaml`; the observability profile needs `.env` |
+| Health checks on every long-running service; `oss doctor` checks every store, the collections, versions and the base pack | implemented | ci, integration | the collector and Jaeger images have none (no shell) |
+| Network split: Tika on an internal network, Caddy only with the server | implemented | ci | |
 | Web UI lint, type-check, tests and bundle budget | implemented | ci | first load about 114 kB of gzipped JavaScript |
 | Service secrets: none has a default, placeholders refused at start, Valkey requires a password | implemented | ci | |
 | Collection settings accept tuning keys only (no service addresses or credentials) | implemented | ci | |
