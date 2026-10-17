@@ -1,6 +1,6 @@
 # ADR-0010: One task per document, two queues
 
-Status: proposed, 2026-10-16.
+Status: proposed, 2026-10-16. Amended 2026-10-17 (see the end).
 
 ## Decision
 
@@ -15,7 +15,7 @@ from `compose.yaml`.
 
 ## Context
 
-Up to 1.0.0-rc.3 every stage declared one of five queues (`io`, `cpu`,
+Up to 1.0.0-rc.2 every stage declared one of five queues (`io`, `cpu`,
 `ocr`, `nlp`, `graph`) and the worker listened on all five, but nothing
 routed by them: `process_document` ran the whole profile in a `cpu` task and
 no task used `ocr`, `nlp` or `graph`. The declarations suggested a split of
@@ -36,8 +36,7 @@ remote runtime already moves the heavy models off the worker.
 - Light tasks never wait behind a backlog of documents, because they have
   their own queue.
 - A third-party stage that still sets `queue` keeps working: the attribute
-  is ignored. The built-in `tag`, `ner`, `link` and `patterns` stages still
-  carry it until their next change.
+  is ignored. No built-in stage sets it any more.
 - Splitting stages across tasks later is still possible; it would come
   with its own ADR and a design for passing the working document.
 
@@ -47,3 +46,10 @@ remote runtime already moves the heavy models off the worker.
   the context.
 - Keep the declarations as documentation of a stage's cost: rejected,
   because a field named `queue` reads as routing.
+
+## Amended 2026-10-17
+
+Two facts corrected, no change to the decision: the queues were declared up
+to 1.0.0-rc.2 (this record first said rc.3, which is not released), and the
+built-in `tag`, `ner`, `link` and `patterns` stages no longer carry a `queue`
+attribute (this record first said they still did).

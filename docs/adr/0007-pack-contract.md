@@ -1,6 +1,6 @@
 # ADR-0007: The pack contract is the ontology skill's bundle
 
-Status: proposed.
+Status: proposed. Amended 2026-10-17 (see the end).
 
 ## Decision
 
@@ -45,7 +45,8 @@ Semascope should pass both.
 - Authoring happens with the skill or any SKOS/OWL editor. The in-app editor
   emits deltas with `status: draft` and `support: proposed`; it never changes
   an imported pack.
-- Every tag carries `pack_id` and `pack_version`; a pack upgrade is a diff
+- Every tag that comes from a pack carries `pack_id` and `pack_version`
+  (tags from named-entity recognition alone carry neither); a pack upgrade is a diff
   and a reindex plan, never a silent change. Replacing an active version
   (import with activation, or activation of another version) shows the diff
   and the documents it affects per collection, and proceeds only when
@@ -86,3 +87,9 @@ As of the 1.0 hardening (branch `hardening/packs`):
   active; documents tagged with it keep their tags until they are reindexed.
 
 The details are in the [pack specification](../assess/pack-spec.md).
+
+## Amended 2026-10-17
+
+"Every tag carries `pack_id` and `pack_version`" was narrowed to tags that
+come from a pack: a named entity that no pack individual matched has no
+pack. No change to the decision.
