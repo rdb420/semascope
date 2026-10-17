@@ -15,7 +15,8 @@ navigable, reviewable knowledge base, on your own hardware.
 ## What you get
 
 - **Ingest** from folders, uploads, web pages and sitemaps, RSS and Atom,
-  mailboxes, archives, spreadsheets, S3 buckets and RDF, with OCR for scans.
+  mailboxes, archives, spreadsheets, S3 buckets, RDF, web archives,
+  Hypothesis and Mastodon, with OCR for scans, now or later.
 - **Enrich** against knowledge models packaged as ontology-skill bundles:
   dictionary tagging with hierarchical facets, named entities linked to your
   individuals, SHACL validation, chunk embeddings.
@@ -31,7 +32,15 @@ navigable, reviewable knowledge base, on your own hardware.
   sign-on, roles per collection, backup and restore, optional observability,
   and the heavy stages on CPU, on a local GPU or through remote services.
 
-Start with the quick start in the README, then read [Concepts](concepts.md).
-The [development plan](plan.md), [quality numbers](quality.md),
-[security](security.md), [operations](operations.md) and the
+Start with [Install](install.md), then read [Concepts](concepts.md).
+[Connector settings](connectors.md), [Languages and OCR](languages.md),
+the [API](api.md), [events and webhooks](events.md) and
+[writing a plugin](plugins.md) are the references; the
+[development plan](plan.md), [quality numbers](quality.md),
+[security](security.md), [operations](operations.md), the
+[assessment pages](assess/index.md) and the
 [decision records](adr/index.md) are here too.
+
+This site describes 1.0.0-rc.3, which is not released yet; what is
+implemented, experimental or planned is in the
+[capability matrix](assess/capabilities.md).

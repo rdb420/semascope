@@ -12,8 +12,14 @@ theme:
       toggle: { icon: material/brightness-4, name: Light mode }
 nav:
   - Home: index.md
+  - Install: install.md
   - Concepts: concepts.md
   - Searching: search.md
+  - Languages and OCR: languages.md
+  - Connector settings: connectors.md
+  - API: api.md
+  - Events and webhooks: events.md
+  - Writing a plugin: plugins.md
   - Development plan: plan.md
   - Quality numbers: quality.md
   - Security: security.md
@@ -26,6 +32,7 @@ nav:
       - Explainability model: assess/explainability.md
       - Deployment guide: assess/deployment.md
       - Coming from Open Semantic Search: assess/migration-from-oss.md
+      - Product decisions: assess/decisions.md
       - Benchmarks: assess/benchmarks.md
       - Walkthrough: assess/walkthrough.md
   - Decisions:
@@ -45,6 +52,7 @@ nav:
       - adr/0013-deletion-and-retention.md
       - adr/0014-ocr-later.md
       - adr/0015-pst-libpff-extra.md
+      - adr/0016-original-file-download.md
 markdown_extensions:
   - tables
   - admonition
