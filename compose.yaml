@@ -93,6 +93,19 @@ services:
       - blobs:/data
       - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro
 
+  # `oss watch` (profile `watch`): runs a folder source as soon as files change under the
+  # import folder instead of waiting for its schedule. Start it with
+  # `docker compose --profile watch up -d watch`; it reads SEMASCOPE_API_TOKEN from the env
+  # file. inotify sees changes made on this host; for network shares add `--poll`.
+  watch:
+    <<: *app
+    profiles: [watch]
+    command: oss watch
+    depends_on:
+      server: { condition: service_healthy }
+    volumes:
+      - ${SEMASCOPE_IMPORT_DIR:-./data/import}:/import:ro
+
   postgres:
     image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
