@@ -39,7 +39,8 @@ TREE_CHARS = 500_000  # the word tree reads more: a word may be rare
 MAX_SAMPLE = 500
 MAX_VECTOR_SAMPLE = 100
 MAX_SHOWN = 50  # documents listed per cluster
-BACKGROUND_CANDIDATES = 300
+BACKGROUND_CANDIDATES = 300  # words of a search weighed against the index (one Solr request)
+SEARCH_CANDIDATES = 20000  # words of each side weighed when two searches are compared
 
 
 class TermWeight(Schema):
@@ -243,7 +244,8 @@ def compare_results(request: HttpRequest, payload: CompareIn) -> CompareOut:
     top_a = a.frequent(BACKGROUND_CANDIDATES)
     if payload.against is not None:
         _, b = _side(request, payload.against, payload.sample)
-        candidates = top_a + b.frequent(BACKGROUND_CANDIDATES)
+        # both sides are counted here: weigh every word either side holds
+        candidates = a.frequent(SEARCH_CANDIDATES) + b.frequent(SEARCH_CANDIDATES)
         background: Literal["search", "index"] = "search"
     else:
         candidates = top_a

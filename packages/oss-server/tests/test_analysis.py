@@ -155,7 +155,8 @@ class AnalysisSolr:
                 "response": {"numFound": 100},
                 "facet_counts": {"facet_queries": {q: 50 for q in params["facet.query"]}},
             }
-        docs = [{"id": i, "collection_s": "a", "uri_s": i} for i in [*A_DOCS, B_DOC]]
+        wanted = A_DOCS[2:] if "war" in str(params.get("q")) else [*A_DOCS, B_DOC]
+        docs = [{"id": i, "collection_s": "a", "uri_s": i} for i in wanted]
         return {"response": {"numFound": len(docs), "docs": docs}}
 
 
@@ -264,3 +265,21 @@ def test_diff_route_needs_reader_on_both(client: Client, world: dict[str, Any]) 
         f"/api/analytics/diff?a={A_DOCS[0]}&b={B_DOC}", headers=_auth(world["reader"])
     )
     assert hidden.status_code == 403
+
+
+def test_compare_route_weighs_every_word_of_two_searches(
+    client: Client, world: dict[str, Any]
+) -> None:
+    # the second search's hits are part of the first's: only the words the others hold differ
+    resp = client.post(
+        "/api/analytics/compare",
+        data={"search": {"q": "sea"}, "against": {"q": "war"}},
+        content_type="application/json",
+        headers=_auth(world["reader"]),
+    )
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["background"] == "search"
+    assert body["a_documents"] == 4 and body["b_documents"] == 2
+    # the sea words are in half of the first side and none of the second
+    assert "voyage" in [t["term"] for t in body["more"]], body
