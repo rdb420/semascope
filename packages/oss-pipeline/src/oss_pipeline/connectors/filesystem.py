@@ -8,7 +8,8 @@ read again. The path must lie under the source roots, and files whose symlinks
 resolve outside them are skipped (see `guard`). A folder that cannot be listed
 or a file that cannot be read is reported, so the run deletes nothing. Items
 carry their folder (the source folder's name, then the folders below it) and
-extension as path fields.
+extension as path fields, and the fields of their sidecar metadata files
+(`<file>.meta.json`, `<file>.xmp`; `oss_pipeline.sidecar`).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from pathlib import Path
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
 from oss_pipeline.connectors.base import RunReport, path_fields
 from oss_pipeline.connectors.guard import byte_cap, confine_path, source_roots, within
+from oss_pipeline.sidecar import is_sidecar, with_sidecar
 
 # what the last run recorded for a URI: (size, modified time, content hash)
 Known = Callable[[str], "tuple[int | None, datetime | None, str] | None"]
@@ -68,6 +70,8 @@ class FilesystemConnector:
                 if _matches(filename, exclude) or not _matches(filename, include):
                     continue
                 file = Path(dirpath) / filename
+                if is_sidecar(file, source.settings):  # its fields go to its file (sidecar.py)
+                    continue
                 try:
                     if not within(file.resolve(), roots):
                         continue
@@ -98,11 +102,15 @@ class FilesystemConnector:
                     content_hash=digest,
                     modified_at=modified,
                     size=stat.st_size,
-                    metadata={
-                        "path": str(file),
-                        "relative_path": relative.as_posix(),
-                        "fields": path_fields([root.name, *relative.parts[:-1]], filename),
-                    },
+                    metadata=with_sidecar(
+                        file,
+                        {
+                            "path": str(file),
+                            "relative_path": relative.as_posix(),
+                            "fields": path_fields([root.name, *relative.parts[:-1]], filename),
+                        },
+                        source.settings,
+                    ),
                 )
 
     def fetch(self, item: SourceItem) -> FetchedItem:

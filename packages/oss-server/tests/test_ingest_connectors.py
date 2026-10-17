@@ -49,3 +49,39 @@ def test_a_hypothesis_token_is_never_read_back(client: Client, editor: dict[str,
     assert created.status_code == 201 and "secret" not in created.content.decode()
     listed = client.get("/api/collections/ann/sources", headers=editor)
     assert listed.json()[0]["settings"] == {"group": "g", "token": "********"}
+
+
+def test_a_changed_sidecar_alone_queues_its_document_again(
+    db: None, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.catalogue.models import Collection, Document, Source
+    from oss_server.pipeline import tasks
+
+    queued: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(tasks.process_document, "delay", lambda *a, **k: queued.append(a))
+    folder = tmp_path / "side"
+    folder.mkdir()
+    (folder / "plan.pdf").write_bytes(b"%PDF-1.4 plan")
+    meta = folder / "plan.pdf.meta.json"
+    meta.write_text('{"owner": "Ops"}')
+    c = Collection.objects.create(slug="side", name="side")
+    s = Source.objects.create(
+        collection=c, name="f", connector="filesystem", settings={"path": str(folder)}
+    )
+
+    def run() -> dict[str, int]:
+        queued.clear()
+        counts = tasks.discover_source(s.pk)
+        Source.objects.filter(pk=s.pk).update(status=Source.Status.IDLE)
+        return counts
+
+    assert run()["queued"] == 1  # plan.pdf only: its sidecar is not a document
+    doc_id, item = queued[0]
+    # as if processed: the stored fields name the sidecar it was processed with
+    Document.objects.filter(pk=doc_id).update(
+        status=Document.Status.INDEXED, fields=item["metadata"]["fields"]
+    )
+    assert run()["queued"] == 0
+    meta.write_text('{"owner": "Finance"}')
+    counts = run()
+    assert counts["queued"] == 1 and queued[0][1]["metadata"]["fields"]["x_owner_s"] == "Finance"

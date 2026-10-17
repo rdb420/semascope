@@ -41,6 +41,7 @@ from oss_core.contracts import (
 from oss_pipeline.clients.solr import quote_term
 from oss_pipeline.registry import connectors, profile
 from oss_pipeline.retry import backoff, is_transient
+from oss_pipeline.sidecar import changed as sidecar_changed
 from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile, run_stage
 from oss_pipeline.stages.index import custom_fields
 from oss_server.catalogue.models import Collection, Document, Source, document_id
@@ -273,7 +274,10 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
                         "status": Document.Status.QUEUED,
                     },
                 )
-                new_content = doc.content_hash != (item.content_hash or "")
+                new_content = doc.content_hash != (item.content_hash or "") or (
+                    doc.status == Document.Status.INDEXED
+                    and sidecar_changed(doc.fields, item.metadata)  # oss_pipeline.sidecar
+                )
                 # a document deleted by an earlier run is back; one whose runs kept killing
                 # the worker is held until it changes or is reindexed; one queued a moment ago
                 # has its task waiting; one left `processing` by a dead worker is retried
