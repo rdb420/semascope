@@ -1222,7 +1222,7 @@ def _deliver(hook: Any) -> int:
 
     import httpx
 
-    from oss_pipeline.connectors.guard import SourceNotAllowed, guarded_client
+    from oss_pipeline.connectors.guard import SourceNotAllowed, TooLarge, guarded_client
     from oss_server.curation.models import Event, Webhook
 
     sent = 0
@@ -1249,7 +1249,9 @@ def _deliver(hook: Any) -> int:
             )
         error = ""
         try:
-            with guarded_client(timeout=WEBHOOK_TIMEOUT_S, follow_redirects=False) as client:
+            with guarded_client(
+                timeout=WEBHOOK_TIMEOUT_S, follow_redirects=False, max_bytes=64 * 1024
+            ) as client:
                 resp = client.post(hook.url, content=body, headers=headers)
             if resp.is_redirect:
                 error = f"{resp.status_code} on event {event.pk} (not followed)"
@@ -1257,6 +1259,8 @@ def _deliver(hook: Any) -> int:
                 error = f"{resp.status_code} on event {event.pk}"
         except SourceNotAllowed as exc:
             error = f"refused on event {event.pk}: {exc}"[:2000]
+        except TooLarge:
+            error = f"answer over 64 KiB on event {event.pk}"
         except httpx.HTTPError as exc:
             error = f"{type(exc).__name__} on event {event.pk}"
         if error:

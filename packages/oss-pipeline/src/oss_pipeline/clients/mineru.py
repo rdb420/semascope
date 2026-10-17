@@ -15,6 +15,8 @@ from pathlib import Path
 
 import httpx
 
+from oss_pipeline.connectors.guard import service_client
+
 INLINE_LIMIT = 16 * 1024 * 1024
 DONE = ("completed", "partial", "failed", "canceled")
 
@@ -34,7 +36,7 @@ class MineruClient:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self._client = httpx.Client(
+        self._client = service_client(
             base_url=base_url.rstrip("/"), headers=headers, timeout=600.0, transport=transport
         )
         self._timeout_s = timeout_s

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import httpx
 
+from oss_pipeline.connectors.guard import service_client
+
 
 class SidecarEmbedder:
     name = "sidecar"
@@ -26,7 +28,7 @@ class SidecarEmbedder:
         self.model_name = model
         self.dimensions = 384
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self._client = httpx.Client(
+        self._client = service_client(
             base_url=base_url.rstrip("/"), headers=headers, timeout=300.0, transport=transport
         )
 

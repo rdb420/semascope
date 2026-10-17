@@ -21,9 +21,39 @@ from typing import Any
 
 from oss_core.contracts import Cursor, FetchedItem, SourceConfig, SourceItem
 from oss_pipeline.connectors.base import RunReport, path_fields, work_dir, work_root
-from oss_pipeline.connectors.guard import byte_cap, refuse_private
+from oss_pipeline.connectors.guard import (
+    MAX_BYTES_CEILING,
+    TooLarge,
+    byte_cap,
+    guard_s3_client,
+    refuse_private,
+)
 
 CONNECTION_KEYS = ("endpoint_url", "region")  # what an item may carry; never credentials
+MAX_OBJECT = 512 * 1024 * 1024  # default per-object cap; a source's max_bytes may change it
+
+
+def _download(client: Any, bucket: str, key: str, part: Any, max_bytes: int) -> None:
+    """Stream an object to `part`, stopping at `max_bytes` read (whatever the listing said)."""
+
+    obj = client.get_object(Bucket=bucket, Key=key)
+    body = obj["Body"]
+    try:
+        declared = int(obj.get("ContentLength") or 0)
+        if declared > max_bytes:
+            raise TooLarge(f"s3://{bucket}/{key} is {declared} bytes; the cap is {max_bytes}")
+        total = 0
+        with open(part, "wb") as out:
+            for chunk in body.iter_chunks(1024 * 1024):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise TooLarge(f"s3://{bucket}/{key} is over the cap of {max_bytes} bytes")
+                out.write(chunk)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+    finally:
+        body.close()
 
 
 def _client(settings: dict[str, Any]) -> Any:
@@ -39,7 +69,9 @@ def _client(settings: dict[str, Any]) -> Any:
     if settings.get("access_key") and settings.get("secret_key"):
         kwargs["aws_access_key_id"] = settings["access_key"]
         kwargs["aws_secret_access_key"] = settings["secret_key"]
-    return boto3.client("s3", **kwargs)
+    # every request goes through the guarded, address-pinned client; the per-source cap is
+    # applied to the bytes read in fetch
+    return guard_s3_client(boto3.client("s3", **kwargs), max_bytes=MAX_BYTES_CEILING)
 
 
 class S3Connector:
@@ -69,7 +101,7 @@ class S3Connector:
         prefix = str(settings.get("prefix") or "")
         include = list(settings.get("include") or ["*"])
         exclude = list(settings.get("exclude") or [])
-        max_bytes = byte_cap(settings, 512 * 1024 * 1024)
+        max_bytes = byte_cap(settings, MAX_OBJECT)
         client = self._for(settings)
         paginator = client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
@@ -118,7 +150,8 @@ class S3Connector:
         tag = hashlib.sha256(f"{meta['bucket']}/{meta['key']}".encode()).hexdigest()[:16]
         dest = tmp / f"{tag}-{name}"
         part = tmp / f".part-{tag}-{name}"
-        client.download_file(str(meta["bucket"]), str(meta["key"]), str(part))
+        cap = byte_cap(settings, MAX_OBJECT)
+        _download(client, str(meta["bucket"]), str(meta["key"]), part, cap)
         part.replace(dest)  # the document task removes it once the blob is stored
         return FetchedItem(item=item, path=str(dest))
 

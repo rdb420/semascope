@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import httpx
+from oss_pipeline.connectors.guard import MAX_BYTES_CEILING, service_client
 
 
 class TikaError(RuntimeError):
@@ -61,7 +61,7 @@ class TikaClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.max_bytes = max_bytes
-        self._http = httpx.Client(timeout=timeout)
+        self._http = service_client(timeout=timeout, max_bytes=MAX_BYTES_CEILING)
 
     def version(self) -> str:
         resp = self._http.get(f"{self.base_url}/version")
