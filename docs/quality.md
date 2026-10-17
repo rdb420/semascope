@@ -357,6 +357,71 @@ Checked by hand on the same stack:
   1.85 GB resident and the container at 3.27 GiB of 6, so none needed
   replacing. With the cap lowered to 600 MiB the pool processes were
   replaced after their tasks as intended (five processes for ten documents).
+## Enrichment stages run 2026-10-17: before and after the WS-2 fixes, CPU, small
+
+The stage timings of the demo collection before and after the enrichment
+fixes (stages and their clients kept per worker process, the link
+dictionary's fingerprint check, tag paging and offset conversion, the events
+facet, the rdflib validate graph, the batched OpenAI embedder), each on a
+fresh compose project built from the branch. Before: `hardening/rc4` at
+`ccf19ec`, image `sha256:a9a87e18…`; after: `hardening/ws2-enrich`, image
+`sha256:34421f85…` (both built locally, not published). Same host as the
+runs above (Ryzen AI MAX+ 395, 121 GiB, CPU only), `oss init --size small
+--runtime cpu` (heaps 1 GB, worker concurrency 1, worker cap 4 GB), all
+sixteen demo texts (`corpus.sha256` `c3122298…`). Other stacks were running
+on the host: load average 15 to 20 during the first run and 26 to 32 during
+the second.
+
+```bash
+COMPOSE_PROJECT_NAME=sem-ws2 SEMASCOPE_HTTPS_PORT=8506 SEMASCOPE_ENV_FILE=.env.ws2 \
+  SEMASCOPE_DEMO_ONLY="<the sixteen slugs>" scripts/integration.sh up demo
+# wait until no document is queued or processing, then
+uv run scripts/bench.py --project sem-ws2 --env-file .env.ws2 --collection demo \
+  --skip-search --corpus-manifest packs/demo/corpus.sha256
+# three rounds of `oss reindex --collection demo --stage tag` (tag, link, index, graph)
+scripts/integration.sh down
+```
+
+Indexing the sixteen books, median / p95 in milliseconds:
+
+| stage | before | after |
+|---|---|---|
+| extract | 60 / 201 | 56 / 193 |
+| structure | 36 / 96 | 38 / 144 |
+| patterns | 102 / 266 | 98 / 337 |
+| tag | 93 / 235 | 94 / 274 |
+| ner | 3,874 / 4,212 | 3,963 / 7,764 |
+| link | 22 / 36 | 30 / 185 |
+| preview | 18 / 35 | 21 / 44 |
+| embed | 17,664 / 27,788 | 17,494 / 55,764 |
+| index | 125 / 260 | 130 / 376 |
+| graph | 153 / 441 | 170 / 405 |
+| wall time, 16 books | 5.7 min | 7.1 min |
+
+Replaying `--stage tag` three times over the same sixteen documents (48 runs
+of each stage, after the load had dropped), median / p95 in milliseconds:
+
+| stage | before | after |
+|---|---|---|
+| tag | 99 / 395 | 96 / 393 |
+| link | 19 / 146 | 21 / 167 |
+| index | 116 / 375 | 108 / 368 |
+| graph | 94 / 238 | 89 / 252 |
+
+No stage got measurably faster or slower. The medians agree within a few
+per cent; the higher p95 of NER, embedding and the wall time after the
+change follow the host's load, which was half as high again, not the code
+(the replays, run on a quieter host, agree). On whole books the time is
+NER's and embedding's, which the changes do not touch; what they save per
+document (a Neo4j driver and its schema statements, new HTTP connections to
+Solr, a scan of the entry points) is a few milliseconds against stages of
+100 ms and more. The link stage's extra request per document (the
+dictionary's fingerprint) does not show either. The changes are for
+correctness: the KJV Bible (4.4 million characters) was tagged in 3
+requests with no match lost at a window edge, no document reached the
+tagger's cap of 5,000 matches, and 11 of the 16 books now have values in the
+events facet, which the index dropped before.
+
 ## Relevance evaluation
 
 Recorded on 2026-10-17 with `oss eval` (see

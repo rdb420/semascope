@@ -9,55 +9,92 @@ Shapes come from the StageContext (`shapes_ttl`, concatenated by the server).
 
 from __future__ import annotations
 
-from typing import Any
+from decimal import Decimal
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from oss_core.contracts import StageContext, WorkingDocument
 from oss_pipeline.stages.base import SkipStageError
 
+if TYPE_CHECKING:
+    from rdflib import Graph, URIRef
+
 BASE = "https://semascope.dev/ontology/base#"
+# what an IRI may hold as it is: RFC 3987's reserved characters, `%` (already escaped)
+# and everything outside ASCII; anything else (space, `<`, `>`, `"`, `{`, `}`, `|`, `\`,
+# `^`, a backtick, control characters) is percent-encoded so the IRI stays one valid term
+IRI_SAFE = ":/?#[]@!$&'()*+,;=%-._~"
+
+
+def _iri(value: str) -> URIRef:
+    from rdflib import URIRef
+
+    return URIRef(quote(value, safe=IRI_SAFE + "".join(c for c in value if ord(c) > 127)))
+
+
+def document_rdf(doc: WorkingDocument) -> Graph:
+    """The document as an RDF graph in the base pack's vocabulary.
+
+    Built from rdflib terms, never by pasting text into Turtle: a title with a carriage
+    return or quotes stays one literal, and an IRI holding `>` or a space (NER IRIs carry
+    the entity's name) is percent-encoded instead of ending the term.
+    """
+
+    from rdflib import RDF, SKOS, Graph, Literal, Namespace
+    from rdflib.namespace import DCTERMS
+
+    base = Namespace(BASE)
+    g = Graph()
+    g.bind("base", base)
+    g.bind("dcterms", DCTERMS)
+    g.bind("skos", SKOS)
+    node = _iri(f"urn:semascope:doc:{doc.id}")
+    collection = _iri(f"urn:semascope:collection:{doc.collection}")
+    source = _iri(f"urn:semascope:source:{doc.source_id}")
+    g.add((node, RDF.type, base.Document))
+    g.add((node, base.contentHash, Literal(doc.content_hash)))
+    g.add((node, base.inCollection, collection))
+    g.add((node, base.fromSource, source))
+    if doc.title:
+        g.add((node, DCTERMS.title, Literal(doc.title[:500])))
+    if doc.language:
+        g.add((node, DCTERMS.language, Literal(doc.language)))
+    g.add((collection, RDF.type, base.Collection))
+    g.add((source, RDF.type, base.Source))
+    for i, tag in enumerate(doc.tags):
+        tag_node = _iri(f"urn:semascope:tag:{doc.id}:{i}")
+        stage = _iri(f"urn:semascope:stage:{tag.stage}")
+        target = _iri(tag.iri)
+        g.add((node, base.hasTag, tag_node))
+        g.add((tag_node, RDF.type, base.Tag))
+        g.add((tag_node, base.tagTarget, target))
+        g.add((tag_node, base.confidence, Literal(Decimal(f"{tag.confidence:.2f}"))))
+        g.add((tag_node, base.producedByStage, stage))
+        g.add((stage, RDF.type, base.StageRun))
+        if tag.kind == "concept":
+            g.add((target, RDF.type, SKOS.Concept))
+    return g
+
+
+@lru_cache(maxsize=4)
+def _shapes(turtle: str) -> Graph:
+    """The packs' shapes, parsed once per process for each set of them."""
+
+    from rdflib import Graph
+
+    return Graph().parse(data=turtle, format="turtle")
 
 
 def document_graph(doc: WorkingDocument) -> str:
     """The document as Turtle, using the base pack's vocabulary."""
 
-    def lit(value: str) -> str:
-        return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
-
-    lines = [
-        "@prefix base: <https://semascope.dev/ontology/base#> .",
-        "@prefix dcterms: <http://purl.org/dc/terms/> .",
-        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
-        "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .",
-        f"<urn:semascope:doc:{doc.id}> a base:Document ;",
-        f"    base:contentHash {lit(doc.content_hash)} ;",
-        f"    base:inCollection <urn:semascope:collection:{doc.collection}> ;",
-        f"    base:fromSource <urn:semascope:source:{doc.source_id}> ;",
-    ]
-    if doc.title:
-        lines.append(f"    dcterms:title {lit(doc.title[:500])} ;")
-    if doc.language:
-        lines.append(f"    dcterms:language {lit(doc.language)} ;")
-    for i in range(len(doc.tags)):
-        lines.append(f"    base:hasTag <urn:semascope:tag:{doc.id}:{i}> ;")
-    lines[-1] = lines[-1].rstrip(" ;") + " ."
-    lines.append(f"<urn:semascope:collection:{doc.collection}> a base:Collection .")
-    lines.append(f"<urn:semascope:source:{doc.source_id}> a base:Source .")
-    for i, tag in enumerate(doc.tags):
-        lines.append(
-            f"<urn:semascope:tag:{doc.id}:{i}> a base:Tag ; base:tagTarget <{tag.iri}> ; "
-            f"base:confidence {tag.confidence:.2f} ; "
-            f"base:producedByStage <urn:semascope:stage:{tag.stage}> ."
-        )
-        if tag.kind == "concept":
-            lines.append(f"<{tag.iri}> a skos:Concept .")
-    for stage in {t.stage for t in doc.tags}:
-        lines.append(f"<urn:semascope:stage:{stage}> a base:StageRun .")
-    return "\n".join(lines) + "\n"
+    return str(document_rdf(doc).serialize(format="turtle"))
 
 
 class ValidateStage:
     name = "validate"
-    version = "1"
+    version = "2"
     requires = ("tags",)
     provides = ("shacl_violations",)
 
@@ -67,11 +104,10 @@ class ValidateStage:
             raise SkipStageError("no shapes from active packs")
         try:
             from pyshacl import validate
-            from rdflib import Graph
         except ImportError as exc:
             raise SkipStageError("pyshacl is not installed") from exc
-        data = Graph().parse(data=document_graph(doc), format="turtle")
-        shapes_graph = Graph().parse(data=shapes, format="turtle")
+        data = document_rdf(doc)
+        shapes_graph = _shapes(shapes)
         conforms, _report_graph, _text = validate(
             data, shacl_graph=shapes_graph, inference="none", abort_on_first=False
         )

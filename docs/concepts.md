@@ -116,7 +116,8 @@ an optional `collection`) and the reconciliation preview all use it.
 
 An ordered list of pipeline stages for a collection, validated as a DAG of
 `requires` and `provides`. `default`, `fast` and `full` ship with the
-product.
+product; a collection naming any other profile fails its documents with
+that name rather than running one of these.
 
 ## Stage
 
@@ -136,7 +137,14 @@ scheme), `ner` (named entities: spaCy, GLiNER2 or a remote service, see
 the runtimes in [operations](operations.md#runtimes)), `link` (NER entities to pack
 individuals by label), `validate` (SHACL over the document's metadata graph,
 `full` profile), `preview` (PDF page images and image thumbnails), `index`
-(Solr). Every run is recorded on the document with
+(Solr). A worker process builds each stage once and keeps it, with its
+connections to Solr, Neo4j and the remote services, for every document it
+runs; the `link` stage keeps the pack dictionary too, and asks Solr on each
+document whether it changed, so a re-synced pack or a curator's new label
+links from the next document on. The `tag` stage pages through a long text
+(windows of 2 million characters that overlap at a space, and further
+requests when one returns the tagger's cap of 5,000 matches), so no match
+is dropped. Every run is recorded on the document with
 its outcome and duration, and `reindex` replays everything after `extract`
 from the stored text without touching Tika.
 

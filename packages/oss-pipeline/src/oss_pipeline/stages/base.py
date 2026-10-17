@@ -83,3 +83,11 @@ def run_profile(
         if last.outcome == "failed" and stage.name in stop_on_failure:
             break
     return doc
+
+
+def solr_key(ctx: StageContext) -> tuple[str, ...]:
+    """What a stage's Solr client depends on: a stage instance lives as long as its worker
+    process, so it builds a new client only when these settings change."""
+
+    s = ctx.settings
+    return tuple(str(s.get(k) or "") for k in ("solr_url", "solr_user", "solr_password"))

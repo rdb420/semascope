@@ -39,7 +39,7 @@ from oss_core.contracts import (
     WorkingDocument,
 )
 from oss_pipeline.clients.solr import quote_term
-from oss_pipeline.registry import connectors, profile
+from oss_pipeline.registry import UnknownProfileError, connectors, profile
 from oss_pipeline.retry import backoff, is_transient
 from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile, run_stage
 from oss_pipeline.stages.index import custom_fields
@@ -519,11 +519,27 @@ def _retry_if_transient(task: Any, row: Document, work: WorkingDocument) -> None
     raise task.retry(countdown=countdown, max_retries=retries)
 
 
+def _profile_or_fail(doc_id: str, name: str) -> list[Stage] | None:
+    """The stages of the collection's profile, or None after failing the document when the
+    profile does not exist (a configuration error: retrying cannot help)."""
+
+    try:
+        return profile(name)
+    except UnknownProfileError as exc:
+        Document.objects.filter(pk=doc_id).update(
+            status=Document.Status.FAILED, error=str(exc)[:2000], processing_since=None, attempts=0
+        )
+        log.error("document %s: %s", doc_id, exc)
+        return None
+
+
 @shared_task(bind=True, name="semascope.process_document", **DOCUMENT_TASK)
 def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: bool = False) -> str:
     doc_row = Document.objects.select_related("collection", "source").get(pk=doc_id)
     ctx = build_context(doc_row.collection)
-    stages = profile(ctx.profile)
+    stages = _profile_or_fail(doc_id, ctx.profile)
+    if stages is None:
+        return str(Document.Status.FAILED)
     fp = fingerprint(doc_row.content_hash, ctx, stages)
     if not force and already_done(doc_row, item, fp):
         log.info("document %s is indexed with the same content and settings; skipped", doc_id)
@@ -663,7 +679,9 @@ def reindex_document(self: Any, doc_id: str, stages: list[str] | None = None) ->
     if wanted:
         # a partial replay keeps the tags of the stages it does not run and recomputes the rest
         work.tags = [Tag(**t) for t in doc_row.tags if t.get("stage") not in wanted]
-    every = profile(ctx.profile)
+    every = _profile_or_fail(doc_id, ctx.profile)
+    if every is None:
+        return str(Document.Status.FAILED)
     todo = [
         s for s in every if s.name not in ("fetch", "extract") and (not wanted or s.name in wanted)
     ]
