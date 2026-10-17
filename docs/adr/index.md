@@ -19,3 +19,4 @@ instead). Template: context, decision, consequences, alternatives.
 | 0012 | Capabilities Open Semantic Search promised and never delivered | proposed |
 | 0013 | Deletion and retention of source documents | proposed |
 | 0014 | OCR now, later or off | proposed |
+| 0015 | PST mailboxes through libpff, as an optional extra | proposed |

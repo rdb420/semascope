@@ -27,7 +27,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pst = ["pypff"]
+# PST/OST mailboxes: libyal's libpff binding, LGPL-3.0-or-later, so an optional extra only
+# (docs/adr/0015-pst-libpff-extra.md); `pypff` on PyPI is an unrelated package (SEMA-066)
+pst = ["libpff-python>=20240000"]
 
 [project.entry-points."oss.connectors"]
 [project.entry-points."oss.stages"]

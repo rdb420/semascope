@@ -23,7 +23,7 @@ Search (GPL-3.0) inspired it, and that is where the relationship ends.
 
 Apache-2.0, MIT, BSD-2/3, ISC, MPL-2.0 (file-level), PSF, Unlicense, CC0. Ask
 in an issue before adding anything else. LGPL is acceptable only as an
-optional extra that is not installed by default (for example `pypff`), or
+optional extra that is not installed by default (`libpff-python` for PST, ADR-0015), or
 where an ADR accepts a specific unmodified, dynamically linked library
 (psycopg, ADR-0011). GPL and AGPL are never accepted.
 
