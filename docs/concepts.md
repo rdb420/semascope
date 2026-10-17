@@ -44,7 +44,33 @@ across all levels, and `max_depth` (2) nesting levels; a member whose zip
 header claims a higher ratio is skipped), `table` (CSV, TSV and XLSX rows as
 documents), `s3` (objects in an S3-compatible bucket, AWS, MinIO or Ceph,
 with change detection by ETag), `rdf` (one document per subject, from RDF
-files or a SPARQL endpoint, read in a stable order).
+files or a SPARQL endpoint, read in a stable order), `warc` (web archives,
+`.warc` and `.warc.gz`: one document per archived page, a 2xx response or a
+resource record, under its original URL with the capture date as its
+modified time; the latest capture of a URL wins; `max_record_bytes`,
+50 MiB, and `max_records`, 100,000 per run), `hypothesis` (web annotations
+from a Hypothesis service, by `group`, `uri` or `user` and optionally `tag`,
+with a `token` for private groups that the API never shows again: one
+document per annotation with its quote, note and tags, and the annotated
+page as `annotates_s`; the one-off import `POST /api/annotations/w3c/import`
+attaches annotations to existing documents as notes instead) and `pst`
+(Outlook `.pst` and `.ost` files, each message an RFC 822 document with its
+attachments as child documents; it needs the optional `pst` extra, libpff
+under LGPL-3.0, which the published image does not contain:
+[ADR-0015](adr/0015-pst-libpff-extra.md)). Outlook `.msg` files need no
+connector of their own: Tika parses them, with their attachments' text, from
+any file source.
+
+A file the `filesystem` connector reads can carry **sidecar metadata**: a
+`<file>.meta.json` object, or an XMP packet in `<file>.xmp` (or
+`<stem>.xmp`, the convention for raw photos). JSON keys become custom
+fields typed by their values (`owner` becomes `owner_s`, a list `_ss`, a
+number `_l` or `_d`, true or false `_b`; one level of nesting is flattened)
+and a `title` sets the document's title; XMP gives the title, keywords
+(`keywords_ss`), creators, description, rights, rating and label. Sidecar
+files are not documents themselves, and a change to a sidecar alone makes
+the next run process its file again. A source turns this off with
+`sidecars: false`.
 
 Items from folders, archives, buckets and web sources carry their folder as
 a hierarchical `folder_paths` field (the source folder's name, a bucket or a
@@ -129,8 +155,14 @@ read), `extract` (Tika text and metadata, OCR for images and scanned PDFs in
 the collection's `ocr_languages`, language detection, and the text of
 embedded items such as attachments and the files of a zip, within limits;
 with a MinerU server, PDF, OOXML Office and raster image files are parsed by
-MinerU instead, and Tika keeps OCR for everything else), `structure` (pages and chunks), `patterns` (email addresses,
-links, phone numbers, amounts, hashtags), `tag` (dictionary tagging against
+MinerU instead, and Tika keeps OCR for everything else; with `ocr: later`
+it reads the text layer only and leaves scans to a later pass, see
+[operations](operations.md#ocr-later)), `structure` (pages and chunks), `patterns` (email addresses,
+links, phone numbers, amounts, hashtags; then IBANs with a valid check sum
+as `iban_ss`, references to laws, regulations and cases as `law_ss` and
+`LegalReference` entities, amounts with their ISO 4217 currency as
+`currency_ss` and `amount_ss`, and the collection's own regex lists, see
+below), `tag` (dictionary tagging against
 the active packs through Solr's Tagger, with a hierarchical facet per
 scheme), `ner` (named entities: spaCy, GLiNER2 or a remote service, see
 the runtimes in [operations](operations.md#runtimes)), `link` (NER entities to pack
@@ -139,6 +171,25 @@ individuals by label), `validate` (SHACL over the document's metadata graph,
 (Solr). Every run is recorded on the document with
 its outcome and duration, and `reindex` replays everything after `extract`
 from the stored text without touching Tika.
+
+### Regex lists and the pattern extractors
+
+A collection's `settings.pipeline` tunes the `patterns` stage:
+
+| Setting | Meaning |
+|---|---|
+| `regex_lists` | named regular expressions, `{"ticket": "TCK-\\d+", "case_no": ["CASE-\\d{4}-\\d+"]}` or TSV text (`name<TAB>expression` per line); each list fills `x_<name>_ss`, indexed and faceted as `<name>_ss`, with the whole match or the group named `value` (else the first group) |
+| `law_patterns` | more expressions for legal references; `law_defaults: false` drops the built-in ones (statute titles, provisions of one, EU instruments, U.S.C. and CFR citations, code paragraphs such as `§ 823 BGB`, neutral case citations) |
+| `dollar_currency` | what a bare `$` is (`USD` unless set; `A$`, `NZ$`, `US$` say it themselves) |
+| `patterns` | which built-in extractors run (default all): `emails`, `urls`, `phones`, `money`, `hashtags`, `iban`, `law`, `currency` |
+
+User expressions use RE2 syntax: matching takes time linear in the text,
+so no expression can run away on a hostile document; look-around and
+back-references are not available, and `\w` is ASCII (`\pL` matches a
+letter of any script). The API refuses a list that does not compile, a name
+that is not lower-case letters, digits and `_` or that would replace one of
+the index's own fields, an expression over 1,000 characters and more than
+50 expressions. Each list keeps at most 200 values per document.
 
 ## Review and proposal
 
