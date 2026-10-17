@@ -99,6 +99,7 @@ def test_create_read_replace_delete(client: Client, world: dict[str, User]) -> N
     pk = int(url.rsplit("/", 1)[1])
     note = Annotation.objects.get(pk=pk)
     assert note.text == "the hero" and note.tags == ["hero"]
+    assert note.span is not None
     assert TEXT[note.span["start"] : note.span["end"]] == "ingenious hero"
     assert Proposal.objects.filter(target=f"annotation:{pk}", kind="add_note").count() == 1
 

@@ -202,7 +202,7 @@ def export_graph(
 ) -> None:
     """A collection's documents with the concepts and entities they hold, as RDF."""
 
-    params = {"collection": collection, "format": format, "limit": limit}
+    params: dict[str, Any] = {"collection": collection, "format": format, "limit": limit}
     with (
         _client() as api,
         api.stream("GET", "/export/graph", params=params, timeout=EXPORT_TIMEOUT) as resp,
