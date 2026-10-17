@@ -59,11 +59,15 @@ MAX_PAGES = 2000  # page nodes per document; longer documents keep their page co
 
 TURTLE = "text/turtle; charset=utf-8"
 JSONLD = "application/ld+json"
-FORMATS = {"turtle": (TURTLE, "ttl"), "jsonld": (JSONLD, "jsonld")}
+NQUADS = "application/n-quads"
+FORMATS = {"turtle": (TURTLE, "ttl"), "jsonld": (JSONLD, "jsonld"), "nquads": (NQUADS, "nq")}
 
 
-def new_graph() -> Graph:
-    g = Graph()
+def new_graph(identifier: str | None = None) -> Graph:
+    """An empty graph with the export's prefixes; `identifier` names it (the graph of an
+    N-Quads line)."""
+
+    g = Graph(identifier=URIRef(identifier)) if identifier else Graph()
     for prefix, ns in PREFIXES.items():
         g.bind(prefix, ns, override=True, replace=True)
     return g
@@ -271,9 +275,27 @@ def jsonld_nodes(g: Graph) -> list[dict[str, Any]]:
     return sorted(nodes, key=lambda n: str(n.get("@id", "")))
 
 
-def stream(graphs: Iterable[Graph], fmt: str) -> Iterator[str]:
-    """One document's graph after another as one Turtle or JSON-LD document."""
+def nquads_body(g: Graph) -> str:
+    """The graph's triples as N-Quads lines in the graph its identifier names (a graph
+    without an IRI for a name writes N-Triples lines, which are N-Quads of the default
+    graph)."""
 
+    name = g.identifier
+    lines = g.serialize(format="nt").splitlines()
+    if not isinstance(name, URIRef):
+        return "".join(line + "\n" for line in lines if line.strip())
+    suffix = f" {name.n3()} ."
+    return "".join(line[:-2] + suffix + "\n" for line in lines if line.endswith(" ."))
+
+
+def stream(graphs: Iterable[Graph], fmt: str) -> Iterator[str]:
+    """One document's graph after another as one Turtle, JSON-LD or N-Quads document (in
+    N-Quads, each document's triples are in the document's own named graph)."""
+
+    if fmt == "nquads":
+        for g in graphs:
+            yield nquads_body(g)
+        return
     if fmt == "turtle":
         yield turtle_header()
         for g in graphs:
@@ -303,7 +325,7 @@ def document_graphs(
     def flush() -> Iterator[Graph]:
         found = annotations(chunk)
         for doc in chunk:
-            g = new_graph()
+            g = new_graph(ids.doc_iri(doc.id))
             add_document(g, doc, site=site, secret=secret(doc), annotations=found.get(doc.id, []))
             yield g
 

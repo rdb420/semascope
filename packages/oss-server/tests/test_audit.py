@@ -336,3 +336,28 @@ def test_the_admin_shows_the_log_read_only(staff: tuple[User, dict[str, str]]) -
         == 403
     )
     assert AuditEntry.objects.filter(pk=entry.pk).exists()
+
+
+@pytest.mark.django_db
+def test_table_and_graph_exports_are_recorded(
+    client: Client, staff: tuple[User, dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from oss_server.analysis import hits
+
+    monkeypatch.setattr(hits, "search_documents", lambda *a, **k: iter(()))
+    _, auth = staff
+    Collection.objects.create(slug="c", name="c")
+    body = {"q": "odysseus", "collection": "c"}
+    for kind in ("documents", "entities"):
+        resp = client.post(
+            f"/api/export/{kind}?format=jsonl",
+            data=body,
+            content_type="application/json",
+            headers=auth,
+        )
+        b"".join(resp.streaming_content)  # type: ignore[attr-defined]
+        entry = last(f"export.{kind}")
+        assert entry.collection == "c" and entry.detail["q"] == "odysseus"
+    resp = client.get("/api/export/graph?collection=c&format=nquads", headers=auth)
+    b"".join(resp.streaming_content)  # type: ignore[attr-defined]
+    assert last("export.graph").detail == {"format": "nquads", "limit": 10000}

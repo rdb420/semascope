@@ -588,3 +588,6 @@ export const curation = {
   activatePack: (packId: string, version: string, confirm = false) =>
     jobOrPlan(`/api/knowledge/packs/${enc(packId)}/activate?version=${enc(version)}&confirm=${confirm}`),
 };
+
+// The request helpers, for the API modules of lazily loaded pages (extrasApi.ts).
+export { request as apiRequest, ensureCsrf };

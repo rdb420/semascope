@@ -45,6 +45,9 @@ export function SimilarPanel({ docId }: { docId: string }) {
             <span className="ml-auto shrink-0 text-xs text-zinc-400" title="rank by words / by meaning">
               {h.text_rank ?? "–"}/{h.vector_rank ?? "–"}
             </span>
+            <Link to="/diff" search={{ a: docId, b: h.id }} className="shrink-0 text-xs text-blue-700 hover:underline dark:text-blue-400" title="compare the two texts">
+              diff
+            </Link>
           </li>
         ))}
       </ul>
@@ -58,6 +61,7 @@ export function ExportLinks({ docId }: { docId: string }) {
   const links = [
     { href: `/api/export/documents/${id}?format=turtle`, label: "RDF (Turtle)" },
     { href: `/api/export/documents/${id}?format=jsonld`, label: "RDF (JSON-LD)" },
+    { href: `/api/export/documents/${id}?format=nquads`, label: "RDF (N-Quads)" },
     { href: `/api/annotations/w3c?document=${id}`, label: "Web Annotations" },
   ];
   return (

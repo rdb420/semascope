@@ -57,6 +57,9 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Link to="/packs" className="hover:underline">
                   Knowledge models
                 </Link>
+                <Link to="/synonyms" className="hover:underline">
+                  Synonyms
+                </Link>
                 <span className="text-zinc-500">{user.data.username}</span>
                 {user.data.is_staff && (
                   <a href="/admin/" className="hover:underline">

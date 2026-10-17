@@ -19,6 +19,7 @@ nav:
   - Security: security.md
   - Operations: operations.md
   - Similar documents, exports and annotations: interop.md
+  - External dashboards: dashboards.md
   - Assessment:
       - assess/index.md
       - Capability matrix: assess/capabilities.md

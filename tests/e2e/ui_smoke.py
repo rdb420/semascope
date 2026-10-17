@@ -13,7 +13,9 @@ review page, runs a list search, and fails on any browser console error.
 It also walks the views of a search: the query highlighted on the document
 page with its original file, the table, entities and co-occurrence graph
 views (with the documents behind an edge), and the alerts page with a feed,
-then the pack import panel and the bulk tagging form (counted, not run), and
+the analysis views (clusters, comparison, word tree), a diff of two documents, why
+a hit ranked, the synonyms page, the export page and the annotation import (checked,
+not imported), then the pack import panel and the bulk tagging form (counted, not run), and
 the search page's own controls: title suggestions, sorting, the match and
 word-form options, leaving a facet value out, a date range and a query that
 is a number.
@@ -189,6 +191,7 @@ def run(page: Page) -> None:
     search_views(page)
     alerts_and_feeds(page)
     extras_pages(page)
+    analysis_pages(page)
     curation_jobs(page)
     search_features(page)
 
@@ -299,6 +302,72 @@ def extras_pages(page: Page) -> None:
     )
     expect(page.locator("link[rel=search]")).to_have_attribute("href", "/api/opensearch.xml")
     shot(page, "18-overview.png", full_page=True)
+
+
+def analysis_pages(page: Page) -> None:
+    """ADR-0012, the rest: clusters, comparison and word tree of a search, a diff from the
+    similar-documents panel, why a hit ranked, synonyms, and the exports and annotation import
+    (checked, not imported, so the demo stays as it is)."""
+
+    page.goto(f"{BASE}/analysis?{urlencode({'q': '*:*', 'collection': COLLECTION})}")
+    expect(page.locator("article[aria-label^='Cluster'] li a").first).to_be_visible(timeout=60000)
+    shot(page, "21-clusters.png", full_page=True)
+    page.click("[role=tab]:has-text('Compare')")
+    page.fill("#vs", "Arjuna")
+    page.click("form[aria-label='Compare with'] button:has-text('Compare')")
+    more = page.locator("section[aria-label='More typical of this search'] li")
+    expect(more.first).to_be_visible(timeout=60000)
+    page.click("[role=tab]:has-text('Word tree')")
+    page.fill("#word", "son of")
+    page.click("button:has-text('Grow')")
+    expect(page.locator("section[aria-label=Tree] ul ul li").first).to_be_visible(timeout=60000)
+    shot(page, "22-word-tree.png", full_page=True)
+
+    page.goto(f"{BASE}/?{urlencode({'q': 'Ulysses', 'collection': COLLECTION})}")
+    page.click("ol li a >> nth=0")
+    diff = page.locator("[data-testid=similar-panel] a:has-text('diff')").first
+    expect(diff).to_be_visible(timeout=30000)
+    diff.click()
+    expect(page.locator("[aria-label='Diff summary']")).to_contain_text("alike", timeout=120000)
+    expect(page.locator("section[aria-label=Differences] [data-op]").first).to_be_visible()
+    shot(page, "23-diff.png")
+
+    page.goto(f"{BASE}/?{urlencode({'q': 'Odysseus', 'collection': COLLECTION})}")
+    page.click("ol li a:has-text('why?') >> nth=0")
+    keyword = page.locator("section[aria-label='Keyword ranking']")
+    expect(keyword).to_contain_text("Rank #", timeout=30000)
+    expect(keyword.locator("table[aria-label='Matching clauses'] tr").nth(1)).to_be_visible()
+    shot(page, "24-explain.png", full_page=True)
+
+    page.click("header >> text=Synonyms")
+    page.fill("input[aria-label=Query]", "Ulysses")
+    page.click("button:has-text('Show expansion')")
+    expansion = page.locator("section[aria-label=Expansion]")
+    expect(expansion).to_contain_text("Odysseus", timeout=30000)
+    expansion.locator("button:has-text('Suggest labels')").first.click()
+    expect(page.locator("section[aria-label='Label suggestions']")).to_contain_text(
+        "Tagged in", timeout=60000
+    )
+    shot(page, "25-synonyms.png", full_page=True)
+
+    page.goto(f"{BASE}/export?{urlencode({'q': '*:*', 'collection': COLLECTION})}")
+    search = page.locator("section[aria-label='Export this search']")
+    expect(search.locator("button:has-text('Parquet')").first).to_be_visible(timeout=20000)
+    with page.expect_download(timeout=60000) as download:
+        search.locator("button:has-text('Parquet')").first.click()
+    if download.value.suggested_filename != "semascope-documents.parquet":
+        raise AssertionError(f"unexpected download {download.value.suggested_filename}")
+    notes = SHOTS / "smoke-annotations.json"
+    notes.write_text(
+        json.dumps({"type": "Annotation", "bodyValue": "x", "target": "https://nowhere.example/"})
+    )
+    importer = page.locator("section[aria-label='Import annotations']")
+    importer.locator("input[type=file]").set_input_files(str(notes))
+    importer.locator("button:has-text('Check')").click()
+    expect(importer.locator("[aria-label='Import result']")).to_contain_text(
+        "Would import 0 of 1", timeout=20000
+    )
+    shot(page, "26-export.png", full_page=True)
 
 
 def curation_jobs(page: Page) -> None:
