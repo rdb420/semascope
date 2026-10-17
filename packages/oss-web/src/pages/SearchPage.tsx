@@ -5,6 +5,7 @@ import { api, originalUrl, type SearchHit } from "../api";
 import { Timeline } from "../components/Timeline";
 import { useUser } from "../components/Shell";
 import { ViewLinks } from "../components/ViewLinks";
+import type { ExplainParams } from "../extrasParams";
 import { SearchBox } from "../components/SearchBox";
 import { Facet, SelectedFilters } from "../components/FacetPanel";
 import {
@@ -339,7 +340,7 @@ export function SearchPage() {
           {view === "list" && (
             <ol className="space-y-4">
               {data?.hits.map((hit) => (
-                <Hit key={hit.id} hit={hit} q={params.q} onFilter={(field, value) => update({ f: addValue(params.f, field, value), page: undefined })} />
+                <Hit key={hit.id} hit={hit} q={params.q} onFilter={(field, value) => update({ f: addValue(params.f, field, value), page: undefined })} why={{ q: params.q, collection: params.collection, f: params.f, mode: params.mode, op: params.op, stem: params.stem }} />
               ))}
             </ol>
           )}
@@ -372,7 +373,7 @@ function addValue(map: SearchParams["f"], field: string, value: string): SearchP
   return toggleValue(map, field, value);
 }
 
-function Hit({ hit, q, onFilter }: { hit: SearchHit; q?: string; onFilter: (field: string, value: string) => void }) {
+function Hit({ hit, q, onFilter, why }: { hit: SearchHit; q?: string; onFilter: (field: string, value: string) => void; why?: Omit<ExplainParams, "doc"> }) {
   const carry = q && q !== "*:*" ? { q } : {}; // the document page highlights the query
   // a few of the document's entities and concepts, each name once, the first field naming it
   const seen = new Set<string>();
@@ -431,6 +432,11 @@ function Hit({ hit, q, onFilter }: { hit: SearchHit; q?: string; onFilter: (fiel
           <a href={originalUrl(hit.id)} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline dark:text-blue-400">
             open original
           </a>
+          {why?.q && why.q !== "*:*" && (
+            <Link to="/explain" search={{ ...why, doc: hit.id }} className="text-blue-700 hover:underline dark:text-blue-400" title="why this result ranks here">
+              why?
+            </Link>
+          )}
         </p>
       </div>
     </li>

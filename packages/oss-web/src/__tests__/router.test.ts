@@ -8,6 +8,7 @@ describe("router", () => {
       [
         "/", "/alerts", "/analytics", "/concepts", "/documents/$id", "/entities", "/graph", "/graph/results",
         "/list", "/login", "/map", "/packs", "/packs/$packId", "/review", "/table",
+        "/analysis", "/diff", "/explain", "/export", "/synonyms",
       ].sort(),
     );
   });

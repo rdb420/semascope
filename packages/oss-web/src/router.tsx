@@ -8,6 +8,7 @@ import {
 import { Shell } from "./components/Shell";
 import { SearchPage, searchSearchSchema } from "./pages/SearchPage";
 import { viewSearchSchema } from "./viewParams";
+import { analysisSearchSchema, diffSearchSchema, explainSearchSchema, synonymsSearchSchema } from "./extrasParams";
 
 // Search is the landing page and ships in the entry chunk. Every other page is
 // its own chunk, loaded on first visit (or on hover over a link to it), so the
@@ -26,6 +27,11 @@ const EntitiesPage = lazyRouteComponent(() => import("./pages/EntitiesPage"), "E
 const AlertsPage = lazyRouteComponent(() => import("./pages/AlertsPage"), "AlertsPage");
 const SearchGraphPage = lazyRouteComponent(() => import("./pages/GraphPage"), "SearchGraphPage");
 const AnalyticsPage = lazyRouteComponent(() => import("./pages/AnalyticsPage"), "AnalyticsPage");
+const AnalysisPage = lazyRouteComponent(() => import("./pages/AnalysisPage"), "AnalysisPage");
+const DiffPage = lazyRouteComponent(() => import("./pages/DiffPage"), "DiffPage");
+const SynonymsPage = lazyRouteComponent(() => import("./pages/SynonymsPage"), "SynonymsPage");
+const ExplainPage = lazyRouteComponent(() => import("./pages/ExplainPage"), "ExplainPage");
+const ExportPage = lazyRouteComponent(() => import("./pages/ExportPage"), "ExportPage");
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -88,7 +94,16 @@ const searchGraphRoute = createRoute({ getParentRoute: () => rootRoute, path: "/
 const alertsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/alerts", component: AlertsPage });
 const viewRoutes = [tableRoute, entitiesRoute, searchGraphRoute, alertsRoute];
 
-const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute, ...viewRoutes, analyticsRoute]);
+// ADR-0012 pages: analysis views of a search, a diff of two documents, synonyms, why a hit
+// ranked, exports and the annotation import
+const analysisRoute = createRoute({ getParentRoute: () => rootRoute, path: "/analysis", validateSearch: analysisSearchSchema, component: AnalysisPage });
+const diffRoute = createRoute({ getParentRoute: () => rootRoute, path: "/diff", validateSearch: diffSearchSchema, component: DiffPage });
+const synonymsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/synonyms", validateSearch: synonymsSearchSchema, component: SynonymsPage });
+const explainRoute = createRoute({ getParentRoute: () => rootRoute, path: "/explain", validateSearch: explainSearchSchema, component: ExplainPage });
+const exportRoute = createRoute({ getParentRoute: () => rootRoute, path: "/export", validateSearch: viewSearchSchema, component: ExportPage });
+const extraRoutes = [analysisRoute, diffRoute, synonymsRoute, explainRoute, exportRoute];
+
+const routeTree = rootRoute.addChildren([searchRoute, loginRoute, documentRoute, packsRoute, packRoute, conceptRoute, graphRoute, reviewRoute, mapRoute, listRoute, ...viewRoutes, analyticsRoute, ...extraRoutes]);
 
 export const router = createRouter({ routeTree, defaultPreload: "intent" });
 

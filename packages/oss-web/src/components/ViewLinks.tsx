@@ -14,8 +14,8 @@ function shared(p: ViewParams): ViewParams {
 const tab = "rounded border px-2 py-0.5";
 const active = "bg-blue-100 dark:bg-blue-900/40";
 
-/** Links to the other views of the same search: list, table, entities, graph. */
-export function ViewLinks({ params, current }: { params: ViewParams; current?: "list" | "table" | "entities" | "graph" }) {
+/** Links to the other views of the same search: list, table, entities, graph, analysis, export. */
+export function ViewLinks({ params, current }: { params: ViewParams; current?: "list" | "table" | "entities" | "graph" | "analysis" | "export" }) {
   const s = shared(params);
   return (
     <>
@@ -32,6 +32,12 @@ export function ViewLinks({ params, current }: { params: ViewParams; current?: "
       </Link>
       <Link to="/graph/results" search={s} className={`${tab} ${current === "graph" ? active : ""}`} title="concepts and entities that occur together in these results">
         graph
+      </Link>
+      <Link to="/analysis" search={s} className={`${tab} ${current === "analysis" ? active : ""}`} title="clusters, comparison and a word tree of these results">
+        analysis
+      </Link>
+      <Link to="/export" search={s} className={`${tab} ${current === "export" ? active : ""}`} title="these results as CSV, JSON Lines, Parquet or RDF">
+        export
       </Link>
     </>
   );
