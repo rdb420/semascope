@@ -89,6 +89,10 @@ and imports it the same way.
 A pack can be **reconciled against**: `/api/reconcile` is a W3C
 Reconciliation Service (0.2) over the active packs' concepts and
 individuals, so OpenRefine and similar tools resolve names to pack IRIs.
+Callers sign in (a bearer token) like everywhere else; OpenRefine cannot send
+a token, so an operator who wants it to call the service sets
+`SEMASCOPE_RECONCILE_PUBLIC=true`, which opens it without sign-in, limited
+per client address.
 
 Curators **propose changes** (`PackDelta`): another name for a concept, a new
 concept in a scheme, a label to retire, or a note. A proposed name becomes a
@@ -285,7 +289,10 @@ default was `reader`. An install that relied on open reading sets
 `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` explicitly (`oss init` writes
 `none` for new installs). Packs, concepts and
 the Reconciliation API are not collection data and are readable by every
-signed-in user (the Reconciliation API also anonymously, for OpenRefine).
+signed-in user who holds a role on at least one collection (or a global
+role); an account with no role at all reads nothing, since a list pack can
+name people or clients. The Reconciliation API is anonymous only when
+`SEMASCOPE_RECONCILE_PUBLIC=true`.
 
 Nobody signs themselves up. Local accounts are created by an administrator
 (the Django admin or `oss-manage createsuperuser`) and always work; set the
