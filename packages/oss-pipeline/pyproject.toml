@@ -12,7 +12,9 @@ dependencies = [
     "neo4j>=6,<7",
     "pyoxigraph>=0.5,<0.6",
     "pyshacl>=0.30",
-    "watchdog>=6",
+    "warcio>=1.7",
+    "google-re2>=1.1",
+    "beautifulsoup4>=4.12",
     "defusedxml>=0.7",
     "pypdfium2>=4.30",
     "pillow>=11",
@@ -26,7 +28,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pst = ["pypff"]
+# PST/OST mailboxes: libyal's libpff binding, LGPL-3.0-or-later, so an optional extra only
+# (docs/adr/0015-pst-libpff-extra.md); `pypff` on PyPI is an unrelated package (SEMA-066)
+pst = ["libpff-python>=20240000"]
 
 [project.entry-points."oss.connectors"]
 [project.entry-points."oss.stages"]

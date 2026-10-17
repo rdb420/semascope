@@ -41,6 +41,7 @@ from oss_core.contracts import (
 from oss_pipeline.clients.solr import quote_term
 from oss_pipeline.registry import UnknownProfileError, connectors, profile
 from oss_pipeline.retry import backoff, is_transient
+from oss_pipeline.sidecar import changed as sidecar_changed
 from oss_pipeline.stages.base import TRANSIENT_FAILURES, run_profile, run_stage
 from oss_pipeline.stages.index import custom_fields
 from oss_server.catalogue.models import Collection, Document, Source, document_id
@@ -274,7 +275,10 @@ def discover_source(source_id: int, *, full: bool = True) -> dict[str, int]:
                         "status": Document.Status.QUEUED,
                     },
                 )
-                new_content = doc.content_hash != (item.content_hash or "")
+                new_content = doc.content_hash != (item.content_hash or "") or (
+                    doc.status == Document.Status.INDEXED
+                    and sidecar_changed(doc.fields, item.metadata)  # oss_pipeline.sidecar
+                )
                 # a document deleted by an earlier run is back; one whose runs kept killing
                 # the worker is held until it changes or is reindexed; one queued a moment ago
                 # has its task waiting; one left `processing` by a dead worker is retried
@@ -396,7 +400,11 @@ DOCUMENT_TASK: dict[str, Any] = {
     "reject_on_worker_lost": True,
     "time_limit": get_settings().task_time_limit,
 }
-DOCUMENT_TASKS = ("semascope.process_document", "semascope.reindex_document")
+DOCUMENT_TASKS = (
+    "semascope.process_document",
+    "semascope.reindex_document",
+    "semascope.ocr_document",  # OCR later (pipeline/ocr.py)
+)
 
 
 def _retry_policy(collection: Collection) -> tuple[int, float]:
@@ -615,6 +623,7 @@ def process_document(self: Any, doc_id: str, item: dict[str, Any], *, force: boo
         return str(Document.Status.FAILED)
     if doc_row.status == Document.Status.INDEXED and doc_row.blob_path:
         _drop_work_file(item)  # the original is in the blob store now
+    ocr.queue_ocr(doc_row)  # indexed without OCR (`ocr: later`): the OCR pass, low priority
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
@@ -691,6 +700,8 @@ def reindex_document(self: Any, doc_id: str, stages: list[str] | None = None) ->
     # a full replay is what processing the same content again would give
     fp = "" if wanted else fingerprint(doc_row.content_hash, ctx, every)
     _store(doc_row, work, fingerprint=fp)
+    if not wanted:
+        ocr.queue_ocr(doc_row)  # a pending OCR pass whose task was lost is queued again
     _retry_if_transient(self, doc_row, work)
     return doc_row.status
 
@@ -1340,3 +1351,7 @@ def check_alerts() -> int:
             saved.last_checked_at = timezone.now()
             saved.save(update_fields=["last_total", "last_checked_at"])
     return fired
+
+
+# registered with the worker through this module (autodiscovery imports `tasks` only)
+from oss_server.pipeline import ocr  # noqa: E402

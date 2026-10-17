@@ -465,6 +465,8 @@ def stats(request: HttpRequest) -> StatsOut:
         .annotate(n=Count("id"))
     }
     interrupted = documents.filter(status=Document.Status.FAILED, attempts__gt=0).count()
+    from oss_server.pipeline.ocr import pending as ocr_pending
+
     try:
         body = solr_client().select(
             solr_documents_collection(),
@@ -485,6 +487,7 @@ def stats(request: HttpRequest) -> StatsOut:
         embed_model=search_mod.current_embed_model(),
         graph=graph_counts,
         interrupted=interrupted,
+        ocr_pending=ocr_pending(documents).count(),
     )
 
 

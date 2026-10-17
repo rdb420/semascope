@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from oss_core.contracts import Span, StageContext, Tag, WorkingDocument
+from oss_pipeline.extractors import run_extractors
 from oss_pipeline.provenance import assign_pages
 
 BASE = "https://semascope.dev/ontology/base#"
@@ -58,4 +59,4 @@ class PatternsStage:
                 tag.spans.append(Span(start=match.start(), end=match.end()))
             assign_pages(seen.values(), doc)
             doc.fields[field_name] = sorted({t.label for t in seen.values()})
-        return doc
+        return run_extractors(doc, ctx, self)  # IBAN, law, currency, regex lists (WS-7)

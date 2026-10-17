@@ -22,13 +22,19 @@ PIPELINE_OVERRIDES = frozenset(
         "chunk_words",
         "chunk_overlap",
         # extract
-        "ocr",
+        "ocr",  # now, later or off (true and false as before); checked: `refused_overrides`
+        "ocr_min_chars_per_page",
         "ocr_languages",  # Tesseract codes, e.g. "eng+deu" (checked: `refused_overrides`)
         "detect_language",
         "embedded_max_items",
         "embedded_max_chars",
-        # patterns
+        # patterns, and the extractors it runs (oss_pipeline.extractors; checked)
         "patterns",
+        "regex_lists",
+        "law_patterns",
+        "law_defaults",
+        "dollar_currency",
+        "patterns_max_chars",
         # preview
         "preview_pages",
         "preview_width",
@@ -54,6 +60,8 @@ def refused_overrides(settings: dict[str, Any] | None) -> list[str]:
     """The keys of a collection's `settings.pipeline` that a collection may not set."""
 
     from oss_pipeline.clients.tika import valid_ocr_languages
+    from oss_pipeline.extractors import problems as extractor_problems
+    from oss_pipeline.ocr_later import valid_ocr_setting
 
     pipeline = (settings or {}).get("pipeline")
     if pipeline is None:
@@ -65,6 +73,9 @@ def refused_overrides(settings: dict[str, Any] | None) -> list[str]:
         pipeline["ocr_languages"]
     ):
         refused.append("ocr_languages")  # Tesseract codes only: it becomes a request header
+    if "ocr" in pipeline and not valid_ocr_setting(pipeline["ocr"]):
+        refused.append("ocr")
+    refused.extend(extractor_problems(pipeline))  # regex lists compile as RE2, and so on
     return sorted(refused)
 
 

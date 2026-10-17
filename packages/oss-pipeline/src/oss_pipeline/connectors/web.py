@@ -3,7 +3,8 @@
 Settings: `urls` (list, required), `mode` (`pages` | `sitemap` | `crawl`),
 `max_pages` (200), `max_depth` (2, crawl only), `include` / `exclude` (URL
 regexes), `respect_robots` (true), `delay_seconds` (0.5), `user_agent`,
-`max_bytes` (50 MiB per response). Fetched HTML goes to Tika like any other
+`max_bytes` (50 MiB per response), `scrape` (CSS rules for content, title and
+fields: `oss_pipeline.scraper`). Fetched HTML goes to Tika like any other
 document; the connector only discovers and downloads. Private address ranges
 are refused on every request and redirect (see `guard`).
 
@@ -42,6 +43,7 @@ from oss_pipeline.connectors.guard import (
     guarded_client,
     refuse_private,
 )
+from oss_pipeline.scraper import scrape, with_scraped
 
 USER_AGENT = "semascope/0.1 (+https://github.com/rdb420/semascope)"
 _HREF = re.compile(r"""<a\s[^>]*href\s*=\s*["']([^"']+)["']""", re.I)
@@ -148,10 +150,11 @@ class WebConnector:
                     .split(";")[0]
                     .strip()
                 )
-                digest = hashlib.sha256(content).hexdigest()
+                page, scraped = scrape(content, media_type, source.settings)  # scraper.py
+                digest = hashlib.sha256(page).hexdigest()
                 path = tmp / (digest + _suffix(media_type))
                 if not path.exists():
-                    path.write_bytes(content)
+                    path.write_bytes(page)
                 parts = urlparse(url)
                 folders = [parts.netloc, *[p for p in parts.path.split("/")[:-1] if p]]
                 yielded += 1
@@ -159,13 +162,16 @@ class WebConnector:
                     uri=url,
                     content_hash=digest,
                     modified_at=_last_modified(resp.headers.get("last-modified")),
-                    size=len(content),
-                    metadata={
-                        "path": str(path),
-                        "media_type": media_type,
-                        "depth": depth,
-                        "fields": path_fields(folders, parts.path.rsplit("/", 1)[-1]),
-                    },
+                    size=len(page),
+                    metadata=with_scraped(
+                        scraped,
+                        {
+                            "path": str(path),
+                            "media_type": media_type,
+                            "depth": depth,
+                            "fields": path_fields(folders, parts.path.rsplit("/", 1)[-1]),
+                        },
+                    ),
                 )
                 if mode == "crawl" and depth < max_depth and media_type == "text/html":
                     for link in _links(

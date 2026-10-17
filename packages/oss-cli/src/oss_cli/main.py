@@ -15,7 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from oss_cli import evaluate, export, health
+from oss_cli import evaluate, export, health, watch
 from oss_cli.vectors import vector_report
 from oss_core import PACK_CONTRACT_VERSION, __version__
 from oss_core.config import get_settings
@@ -26,6 +26,7 @@ pack_app = typer.Typer(help="Knowledge-model packs (ontology-skill bundles).")
 app.add_typer(pack_app, name="pack")
 app.add_typer(export.app, name="export")  # oss_cli/export.py
 app.command("eval")(evaluate.command)  # oss_cli/evaluate.py
+app.command("watch")(watch.command)  # oss_cli/watch.py
 console = Console()
 
 
@@ -394,6 +395,8 @@ def document_report(settings: Any, client: httpx.Client) -> tuple[str, list[str]
         f"graph pending {graph.get('pending', 0)}, graph failed {graph.get('failed', 0)}, "
         f"held {stats.get('interrupted', 0)}"
     )
+    if stats.get("ocr_pending"):
+        summary += f", ocr pending {stats['ocr_pending']}"
     return summary, notes
 
 
@@ -661,6 +664,12 @@ def document_notes(stats: dict[str, Any]) -> list[str]:
         notes.append(
             f"{stats['interrupted']} documents are held after their runs kept stopping the "
             "worker (memory, a crash or the time limit); see their errors, then `oss reindex`"
+        )
+    if stats.get("ocr_pending"):
+        notes.append(
+            f"{stats['ocr_pending']} documents are searchable by their text layer and wait for "
+            "their OCR pass (`ocr: later`), which runs when no other document is queued; "
+            "`oss reindex --collection <slug>` queues lost ones again"
         )
     return notes
 

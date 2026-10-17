@@ -195,6 +195,58 @@ host (`uv run oss pack validate --manifest <bundle>`).
 Every command that starts a container first creates `SEMASCOPE_IMPORT_DIR`
 when it is missing, so the folder belongs to you rather than to root.
 
+## OCR later
+
+OCR is by far the slowest part of extraction. A collection that sets
+`settings.pipeline.ocr` to `later` gets its documents searchable first and
+OCRed afterwards ([ADR-0014](adr/0014-ocr-later.md)):
+
+| `ocr` | What a document's run does |
+|---|---|
+| `now` (default, also `true`) | OCRs images and scanned PDFs in the same run |
+| `later` | reads the text layer and metadata only; a document that needs OCR (a raster image, a PDF with fewer than `ocr_min_chars_per_page`, 40, characters per page, or a file holding raster images) is indexed as it is, marked `ocr_pending`, and OCRed by a second task |
+| `off` (also `false`) | never OCRs |
+
+The second task, `semascope.ocr_document`, waits on the `cpu` queue at the
+lowest priority: a worker takes it only when no other document is waiting,
+so a large import is searchable before any of it is OCRed. It runs `extract`
+again with OCR from the stored original, then the stages after it, and
+replaces the document. A pending document shows "OCR pending" on its page
+and `ocr_pending_b: true` in the index (a filter); `oss stats` and
+`oss doctor` count them. If the OCR pass fails for good, the text-layer
+result stays, the mark goes and `metadata.ocr_error` says why. A full
+`oss reindex --collection <slug>` queues the OCR pass again for documents
+still pending (after Valkey lost its queue, say).
+
+## Watching folders
+
+Folder sources usually run on a schedule. `oss watch` runs them as soon as
+their files change: it watches the folders of the enabled path sources
+(filesystem, archive, mail, WARC, PST, table and RDF files) with inotify and
+starts a source's run through the API once its changes have been quiet for
+`--debounce` seconds (5), so a large copy starts one run. A run that is
+already going is asked for again when it has finished; temporary names
+(`.part`, `.tmp`, `~`, hidden files) are ignored. In the stack it is the
+optional `watch` service:
+
+```bash
+docker compose --profile watch up -d watch
+```
+
+It sees the import folder at `/import`, where the sources point. inotify
+does not see changes made on another machine (a network share) or through
+Docker Desktop's file sharing; run it with `--poll` there. Outside the
+stack, `--map /import=./data/import` translates the sources' paths.
+
+## Optional extras
+
+`oss-pipeline[pst]` adds libpff (`libpff-python`, LGPL-3.0-or-later) for the
+`pst` connector. It is not in the published image
+([ADR-0015](adr/0015-pst-libpff-extra.md)); to read PST and OST files, build
+an image that installs it (`uv sync --extra pst` in the Dockerfile's build
+step). Without it, a `pst` source fails its run and says which extra it
+needs.
+
 ## Crashes and recovery
 
 Tasks are delivered at least once: a worker acknowledges a task when it
