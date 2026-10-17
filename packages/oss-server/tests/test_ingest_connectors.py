@@ -23,12 +23,15 @@ def _post(client: Client, path: str, auth: dict[str, str], body: dict[str, Any])
     return client.post(path, data=body, content_type="application/json", headers=auth)
 
 
-@pytest.mark.parametrize("connector", ["warc", "hypothesis", "pst"])
+@pytest.mark.parametrize("connector", ["warc", "hypothesis", "pst", "mastodon"])
 def test_the_new_connectors_are_known(
     client: Client, editor: dict[str, str], connector: str
 ) -> None:
     _post(client, "/api/collections", editor, {"slug": "ing"})
-    settings = {"group": "g"} if connector == "hypothesis" else {"path": "/import/x"}
+    settings = {
+        "hypothesis": {"group": "g"},
+        "mastodon": {"instance": "https://mastodon.example", "hashtags": ["birding"]},
+    }.get(connector, {"path": "/import/x"})
     r = _post(
         client,
         "/api/collections/ing/sources",
