@@ -87,7 +87,10 @@ def test_local_sign_up_is_closed(browser: httpx.Client) -> None:
         "/accounts/signup/", data=form, headers={"Referer": base_url() + "/accounts/signup/"}
     )
     assert sent.status_code in (200, 403), sent.status_code  # the closed page, or CSRF refusal
+    csrf = browser.get("/api/auth/csrf").json()["csrftoken"]  # sign-in needs it (SEMA-050)
     signed_in = browser.post(
-        "/api/auth/login", json={"username": "visitor", "password": form["password1"]}
+        "/api/auth/login",
+        json={"username": "visitor", "password": form["password1"]},
+        headers={"X-CSRFToken": csrf, "Referer": base_url() + "/"},
     )
     assert signed_in.status_code == 401, signed_in.text
