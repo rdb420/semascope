@@ -15,7 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from oss_cli import evaluate, export
+from oss_cli import evaluate, export, watch
 from oss_cli.vectors import vector_report
 from oss_core import PACK_CONTRACT_VERSION, __version__
 from oss_core.config import get_settings
@@ -26,6 +26,7 @@ pack_app = typer.Typer(help="Knowledge-model packs (ontology-skill bundles).")
 app.add_typer(pack_app, name="pack")
 app.add_typer(export.app, name="export")  # oss_cli/export.py
 app.command("eval")(evaluate.command)  # oss_cli/evaluate.py
+app.command("watch")(watch.command)  # oss_cli/watch.py
 console = Console()
 
 

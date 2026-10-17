@@ -2256,6 +2256,7 @@ dependencies = [
     { name = "oss-core" },
     { name = "rich" },
     { name = "typer" },
+    { name = "watchdog" },
 ]
 
 [package.metadata]
@@ -2264,6 +2265,7 @@ requires-dist = [
     { name = "oss-core", editable = "packages/oss-core" },
     { name = "rich", specifier = ">=13" },
     { name = "typer", specifier = ">=0.15" },
+    { name = "watchdog", specifier = ">=6" },
 ]
 
 [[package]]
@@ -2309,7 +2311,6 @@ dependencies = [
     { name = "pyshacl" },
     { name = "spacy" },
     { name = "warcio" },
-    { name = "watchdog" },
     { name = "xx-ent-wiki-sm" },
 ]
 
@@ -2338,7 +2339,6 @@ requires-dist = [
     { name = "pyshacl", specifier = ">=0.30" },
     { name = "spacy", specifier = ">=3.8,<3.9" },
     { name = "warcio", specifier = ">=1.7" },
-    { name = "watchdog", specifier = ">=6" },
     { name = "xx-ent-wiki-sm", url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl" },
 ]
 provides-extras = ["pst"]
