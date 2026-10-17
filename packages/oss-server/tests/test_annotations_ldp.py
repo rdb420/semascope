@@ -182,3 +182,11 @@ def test_the_container_says_what_it_is(client: Client, world: dict[str, User]) -
     resp = client.get("/api/annotations/w3c?collection=a", headers=_h(world["reader"]))
     assert resp.status_code == 200
     assert 'ldp#BasicContainer>; rel="type"' in resp["Link"] and "POST" in resp["Allow"]
+
+
+def test_entity_tags_survive_a_compressing_proxy() -> None:
+    from oss_server.api.annotations_ldp import tags_of
+
+    assert tags_of('"abc-zstd"') == {'"abc"'}
+    assert tags_of('W/"abc-gzip", "def"') == {'"abc"', '"def"'}
+    assert tags_of('"my-tag"') == {'"my-tag"'}

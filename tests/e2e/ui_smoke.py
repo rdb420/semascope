@@ -313,6 +313,8 @@ def analysis_pages(page: Page) -> None:
     expect(page.locator("article[aria-label^='Cluster'] li a").first).to_be_visible(timeout=60000)
     shot(page, "21-clusters.png", full_page=True)
     page.click("[role=tab]:has-text('Compare')")
+    page.fill("#vs", "Arjuna")
+    page.click("form[aria-label='Compare with'] button:has-text('Compare')")
     more = page.locator("section[aria-label='More typical of this search'] li")
     expect(more.first).to_be_visible(timeout=60000)
     page.click("[role=tab]:has-text('Word tree')")

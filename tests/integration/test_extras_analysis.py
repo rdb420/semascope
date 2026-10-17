@@ -206,10 +206,11 @@ def test_explain_a_hit(
     body = demo_reader.post("/explain", json={"search": search, "doc_id": doc}).json()
     kw = body["keyword"]
     assert kw["matched"] and kw["rank"] >= 1 and kw["clauses"], body
-    assert not body["full"] and "idf" not in json.dumps(kw["explanation"]).lower()
+    stats = "number of documents containing term"
+    assert not body["full"] and stats not in json.dumps(kw["explanation"])
     assert body["semantic"]["passages"] and body["fused"]["score"] > 0, body
     staff = api.post("/explain", json={"search": search, "doc_id": doc}).json()
-    assert staff["full"] and "idf" in json.dumps(staff["keyword"]["explanation"]).lower()
+    assert staff["full"] and stats in json.dumps(staff["keyword"]["explanation"])
 
 
 # --- the Web Annotation Protocol ---------------------------------------------------------------

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 from urllib.parse import unquote
 
@@ -144,11 +145,22 @@ def _may_edit(request: HttpRequest, a: Annotation) -> None:
         check(request, "curator", slug)
 
 
+_CODING = re.compile(r'-(?:zstd|gzip|br|deflate)"$')
+
+
+def tags_of(header: str | None) -> set[str]:
+    """The entity tags a conditional header names, compared weakly (`W/` dropped) and
+    without the content-coding suffix a compressing proxy adds (Caddy turns `"x"` into
+    `"x-zstd"` when it compresses the body)."""
+
+    return {_CODING.sub('"', t.strip().removeprefix("W/")) for t in (header or "").split(",")}
+
+
 def _precondition(request: HttpRequest, a: Annotation) -> None:
     wanted = request.headers.get("If-Match")
     if not wanted:
         raise HttpError(428, "send If-Match with the annotation's ETag")
-    tags = {t.strip().removeprefix("W/") for t in wanted.split(",")}  # weak comparison
+    tags = tags_of(wanted)
     if "*" not in tags and etag(a) not in tags:
         raise HttpError(412, "the annotation has changed since that ETag")
 
@@ -193,7 +205,7 @@ def get_annotation(request: HttpRequest, annotation_id: int) -> HttpResponse:
     a = _get(annotation_id)
     check(request, "reader", a.document.collection.slug)
     tag = etag(a)
-    if tag in {t.strip() for t in (request.headers.get("If-None-Match") or "").split(",")}:
+    if tag in tags_of(request.headers.get("If-None-Match")):
         resp = HttpResponse(status=304)
         resp["ETag"] = tag
         return resp
