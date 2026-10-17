@@ -227,6 +227,10 @@ def _side(
     return allowed, side
 
 
+def _term(r: comparing.Compared) -> dict[str, Any]:
+    return {k: v for k, v in vars(r).items() if k != "weight"}
+
+
 # WS-8: rate limit
 def compare_results(request: HttpRequest, payload: CompareIn) -> CompareOut:
     """The words most typical of a search's documents against a second search's
@@ -236,14 +240,13 @@ def compare_results(request: HttpRequest, payload: CompareIn) -> CompareOut:
     from oss_server.api.searchplus import _background
 
     allowed, a = _side(request, payload.search, payload.sample)
-    top_a = [w for w, _ in sorted(a.df.items(), key=lambda kv: (-kv[1], kv[0]))]
+    top_a = a.frequent(BACKGROUND_CANDIDATES)
     if payload.against is not None:
         _, b = _side(request, payload.against, payload.sample)
-        top_b = [w for w, _ in sorted(b.df.items(), key=lambda kv: (-kv[1], kv[0]))]
-        candidates = top_a[:BACKGROUND_CANDIDATES] + top_b[:BACKGROUND_CANDIDATES]
+        candidates = top_a + b.frequent(BACKGROUND_CANDIDATES)
         background: Literal["search", "index"] = "search"
     else:
-        candidates = top_a[:BACKGROUND_CANDIDATES]
+        candidates = top_a
         total, found = (
             _background(services.solr_client(), candidates, allowed, payload.search.collection)
             if candidates
@@ -256,8 +259,8 @@ def compare_results(request: HttpRequest, payload: CompareIn) -> CompareOut:
         a_documents=a.documents,
         b_documents=b.documents,
         background=background,
-        more=[CompareTerm(**vars(r)) for r in more],
-        less=[CompareTerm(**vars(r)) for r in less],
+        more=[CompareTerm(**_term(r)) for r in more],
+        less=[CompareTerm(**_term(r)) for r in less],
     )
 
 

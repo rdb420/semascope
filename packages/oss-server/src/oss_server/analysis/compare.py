@@ -13,13 +13,19 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class Side:
     documents: int
     df: Mapping[str, int]  # documents holding each word
+    tf: Mapping[str, int] = field(default_factory=dict)  # occurrences, when counted
+
+    def frequent(self, n: int) -> list[str]:
+        """The `n` words most documents hold, the more frequent first among equals."""
+
+        return sorted(self.df, key=lambda w: (-self.df[w], -self.tf.get(w, 0), w))[:n]
 
 
 @dataclass
@@ -30,15 +36,18 @@ class Compared:
     a_share: float
     b_share: float
     g2: float  # signed: > 0 when the word is more typical of A
+    weight: int = 0  # occurrences on the side the word is typical of (breaks ties)
 
 
 def document_frequencies(texts: Iterable[Counter[str]]) -> Side:
     df: Counter[str] = Counter()
+    tf: Counter[str] = Counter()
     n = 0
     for counts in texts:
         n += 1
         df.update(counts.keys())
-    return Side(documents=n, df=df)
+        tf.update(counts)
+    return Side(documents=n, df=df, tf=tf)
 
 
 def _ll(k: float, n: float, expected_share: float) -> float:
@@ -64,6 +73,7 @@ def compare(a: Side, b: Side, candidates: Iterable[str]) -> list[Compared]:
     out: list[Compared] = []
     for term in dict.fromkeys(candidates):
         ka, kb = int(a.df.get(term, 0)), int(b.df.get(term, 0))
+        g2 = round(log_likelihood(ka, a.documents, kb, b.documents), 4)
         out.append(
             Compared(
                 term=term,
@@ -71,15 +81,17 @@ def compare(a: Side, b: Side, candidates: Iterable[str]) -> list[Compared]:
                 b_docs=kb,
                 a_share=round(ka / a.documents, 4) if a.documents else 0.0,
                 b_share=round(kb / b.documents, 4) if b.documents else 0.0,
-                g2=round(log_likelihood(ka, a.documents, kb, b.documents), 4),
+                g2=g2,
+                weight=int((a.tf if g2 >= 0 else b.tf).get(term, 0)),
             )
         )
     return out
 
 
 def split(rows: list[Compared], top: int) -> tuple[list[Compared], list[Compared]]:
-    """The words most typical of A, and those most typical of B, strongest first."""
+    """The words most typical of A, and those most typical of B, strongest first (the more
+    frequent first among equals: with few documents many words tie)."""
 
-    more = sorted((r for r in rows if r.g2 > 0), key=lambda r: (-r.g2, r.term))[:top]
-    less = sorted((r for r in rows if r.g2 < 0), key=lambda r: (r.g2, r.term))[:top]
+    more = sorted((r for r in rows if r.g2 > 0), key=lambda r: (-r.g2, -r.weight, r.term))[:top]
+    less = sorted((r for r in rows if r.g2 < 0), key=lambda r: (r.g2, -r.weight, r.term))[:top]
     return more, less
