@@ -1,7 +1,8 @@
 """Enrichment against the real Solr Tagger and spaCy: offsets after astral characters, events.
 
 One uploaded text in a collection of its own with the default profile (the
-demo pack is active, so the collection tags with it).
+demo pack is active, so the collection tags with it). It names individuals the
+graph tests do not look at, so it does not change their neighbourhoods.
 """
 
 from __future__ import annotations
@@ -13,9 +14,9 @@ from _stack import ensure_collection, wait_for
 
 SLUG = "it-enrich"
 TEXT = (
-    "\U0001f30a\U0001f30a\U0001f41a Odysseus sailed home to Ithaca. \U0001f3db\ufe0f "
+    "\U0001f30a\U0001f30a\U0001f41a Ilmarinen sailed north to Pohjola. \U0001f3db\ufe0f "
     "Long after, scholars of World War II and of the Battle of Waterloo still read "
-    "how Odysseus came back to Ithaca.\n"
+    "how Ilmarinen came back from Pohjola.\n"
 )
 
 
@@ -41,8 +42,8 @@ def test_tag_spans_stay_on_their_words_after_emoji(api: httpx.Client) -> None:
     assert "\U0001f30a" in text, "the emoji survived extraction"
     tags = api.get(f"/curation/documents/{doc['id']}/tags").raise_for_status().json()
     dictionary = {t["label"]: t for t in tags if t["stage"] == "tag"}
-    assert {"Odysseus", "Ithaca"} <= set(dictionary), sorted(dictionary)
-    for label in ("Odysseus", "Ithaca"):
+    assert {"Ilmarinen", "Pohjola"} <= set(dictionary), sorted(dictionary)
+    for label in ("Ilmarinen", "Pohjola"):
         # the tagger's own matches (NER mentions the link stage merged in have no `matched`)
         spans = [s for s in dictionary[label]["spans"] if s["matched"]]
         assert len(spans) == 2, dictionary[label]["spans"]
