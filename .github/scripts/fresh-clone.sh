@@ -11,7 +11,8 @@
 #   up      ./oss up                        (after `docker compose build`, see below)
 #   demo    ./oss demo --only <slug>        then waits for `./oss search` to find it
 #   search  ./oss search "<query>" --collection demo
-#   upload  ./oss upload <file> --collection mine, then ./oss search finds it
+#   upload  ./oss upload <file> --collection mine (a file in the clone, on the host), then
+#           ./oss search finds it
 #   logs    docker compose ps and the service logs (for a failed run)
 #   down    docker compose down --volumes, and the clone is removed
 #
@@ -47,8 +48,8 @@ if [ -z "${CI:-}" ]; then
 fi
 
 step() { printf '\n== fresh clone: %s (%s)\n' "$1" "$(date -u +%H:%M:%S)"; }
-# Docker creates the bind-mounted ./data/import as root when it is missing (the shim
-# does not create it), so plain rm cannot always remove a used clone.
+# The shim creates ./data/import before any container mounts it; a clone used by an older
+# shim may still hold a root-owned copy that Docker made, so fall back to sudo.
 remove_tree() {
   rm -rf "$1" 2>/dev/null || sudo -n rm -rf "$1" 2>/dev/null \
     || { echo "could not remove $1 (files owned by root); remove it by hand" >&2; return 1; }
@@ -104,6 +105,8 @@ up() {
   fi
   step "./oss up"
   ./oss up
+  # the shim made the bind-mounted import folder itself, so it belongs to this user
+  [ -O data/import ] || { echo "data/import is not owned by $(id -un)" >&2; ls -ld data/import >&2; exit 1; }
 }
 
 demo() {
@@ -124,8 +127,7 @@ upload() {
   step "./oss upload quickstart-note.txt --collection mine"
   in_clone
   printf 'A note uploaded by the quick start check. Marker: %s.\n' "$marker" > quickstart-note.txt
-  # `|| return`: `all` calls this as `upload || status=$?`, which turns off set -e here
-  ./oss upload quickstart-note.txt --collection mine || return
+  ./oss upload quickstart-note.txt --collection mine
   step "./oss search finds the upload"
   wait_for_hits "$marker" mine
 }
@@ -146,15 +148,13 @@ down() {
 }
 
 all() {
-  local status=0
   trap down EXIT
   clone
   init
   up
   demo
   search
-  upload || status=$?
-  return $status
+  upload
 }
 
 if [ $# -eq 0 ]; then set -- all; fi

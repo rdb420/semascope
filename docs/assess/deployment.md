@@ -12,7 +12,7 @@ to check before you choose where to run Semascope.
 | CPU architecture | amd64 and arm64 (multi-arch image) | amd64; arm64 is built, not yet exercised end to end |
 | macOS and Windows | through Docker Desktop, unsupported | not tested |
 | GPU runtime | amd64 Linux with an NVIDIA card, driver and NVIDIA Container Toolkit | RTX 3090 (24 GB) |
-| Host tools | `bash`, Docker Compose; `uv` only for `./oss init` | |
+| Host tools | `bash`, `tar`, Docker Compose; `uv` is optional (`./oss init` uses it when present, else runs in the app image) | |
 
 Kubernetes (Helm) and multi-host scaling come after 1.0. One Compose project
 runs on one host.

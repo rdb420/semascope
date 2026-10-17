@@ -315,14 +315,18 @@ and the application running.
 
 ## Operations profiles
 
-`compose.observe.yaml` adds an OpenTelemetry collector, Prometheus and
+`compose.observe.yaml` adds an OpenTelemetry collector, Jaeger, Prometheus,
 Grafana (on `127.0.0.1:3000`, user `admin`, password `GRAFANA_PASSWORD`
-from `.env`, which `oss init` generates; add one to an older `.env`); the server, the workers and beat export
-traces and metrics over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
-The bundled collector logs traces (debug exporter) and sends metrics to
-Prometheus: request and HTTP client durations from the instrumentation,
-plus `semascope.documents` (documents processed, by status) and
-`semascope.stage.duration` (by stage and outcome). `compose.gpu.yaml` is the
+from `.env`, which `oss init` generates; add one to an older `.env`) and
+Flower (on `127.0.0.1:5555`, the same user and password); the server, the
+workers and beat export traces and metrics over OTLP/HTTP when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set. The bundled collector sends traces to
+Jaeger (in memory) and metrics to Prometheus: request and HTTP client
+durations from the instrumentation, plus `semascope.documents` (documents
+processed, by status) and `semascope.stage.duration` (by stage and
+outcome), shown on Grafana's *Semascope* dashboard.
+`compose.secrets.yaml` reads every secret from a file (Docker secrets;
+`./oss up` adds it after `oss init --secrets-dir`). `compose.gpu.yaml` is the
 `gpu` runtime: the worker runs from the `-gpu` image on an NVIDIA card, with
 FastEmbed on CUDA and GLiNER2 for entities (`./oss up` adds it when
 `SEMASCOPE_RUNTIME=gpu`). `compose.dev.yaml` exposes every service on

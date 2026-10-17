@@ -147,6 +147,7 @@ jobs:
           docker compose -f compose.yaml -f compose.dev.yaml config --quiet
           docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
           docker compose -f compose.yaml -f compose.observe.yaml config --quiet
+          docker compose -f compose.yaml -f compose.secrets.yaml config --quiet
       - name: The shim parses and prints its help without an env file
         run: |
           rm .env

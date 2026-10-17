@@ -103,7 +103,8 @@ def stage_settings(collection: Collection) -> dict[str, Any]:
         "neo4j_user": s.neo4j_user,
         "neo4j_password": s.neo4j_password.get_secret_value() if s.neo4j_password else "",
         "pseudonymise": bool(collection.settings.get("pseudonymise", False)),
-        "pseudonymise_secret": s.semascope_secret_key.get_secret_value(),
+        # its own key, so rotating the secret key keeps the pseudonyms
+        "pseudonymise_secret": s.pseudonym_key,
         "ocr": True,
     }
     base["shapes_ttl"] = active_shapes(packs)
@@ -121,7 +122,7 @@ def pseudonymise_secret(collection: Collection) -> str | None:
     pipeline = pipeline_overrides(collection.settings)
     if not pipeline.get("pseudonymise", collection.settings.get("pseudonymise", False)):
         return None
-    return get_settings().semascope_secret_key.get_secret_value()
+    return get_settings().pseudonym_key
 
 
 BASE_PACK_ID = "semascope-base"  # its classes are the product's own model, not things to find

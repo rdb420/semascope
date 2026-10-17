@@ -136,6 +136,7 @@ def test_backup_wipe_restore(api: httpx.Client, indexed: dict[str, Any]) -> None
         )
         for key, value in before.items():
             assert after[key] == value, f"{key} differs after restore"
+        assert_live_collections_reload()
 
         # the outbox continues after the restored cursor, not from 1
         tags = restored.get(f"/curation/documents/{next(iter(before['curated_tags']))}/tags")
@@ -163,14 +164,35 @@ def failing_oss(*args: str) -> subprocess.CompletedProcess[str]:
     return proc
 
 
-def solr_collections() -> set[str]:
-    listing = (
+def solr_admin(query: str) -> dict[str, Any]:
+    """A Collections API call inside the Solr container, as the shim makes it."""
+
+    call = (
         'curl -sS -u "semascope:$SEMASCOPE_SOLR_PASSWORD" '
-        '"http://localhost:8983/solr/admin/collections?action=LIST&wt=json"'
+        '"http://localhost:8983/solr/admin/collections?$1&wt=json"'
     )
-    cmd = ["docker", "compose", "-p", PROJECT, "exec", "-T", "solr", "sh", "-c", listing]
+    cmd = ["docker", "compose", "-p", PROJECT, "exec", "-T", "solr", "sh", "-c", call, "sh", query]
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True)  # noqa: S603
-    return set(json.loads(proc.stdout)["collections"])
+    body: dict[str, Any] = json.loads(proc.stdout)
+    return body
+
+
+def solr_collections() -> set[str]:
+    return set(solr_admin("action=LIST")["collections"])
+
+
+def assert_live_collections_reload() -> None:
+    """Each live collection reloads: its configset in ZooKeeper is complete.
+
+    A Solr RESTORE also writes the backup's copy of the configset, and a backup keeps
+    only the configset's top-level files; a core whose configset lost its subfolders
+    fails to reload ("Can't find resource 'lang/...'"). The restore puts the
+    configsets back from the image, on success and on failure.
+    """
+
+    for name in ("documents", "entities", "chunks"):
+        body = solr_admin(f"action=RELOAD&name={name}")
+        assert body["responseHeader"]["status"] == 0 and "failure" not in body, (name, body)
 
 
 def test_a_corrupt_backup_leaves_the_data_as_it_was(
@@ -203,3 +225,4 @@ def test_a_corrupt_backup_leaves_the_data_as_it_was(
     with make_client() as after:
         assert snapshot(after) == before
     assert not {c for c in solr_collections() if c.endswith("_restoring")}
+    assert_live_collections_reload()

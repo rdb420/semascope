@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import django_stubs_ext
 from django.core.exceptions import ImproperlyConfigured
@@ -131,8 +131,8 @@ def _database() -> dict[str, object]:
     return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": url.path.lstrip("/"),
-        "USER": url.username,
-        "PASSWORD": url.password,
+        "USER": unquote(url.username or ""),
+        "PASSWORD": unquote(url.password or ""),
         "HOST": url.hostname,
         "PORT": url.port or 5432,
         "CONN_MAX_AGE": 60,

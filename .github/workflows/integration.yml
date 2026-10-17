@@ -164,11 +164,6 @@ jobs:
       - name: ./oss search mind --collection demo
         run: .github/scripts/fresh-clone.sh search
       - name: ./oss upload quickstart-note.txt --collection mine
-        # TODO(SEMA-019): `./oss upload <host file>` cannot work yet: the cli container
-        # sees only the blobs volume and /import, so typer's exists=True check fails
-        # inside the container. WS-9 owns the fix (bind-mount or stream the file from
-        # the host). Expected to fail until then; remove continue-on-error with the fix.
-        continue-on-error: true
         run: .github/scripts/fresh-clone.sh upload
       - name: Service logs
         if: ${{ failure() }}

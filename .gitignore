@@ -31,3 +31,6 @@ reports/
 *.swp
 .DS_Store
 site/
+
+# Docker secrets written by `oss init --secrets-dir` (compose.secrets.yaml)
+secrets/

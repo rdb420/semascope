@@ -2,38 +2,273 @@
 # Semascope entry point. Runs the `oss` CLI inside the app image so no host
 # Python is needed. Developers can call `uv run oss ...` directly instead.
 set -euo pipefail
+caller="$PWD"  # relative paths on the command line are the caller's, not the repository's
 cd "$(dirname "${BASH_SOURCE[0]}")"
 cmd="${1:-help}"
 # SEMASCOPE_ENV_FILE picks another env file (the integration stack uses .env.ci);
 # compose then reads it for variable substitution too.
 env_file="${SEMASCOPE_ENV_FILE:-.env}"
 if [ "$env_file" != .env ]; then export SEMASCOPE_ENV_FILE COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$env_file}"; fi
-# The runtime chosen at `oss init` picks the compose overlay for every command below.
-runtime="$(grep -E '^SEMASCOPE_RUNTIME=' "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
-case "${runtime:-cpu}" in
-  gpu) export COMPOSE_FILE="${COMPOSE_FILE:-compose.yaml:compose.gpu.yaml}" ;;
-esac
-# Valkey requires a password from 1.0.0-rc.4 on. An env file written before then gets a
-# generated VALKEY_PASSWORD on the next `./oss up`; Valkey reads it at start, nothing else
-# changes. (`oss init` writes one for new installs.)
-ensure_valkey_password() {
+
+fail() { echo "error: $*" >&2; exit 1; }
+
+# env_value <NAME>: the setting from the environment, else from the env file (last line wins;
+# quotes and a trailing " # comment" removed, as compose reads it)
+env_value() {
+  if [ -n "${!1:-}" ]; then printf '%s\n' "${!1}"; return; fi
   [ -f "$env_file" ] || return 0
-  if grep -qE '^VALKEY_PASSWORD=[^[:space:]]+' "$env_file"; then return 0; fi
-  local password tmp
-  password="$(head -c 24 /dev/urandom | base64 | tr -d '+/=\n')"
-  tmp="$env_file.tmp.$$"
-  { grep -v '^VALKEY_PASSWORD=' "$env_file" || true; printf 'VALKEY_PASSWORD=%s\n' "$password"; } > "$tmp"
+  grep -E "^[[:space:]]*$1=" "$env_file" 2>/dev/null | tail -n 1 | cut -d= -f2- \
+    | sed -e 's/[[:space:]]\{1,\}#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+      -e "s/^'\(.*\)'\$/\1/" -e 's/^"\(.*\)"$/\1/' || true
+}
+
+# set_env_value <NAME> <value>: replace the setting's line in the env file (or add it); 0600
+set_env_value() {
+  local tmp="$env_file.tmp.$$"
+  { grep -v -E "^[[:space:]]*$1=" "$env_file" || true; printf '%s=%s\n' "$1" "$2"; } > "$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$env_file"
+}
+
+# a random secret of URL-safe characters (what `oss init` writes, without host Python)
+generate_secret() {
+  local out=""
+  while [ "${#out}" -lt "$1" ]; do
+    out="$out$(head -c 48 /dev/urandom | base64 | tr -d '+/=\n')"
+  done
+  printf '%s' "${out:0:$1}"
+}
+
+# The runtime chosen at `oss init` (and Docker secrets, `oss init --secrets-dir`) pick the
+# compose overlays for every command below; an explicit COMPOSE_FILE wins.
+runtime="$(env_value SEMASCOPE_RUNTIME | tr -d '[:space:]')"
+secrets_dir="$(env_value SEMASCOPE_SECRETS_DIR)"
+overlays=compose.yaml
+case "${runtime:-cpu}" in
+  gpu) overlays="$overlays:compose.gpu.yaml" ;;
+esac
+if [ -n "$secrets_dir" ]; then overlays="$overlays:compose.secrets.yaml"; fi
+if [ "$overlays" != compose.yaml ]; then export COMPOSE_FILE="${COMPOSE_FILE:-$overlays}"; fi
+
+# The host folder mounted read-only at /import (SEMASCOPE_IMPORT_DIR, relative to this folder).
+import_dir="$(env_value SEMASCOPE_IMPORT_DIR)"
+import_dir="${import_dir:-./data/import}"
+# Docker creates a missing bind-mount source as root, which the operator then cannot write to;
+# every command that starts a container with the mount creates it first, as the operator.
+ensure_import_dir() {
+  [ -d "$import_dir" ] || mkdir -p "$import_dir" \
+    || fail "cannot create the import folder $import_dir (SEMASCOPE_IMPORT_DIR in $env_file)"
+}
+
+# Valkey requires a password from 1.0.0-rc.4 on. An env file written before then gets a
+# generated VALKEY_PASSWORD on the next `./oss up`; Valkey reads it at start, nothing else
+# changes. (`oss init` writes one for new installs; Docker secrets use VALKEY_PASSWORD_FILE.)
+ensure_valkey_password() {
+  [ -f "$env_file" ] && [ -z "$secrets_dir" ] || return 0
+  if grep -qE '^VALKEY_PASSWORD(_FILE)?=[^[:space:]]+' "$env_file"; then return 0; fi
+  set_env_value VALKEY_PASSWORD "$(generate_secret 32)"
   echo "added a generated VALKEY_PASSWORD to $env_file (Valkey now requires a password)"
 }
+
+# cli_run <args>: `docker compose run --rm cli <args>`; without a terminal on both ends no TTY
+# is allocated, so piped and redirected output stays byte for byte
+cli_run() {
+  local tty=()
+  if ! { [ -t 0 ] && [ -t 1 ]; }; then tty=(-T); fi
+  ensure_import_dir
+  docker compose run --rm ${tty[@]+"${tty[@]}"} cli "$@"
+}
+
+# host_path <arg>: the argument as an absolute host path (relative to the caller's folder)
+host_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$caller/$1" ;;
+  esac
+}
+
+# --- host files for commands that read them ------------------------------------------------
+# The CLI runs in a container that sees only the data volume and /import. `upload`, `eval`
+# and `pack import|diff|validate` name files on this machine, so the shim sends them in: a
+# tar of those files on the container's standard input, unpacked there before `oss` runs, with
+# each argument rewritten to the copy. Nothing is mounted, so any file name works and so does
+# a Docker daemon on another host. A pack bundle the server must read goes to the data
+# volume (/data/packs/uploaded/<time>/, a folder pack imports may come from); everything
+# else to the container's /tmp, gone when it exits.
+in_dirs=()    # host folder of each input
+in_names=()   # its name there (the copy keeps it)
+out_args=()   # the oss arguments, inputs rewritten
+
+# add_input <host-path> <dest>: queue a host file or folder and add its path in the container
+# to out_args
+add_input() {
+  local path dir name i
+  path="$(host_path "$1")"
+  [ -e "$path" ] || fail "$1 does not exist"
+  dir="$(cd "$(dirname "$path")" && pwd -P)"
+  name="$(basename "$path")"
+  for i in ${in_names[@]+"${!in_names[@]}"}; do
+    [ "${in_names[$i]}" != "$name" ] || fail "two inputs are named $name; send them in separate commands"
+  done
+  in_dirs+=("$dir")
+  in_names+=("$name")
+  out_args+=("$2/$name")
+}
+
+# run_with_inputs <dest> <keep|drop> : run `oss "${out_args[@]}"` with the queued inputs
+# unpacked at <dest> (kept there after the command, or removed)
+run_with_inputs() {
+  local dest="$1" keep="$2" i tar_args=()
+  if [ "${#in_names[@]}" -eq 0 ]; then
+    cli_run oss "${out_args[@]}"
+    return
+  fi
+  for i in "${!in_names[@]}"; do tar_args+=(-C "${in_dirs[$i]}" "${in_names[$i]}"); done
+  ensure_import_dir
+  # -h: a symbolic link is sent as the file it points to
+  tar -ch -f - "${tar_args[@]}" | docker compose run --rm -T cli sh -c '
+    set -e
+    dest="$1"; keep="$2"; shift 2
+    mkdir -p "$dest"
+    tar -x --no-same-owner -C "$dest" -f -
+    if [ "$keep" = keep ]; then exec oss "$@"; fi
+    rc=0; oss "$@" || rc=$?
+    rm -rf "$dest"
+    exit "$rc"' sh "$dest" "$keep" "${out_args[@]}"
+}
+
+# The options of each command that take a value: the word after one is not a path.
+value_option() {
+  case "$1:$2" in
+    upload:--collection) return 0 ;;
+    eval:--collection|eval:--k|eval:--mode|eval:--out) return 0 ;;
+    index:--collection|index:--name|index:--include) return 0 ;;
+  esac
+  return 1
+}
+
+upload_cmd() {  # ./oss upload <file>... [--collection slug]
+  local arg pending="" files=0
+  out_args=(upload)
+  for arg in "$@"; do
+    if [ -n "$pending" ]; then out_args+=("$arg"); pending=""; continue; fi
+    case "$arg" in
+      -*) out_args+=("$arg"); if value_option upload "$arg"; then pending=1; fi ;;
+      *)
+        [ -f "$(host_path "$arg")" ] || fail "$arg is not a file"
+        add_input "$arg" /tmp/oss-upload; files=$((files + 1)) ;;
+    esac
+  done
+  [ "$files" -gt 0 ] || fail "usage: ./oss upload <file>... [--collection <slug>]"
+  run_with_inputs /tmp/oss-upload drop
+}
+
+eval_cmd() {  # ./oss eval <judgements> [options]: the judgement file is sent in
+  local arg pending="" seen=""
+  out_args=(eval)
+  for arg in "$@"; do
+    if [ -n "$pending" ]; then out_args+=("$arg"); pending=""; continue; fi
+    case "$arg" in
+      --out|--out=*) fail "--out would write inside the container; redirect instead: ./oss eval <file> > report.txt (or uv run oss eval ... --out)" ;;
+      -*) out_args+=("$arg"); if value_option eval "$arg"; then pending=1; fi ;;
+      *)
+        if [ -z "$seen" ] && [ -f "$(host_path "$arg")" ]; then
+          add_input "$arg" /tmp/oss-eval
+        else
+          out_args+=("$arg")
+        fi
+        seen=1 ;;
+    esac
+  done
+  run_with_inputs /tmp/oss-eval drop
+}
+
+pack_cmd() {  # ./oss pack <sub> [bundle] [options]: a bundle folder on this machine is sent in
+  local sub="${1:-}" arg seen="" dest keep
+  if [ $# -gt 0 ]; then shift; fi
+  out_args=(pack ${sub:+"$sub"})
+  case "$sub" in
+    import) dest="/data/packs/uploaded/$(date -u +%Y%m%dT%H%M%SZ)-$$"; keep=keep ;;
+    diff) dest="/data/packs/uploaded/diff-$(date -u +%Y%m%dT%H%M%SZ)-$$"; keep=drop ;;
+    validate) dest=/tmp/oss-pack; keep=drop ;;
+    *) cli_run oss pack ${sub:+"$sub"} "$@"; return ;;
+  esac
+  for arg in "$@"; do
+    case "$arg" in
+      -*)
+        if [ "$sub" = validate ] && [ "$arg" = --manifest ]; then
+          fail "--manifest writes into the bundle; run it on the host: uv run oss pack validate --manifest <bundle>"
+        fi
+        out_args+=("$arg") ;;
+      *)
+        # a folder on this machine is sent in; anything else is a path inside the stack
+        # (/import/..., /app/packs/...), as the server sees it
+        if [ -z "$seen" ] && [ -d "$(host_path "$arg")" ]; then
+          add_input "$arg" "$dest"
+        else
+          out_args+=("$arg")
+        fi
+        seen=1 ;;
+    esac
+  done
+  run_with_inputs "$dest" "$keep"
+}
+
+export_cmd() {  # ./oss export ... [--out file]: --out names a file on this machine
+  local arg pending="" out=""
+  out_args=(export)
+  for arg in "$@"; do
+    if [ -n "$pending" ]; then out="$(host_path "$arg")"; pending=""; continue; fi
+    case "$arg" in
+      --out) pending=1 ;;
+      --out=*) out="$(host_path "${arg#--out=}")" ;;
+      *) out_args+=("$arg") ;;
+    esac
+  done
+  [ -z "$pending" ] || fail "--out needs a file name"
+  if [ -z "$out" ]; then cli_run oss "${out_args[@]}"; return; fi
+  # the CLI writes to standard output; the shim writes the file, so it lands on this machine
+  cli_run oss "${out_args[@]}" > "$out.partial" || { rm -f "$out.partial"; fail "export failed; $out not written"; }
+  mv "$out.partial" "$out"
+  echo "wrote $out" >&2
+}
+
+index_cmd() {  # ./oss index <path under SEMASCOPE_IMPORT_DIR> [options]
+  local arg pending="" path="" import_abs target inside rest=()
+  for arg in "$@"; do
+    if [ -n "$pending" ]; then rest+=("$arg"); pending=""; continue; fi
+    case "$arg" in
+      -*) rest+=("$arg"); if value_option index "$arg"; then pending=1; fi ;;
+      *) [ -z "$path" ] || fail "one path at a time: ./oss index <path> [--collection <slug>]"; path="$arg" ;;
+    esac
+  done
+  [ -n "$path" ] || fail "usage: ./oss index <path under $import_dir> [--collection <slug>]"
+  ensure_import_dir
+  import_abs="$(cd "$import_dir" && pwd -P)"
+  target="$(host_path "$path")"
+  if [ -e "$target" ]; then
+    target="$(cd "$(dirname "$target")" && pwd -P)/$(basename "$target")"
+  elif [ "${path#/import}" != "$path" ]; then
+    target=""  # already a path inside the container
+  else
+    fail "$path does not exist"
+  fi
+  if [ -z "$target" ]; then
+    inside="$path"
+  else
+    case "$target" in
+      "$import_abs"|"$import_abs"/*) inside="/import${target#"$import_abs"}" ;;
+      *) echo "$path is outside SEMASCOPE_IMPORT_DIR ($import_abs); move it there, change the setting in $env_file, or use ./oss upload" >&2; exit 2 ;;
+    esac
+  fi
+  cli_run oss index "$inside" ${rest[@]+"${rest[@]}"}
+}
+
 # --- backup and restore -----------------------------------------------------------------------
 # Every step fails loudly: a non-zero exit and a message naming the step. A restore checks the
 # whole backup first and loads it beside the live data (a staging Solr collection per
 # collection, a separate Postgres database), so a backup that cannot be read changes nothing.
 SOLR_COLLECTIONS="documents entities chunks"
-
-fail() { echo "error: $*" >&2; exit 1; }
 
 # has_files <tar>: the archive reads to the end and lists at least one entry
 has_files() {
@@ -45,7 +280,8 @@ has_files() {
 # solr_api <query>: a Collections API call inside the Solr container; fails unless status 0
 solr_api() {
   docker compose exec -T solr sh -c '
-    out="$(curl -sS -u "semascope:$SEMASCOPE_SOLR_PASSWORD" "http://localhost:8983/solr/admin/collections?$1&wt=json")" || exit 1
+    pw="${SEMASCOPE_SOLR_PASSWORD:-}"; [ -z "${SEMASCOPE_SOLR_PASSWORD_FILE:-}" ] || pw="$(cat "$SEMASCOPE_SOLR_PASSWORD_FILE")"
+    out="$(curl -sS -u "semascope:$pw" "http://localhost:8983/solr/admin/collections?$1&wt=json")" || exit 1
     if printf "%s" "$out" | grep -Eq "\"status\"[[:space:]]*:[[:space:]]*0([^0-9]|\$)" \
       && ! printf "%s" "$out" | grep -q "\"failure\""; then exit 0; fi
     printf "%s\n" "$out" | grep -m1 "\"msg\"" >&2 || printf "%s\n" "$out" | head -c 1000 >&2
@@ -56,22 +292,33 @@ solr_api() {
 solr_backup() {
   docker compose exec -T solr sh -c '
     set -e
+    pw="${SEMASCOPE_SOLR_PASSWORD:-}"; [ -z "${SEMASCOPE_SOLR_PASSWORD_FILE:-}" ] || pw="$(cat "$SEMASCOPE_SOLR_PASSWORD_FILE")"
     dir="/var/solr/data/backup-$1"
     rm -rf "$dir" && mkdir -p "$dir"
-    out="$(curl -sS -u "semascope:$SEMASCOPE_SOLR_PASSWORD" "http://localhost:8983/solr/admin/collections?action=BACKUP&name=$1&collection=$1&location=$dir&wt=json")"
+    out="$(curl -sS -u "semascope:$pw" "http://localhost:8983/solr/admin/collections?action=BACKUP&name=$1&collection=$1&location=$dir&wt=json")"
     if ! printf "%s" "$out" | grep -Eq "\"status\"[[:space:]]*:[[:space:]]*0([^0-9]|\$)" \
       || printf "%s" "$out" | grep -q "\"failure\""; then
       printf "%s\n" "$out" | grep -m1 "\"msg\"" >&2 || printf "%s\n" "$out" | head -c 1000 >&2
       exit 1
     fi
-    [ -n "$(ls -A "$dir")" ] || { echo "Solr wrote no backup files for $1" >&2; exit 1; }
-    tar -C "$dir" -cf - .' sh "$1"
+    [ -n "$(ls -A "$dir")" ] || { echo "Solr wrote no backup files for $1" >&2; rm -rf "$dir"; exit 1; }
+    rc=0; tar -C "$dir" -cf - . || rc=$?
+    rm -rf "$dir"  # the copy is on the host now; do not leave it in the Solr volume
+    exit "$rc"' sh "$1"
 }
 
+# backup [dir] [--with-graph], in either order
 backup() {
-  local dest c
-  dest="${1:-./data/backups/$(date -u +%Y%m%dT%H%M%SZ)}"
-  mkdir -p "$dest/solr"
+  local dest="" graph="" arg c
+  for arg in "$@"; do
+    case "$arg" in
+      --with-graph) graph=1 ;;
+      -*) fail "unknown option $arg (usage: ./oss backup [dir] [--with-graph])" ;;
+      *) [ -z "$dest" ] || fail "usage: ./oss backup [dir] [--with-graph]"; dest="$(host_path "$arg")" ;;
+    esac
+  done
+  dest="${dest:-./data/backups/$(date -u +%Y%m%dT%H%M%SZ)}"
+  (umask 077 && mkdir -p "$dest/solr")
   echo "postgres -> $dest/postgres.sql.gz"
   docker compose exec -T postgres pg_dump -U semascope -d semascope | gzip > "$dest/postgres.sql.gz" \
     || fail "backup FAILED: pg_dump; $dest is incomplete"
@@ -85,7 +332,7 @@ backup() {
   docker compose run --rm -T cli sh -c "tar -C /data -czf - --exclude=static --exclude=celerybeat-schedule ." > "$dest/data.tar.gz" \
     || fail "backup FAILED: the data volume; $dest is incomplete"
   gzip -t "$dest/data.tar.gz" || fail "backup FAILED: $dest/data.tar.gz is unreadable"
-  if [ "${2:-}" = "--with-graph" ]; then
+  if [ -n "$graph" ]; then
     echo "neo4j (stopped for the dump) -> $dest/neo4j.dump"
     docker compose stop neo4j >/dev/null
     local rc=0
@@ -113,8 +360,27 @@ verify_backup() {
   if [ -e "$src/neo4j.dump" ]; then [ -s "$src/neo4j.dump" ] || fail "$src/neo4j.dump is empty"; fi
 }
 
+# refresh_configsets: upload every configset from the image again and reload the collections
+# that exist (none is created). A Solr RESTORE also writes the backup's copy of the configset
+# into ZooKeeper, and a backup keeps only the configset's top-level files, so after any
+# RESTORE the live configsets are put back from the image before the application starts.
+refresh_configsets() {
+  ensure_import_dir
+  docker compose run --rm --no-deps -T cli oss-manage shell --verbosity 0 -c '
+from oss_server.services import configset_dir, solr_client
+client = solr_client()
+have = set(client.list_collections())
+for name in ("documents", "entities", "chunks"):
+    client.upload_configset(f"semascope-{name}", configset_dir(name))
+    if name in have:
+        client.reload_collection(name)
+print("configsets uploaded; collections reloaded:", ", ".join(sorted(have & {"documents", "entities", "chunks"})))'
+}
+
 restore() {
-  local src="${1:?usage: ./oss restore <backup-dir>}" c staged=""
+  local src c staged=""
+  [ $# -eq 1 ] || fail "usage: ./oss restore <backup-dir>"
+  src="$(host_path "$1")"
   echo "checking $src"
   verify_backup "$src"
   echo "stopping app services"
@@ -122,13 +388,26 @@ restore() {
 
   # Until the switch below, a failure leaves the live data as it was.
   undo() {
+    local configsets=ok
     echo "error: restore FAILED: $1" >&2
     for c in $staged; do solr_api "action=DELETE&name=${c}_restoring" 2>/dev/null || true; done
+    for c in $SOLR_COLLECTIONS; do docker compose exec -T solr rm -rf "/var/solr/data/restore-$c" 2>/dev/null || true; done
     docker compose exec -T postgres psql -q -U semascope -d postgres \
       -c "DROP DATABASE IF EXISTS semascope_restore" >/dev/null 2>&1 || true
+    # a RESTORE that ran (even one Solr refused) may have replaced a live configset
+    if [ -n "$staged" ]; then refresh_configsets >/dev/null || configsets=failed; fi
     docker compose up -d --wait server worker beat >/dev/null 2>&1 || true
-    echo "nothing was changed; the app services are running again on the existing data" >&2
+    if [ "$configsets" = ok ]; then
+      echo "nothing was changed; the app services are running again on the existing data" >&2
+    else
+      echo "the data was not changed, but the Solr configsets could not be uploaded again: run ./oss up, which uploads them" >&2
+    fi
     exit 1
+  }
+  # after the switch: put the configsets back (best effort), then stop with the message
+  switch_fail() {
+    refresh_configsets >/dev/null 2>&1 || echo "warning: the Solr configsets could not be uploaded again; ./oss up does it" >&2
+    fail "$@"
   }
   for c in $SOLR_COLLECTIONS; do
     echo "solr $c <- $src/solr/$c.tar (staged as ${c}_restoring)"
@@ -136,7 +415,7 @@ restore() {
       < "$src/solr/$c.tar" || undo "unpacking solr/$c.tar"
     solr_api "action=DELETE&name=${c}_restoring" >/dev/null 2>&1 || true
     staged="$staged $c"
-    solr_api "action=RESTORE&name=$c&collection=${c}_restoring&location=/var/solr/data/restore-$c" \
+    solr_api "action=RESTORE&name=$c&collection=${c}_restoring&collection.configName=semascope-$c&location=/var/solr/data/restore-$c" \
       || undo "Solr could not restore $c from the backup"
   done
   echo "postgres <- $src/postgres.sql.gz (staged as semascope_restore)"
@@ -153,25 +432,27 @@ restore() {
     -c "SET client_min_messages = warning" -c "DROP DATABASE IF EXISTS semascope_before_restore" \
     -c "ALTER DATABASE semascope RENAME TO semascope_before_restore" \
     -c "ALTER DATABASE semascope_restore RENAME TO semascope" >/dev/null \
-    || fail "restore FAILED switching Postgres databases: check that 'semascope' exists (the previous one may be 'semascope_before_restore', the restored one 'semascope_restore'); the app services are stopped"
+    || switch_fail "restore FAILED switching Postgres databases: check that 'semascope' exists (the previous one may be 'semascope_before_restore', the restored one 'semascope_restore'); the app services are stopped"
   echo "data <- $src/data.tar.gz"
   docker compose run --rm -T cli sh -c "tar -C /data -xzf -" < "$src/data.tar.gz" \
-    || fail "restore FAILED unpacking data.tar.gz into the data volume; Postgres is restored, Solr not yet (staged as *_restoring); the app services are stopped"
+    || switch_fail "restore FAILED unpacking data.tar.gz into the data volume; Postgres is restored, Solr not yet (staged as *_restoring); the app services are stopped"
   for c in $SOLR_COLLECTIONS; do
     echo "solr $c: replacing with the restored copy"
-    solr_api "action=DELETE&name=$c" || fail "restore FAILED deleting Solr collection $c; the restored copy is ${c}_restoring; the app services are stopped"
-    solr_api "action=RESTORE&name=$c&collection=$c&location=/var/solr/data/restore-$c" \
-      || fail "restore FAILED restoring Solr collection $c (it was deleted); the restored copy is ${c}_restoring; the app services are stopped"
+    solr_api "action=DELETE&name=$c" || switch_fail "restore FAILED deleting Solr collection $c; the restored copy is ${c}_restoring; the app services are stopped"
+    solr_api "action=RESTORE&name=$c&collection=$c&collection.configName=semascope-$c&location=/var/solr/data/restore-$c" \
+      || switch_fail "restore FAILED restoring Solr collection $c (it was deleted); the restored copy is ${c}_restoring; the app services are stopped"
     solr_api "action=DELETE&name=${c}_restoring" || echo "warning: could not delete the staging collection ${c}_restoring" >&2
     docker compose exec -T solr rm -rf "/var/solr/data/restore-$c" || true
   done
+  echo "solr: configsets from the image again (a restore also restores the backup's copies)"
+  refresh_configsets || fail "restore FAILED uploading the Solr configsets; the data is restored; run ./oss up, which uploads them"
   if [ -f "$src/neo4j.dump" ]; then
     echo "neo4j <- $src/neo4j.dump"
     docker compose stop neo4j >/dev/null
     local rc=0
     docker compose run --rm -T --no-deps neo4j neo4j-admin database load neo4j --from-stdin --overwrite-destination=true < "$src/neo4j.dump" || rc=$?
     docker compose up -d --wait --no-deps neo4j >/dev/null || fail "neo4j did not start again after the load; run ./oss up"  # back and answering
-    [ "$rc" = 0 ] || fail "restore FAILED loading neo4j.dump; Postgres, Solr and the data volume are restored; './oss reindex' rebuilds the graph"
+    [ "$rc" = 0 ] || switch_fail "restore FAILED loading neo4j.dump; Postgres, Solr and the data volume are restored; './oss reindex' rebuilds the graph"
   fi
   docker compose exec -T postgres psql -q -U semascope -d postgres \
     -c "DROP DATABASE IF EXISTS semascope_before_restore" >/dev/null \
@@ -181,57 +462,201 @@ restore() {
   echo "restored from $src; run ./oss doctor"
 }
 
+# --- secret rotation ----------------------------------------------------------------------------
+# ./oss rotate [NAME ...]: a new value for each secret (default: all of them), applied where the
+# value lives first (the database user, the Neo4j user, Solr's security.json, the admin account,
+# the API token, Grafana's admin) and written to the env file right after, one at a time, so
+# the file always matches the stores; then the services that read a changed value are
+# recreated. SEMASCOPE_PSEUDONYM_KEY is never rotated: a new key renames every pseudonymised
+# entity in the graph.
+ROTATABLE="SEMASCOPE_SECRET_KEY POSTGRES_PASSWORD NEO4J_PASSWORD SOLR_PASSWORD VALKEY_PASSWORD SEMASCOPE_ADMIN_PASSWORD SEMASCOPE_API_TOKEN GRAFANA_PASSWORD"
+
+# the running container of a compose service of this project, if any (also from overlays)
+service_container() {
+  docker ps -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-semascope}" \
+    --filter "label=com.docker.compose.service=$1" | head -n 1
+}
+
+# manage_py <python> [VAR=value ...]: Django code in a one-off cli container (no dependencies
+# started: Solr may still hold its old password while its container waits to be recreated)
+manage_py() {
+  local code="$1" envs=() pair
+  shift
+  for pair in "$@"; do envs+=(-e "$pair"); done
+  ensure_import_dir
+  docker compose run --rm --no-deps -T "${envs[@]}" cli oss-manage shell --verbosity 0 -c "$code"
+}
+
+rotate_one() {
+  local name="$1" old new escaped_old escaped_new grafana
+  old="$(env_value "$name")"
+  case "$name" in
+    SEMASCOPE_API_TOKEN) new="oss_$(generate_secret 43)" ;;
+    SEMASCOPE_SECRET_KEY) new="$(generate_secret 64)" ;;
+    *) new="$(generate_secret 32)" ;;
+  esac
+  case "$name" in
+    SEMASCOPE_SECRET_KEY)
+      # sessions end; pseudonyms must not change, so the old key becomes the pseudonym key
+      if [ -z "$(env_value SEMASCOPE_PSEUDONYM_KEY)" ]; then
+        set_env_value SEMASCOPE_PSEUDONYM_KEY "$old"
+        echo "SEMASCOPE_PSEUDONYM_KEY: set to the old secret key, so pseudonyms in the graph stay the same"
+      fi ;;
+    POSTGRES_PASSWORD)
+      printf "ALTER USER semascope PASSWORD :'pw';\n" \
+        | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -q -U semascope -d postgres -v "pw=$new" >/dev/null \
+        || fail "PostgreSQL refused the new password; nothing changed for $name" ;;
+    NEO4J_PASSWORD)
+      escaped_old="${old//\\/\\\\}"; escaped_old="${escaped_old//\'/\\\'}"
+      escaped_new="${new//\\/\\\\}"; escaped_new="${escaped_new//\'/\\\'}"
+      printf "ALTER CURRENT USER SET PASSWORD FROM '%s' TO '%s';\n" "$escaped_old" "$escaped_new" \
+        | docker compose exec -T -e "NEO4J_USERNAME=neo4j" -e "NEO4J_PASSWORD=$old" neo4j \
+            cypher-shell -a bolt://localhost:7687 -d system --non-interactive >/dev/null \
+        || fail "Neo4j refused the new password; nothing changed for $name" ;;
+    SOLR_PASSWORD)
+      printf '{"set-user": {"semascope": "%s"}}' "$new" \
+        | docker compose exec -T -e "OSS_OLD=$old" solr sh -c \
+            'curl -fsS -u "semascope:$OSS_OLD" -H "Content-Type: application/json" --data-binary @- http://localhost:8983/solr/admin/authentication' >/dev/null \
+        || fail "Solr refused the new password; nothing changed for $name" ;;
+    VALKEY_PASSWORD) ;;  # Valkey reads it when it starts (recreated below)
+    SEMASCOPE_ADMIN_PASSWORD)
+      manage_py 'import os
+from django.contrib.auth.models import User
+user = User.objects.filter(username="admin").first()
+if user is None:
+    print("no user named admin: only the env file changes")
+else:
+    user.set_password(os.environ["OSS_NEW"])
+    user.save(update_fields=["password"])' "OSS_NEW=$new" \
+        || fail "could not set the admin password; nothing changed for $name" ;;
+    SEMASCOPE_API_TOKEN)
+      manage_py 'import os
+from django.contrib.auth.models import User
+from oss_server.catalogue.models import ApiToken
+old, new = os.environ["OSS_OLD"], os.environ["OSS_NEW"]
+current = ApiToken.objects.filter(key_hash=ApiToken.hash_key(old)).first() if old else None
+owner = current.user if current else User.objects.filter(is_superuser=True).order_by("id").first()
+if owner is None:
+    raise SystemExit("no administrator to own the new token")
+ApiToken.objects.create(name="cli", key_hash=ApiToken.hash_key(new), prefix=new[:8], user=owner)
+if current is not None:
+    current.delete()' "OSS_OLD=$old" "OSS_NEW=$new" \
+        || fail "could not replace the API token; nothing changed for $name" ;;
+    GRAFANA_PASSWORD)
+      grafana="$(service_container grafana)"
+      if [ -z "$grafana" ]; then
+        if [ -n "${explicit:-}" ]; then
+          fail "Grafana is not running; it keeps the admin password in its volume, so start the observability profile and rotate it then"
+        fi
+        echo "GRAFANA_PASSWORD: skipped (Grafana is not running)"
+        return 0
+      fi
+      docker exec "$grafana" grafana cli admin reset-admin-password "$new" >/dev/null \
+        || fail "Grafana refused the new password; nothing changed for $name" ;;
+  esac
+  set_env_value "$name" "$new"
+  echo "$name: rotated"
+}
+
+rotate() {
+  local names name explicit="" backup_copy
+  [ -f "$env_file" ] || fail "no $env_file; run ./oss init first"
+  [ -z "$secrets_dir" ] || fail "the secrets are files in $secrets_dir (Docker secrets); rotate them by hand (docs/operations.md#docker-secrets)"
+  if [ $# -eq 0 ]; then names="$ROTATABLE"; else names="$*"; explicit=1; fi
+  for name in $names; do
+    case " $ROTATABLE " in
+      *" $name "*) ;;
+      *) [ "$name" = SEMASCOPE_PSEUDONYM_KEY ] \
+           && fail "SEMASCOPE_PSEUDONYM_KEY is not rotated: a new key gives every pseudonymised entity a new name"
+         fail "unknown secret $name (one of: $ROTATABLE)" ;;
+    esac
+    if ! grep -qE "^[[:space:]]*$name=" "$env_file"; then
+      if [ -n "$explicit" ] || [ "$name" != GRAFANA_PASSWORD ]; then
+        fail "$name is not in $env_file (set from a file with ${name}_FILE?); change it by hand (docs/operations.md#secrets)"
+      fi
+    fi
+  done
+  backup_copy="$env_file.before-rotate-$(date -u +%Y%m%dT%H%M%SZ)"
+  (umask 077 && cp "$env_file" "$backup_copy")
+  echo "the previous values are in $backup_copy (remove it once the stack runs)"
+  docker compose up -d --wait postgres neo4j solr >/dev/null || fail "the stores did not start"
+  for name in $names; do rotate_one "$name"; done
+  echo "recreating the services that read the new values"
+  ensure_import_dir
+  docker compose up -d --wait || fail "the stack did not come back; see ./oss logs (the previous values are in $backup_copy)"
+  cli_run oss doctor
+}
+
 case "$cmd" in
   init)
-    shift; exec uv run --package oss-cli oss init --env-file "$env_file" "$@" ;;
+    shift
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run --package oss-cli oss init --env-file "$env_file" "$@"
+    fi
+    # no uv on this machine: run `oss init` in the app image, writing the env file here as
+    # the current user
+    [ "${env_file#/}" = "$env_file" ] || fail "without uv, SEMASCOPE_ENV_FILE must be a path inside $(pwd -P)"
+    ensure_import_dir
+    exec docker compose run --rm --no-deps -T --user "$(id -u):$(id -g)" -v "$(pwd -P):/semascope" \
+      -w /semascope -e HOME=/tmp cli oss init --env-file "/semascope/$env_file" "$@" ;;
   up)
     ensure_valkey_password
-    docker compose pull --ignore-buildable 2>/dev/null || true
-    docker compose up -d --wait; exec docker compose run --rm cli oss doctor ;;
+    ensure_import_dir
+    # a failed pull is shown, not fatal: offline installs run on the images they have
+    docker compose pull --ignore-buildable \
+      || echo "warning: could not pull every image; starting with the images on this machine" >&2
+    docker compose up -d --wait
+    cli_run oss doctor ;;
   down)
     exec docker compose down ;;
   logs)
     shift; exec docker compose logs -f "$@" ;;
   index)
-    shift
-    import_dir="$(grep -E '^SEMASCOPE_IMPORT_DIR=' "$env_file" 2>/dev/null | cut -d= -f2- | sed 's/[[:space:]]*#.*//' || true)"
-    import_dir="$(cd "${import_dir:-./data/import}" 2>/dev/null && pwd -P || echo "")"
-    target="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/$(basename "$1")"
-    case "$target" in
-      "$import_dir"|"$import_dir"/*) inside="/import${target#"$import_dir"}" ;;
-      *) echo "$1 is outside SEMASCOPE_IMPORT_DIR ($import_dir); move it there or change the setting in $env_file" >&2; exit 2 ;;
-    esac
-    exec docker compose run --rm cli oss index "$inside" "${@:2}" ;;
+    shift; index_cmd "$@" ;;
+  upload)
+    shift; upload_cmd "$@" ;;
+  eval)
+    shift; eval_cmd "$@" ;;
+  pack)
+    shift; pack_cmd "$@" ;;
   backup)
     shift
     backup "$@" ;;
   restore)
     shift
     restore "$@" ;;
-  doctor|demo|reindex|version|search|stats|upload|pack)
-    exec docker compose run --rm cli oss "$@" ;;
+  rotate)
+    shift
+    rotate "$@" ;;
+  export)
+    shift; export_cmd "$@" ;;
+  doctor|demo|reindex|version|search|stats)
+    cli_run oss "$@" ;;
   help|-h|--help)
     cat <<'USAGE'
 usage: ./oss <command>
 
-  init      write .env with generated secrets (needs uv on the host)
-  up        start every service and wait for health
+  init      write .env with generated secrets (uv on the host, else the app image)
+  up        start every service, wait for health, then run doctor
   down      stop everything (data volumes are kept)
   logs      follow service logs
-  doctor    check connectivity, versions and schema versions
+  doctor    check every service and store, the Solr collections, versions and the base pack
   demo      load the public-domain demo corpus and pack
-  index     index a path into a collection
+  index     index a path under SEMASCOPE_IMPORT_DIR into a collection
+  upload    upload files from this machine through the API
   reindex   replay a collection from stored extraction
   backup    dump Postgres, the Solr collections and the data volume into ./data/backups/<stamp> (--with-graph adds Neo4j)
   restore   restore from a backup directory (stops the app services while it runs)
+  rotate    new values for the secrets in .env, applied to the stores first (all, or the names given)
   version   print the product version
-  pack      pack import|list|validate
-  upload    upload files through the API
+  pack      pack import|diff|validate <bundle folder on this machine>, pack list|activate|remove
   search    search a collection (--mode keyword|semantic|hybrid)
   stats     counts of collections, sources and documents
+  export    export search results, a document or annotations (to standard output)
+  eval      score search modes against a judgement file on this machine
 USAGE
     ;;
   *)
     # anything else is handed to the CLI inside the stack (`oss --help` lists it)
-    exec docker compose run --rm cli oss "$@" ;;
+    cli_run oss "$@" ;;
 esac

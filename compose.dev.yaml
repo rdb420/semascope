@@ -33,4 +33,6 @@ services:
   neo4j:
     ports: ["127.0.0.1:7474:7474", "127.0.0.1:7687:7687"]
   tika:
+    # `extract` is internal, so a published port needs the default network too
+    networks: [default, extract]
     ports: ["127.0.0.1:9998:9998"]

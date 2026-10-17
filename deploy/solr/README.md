@@ -28,7 +28,10 @@ anonymous request is refused, so the application services, which depend on a
 healthy Solr, never start against an open Solr. With `SOLR_PASSWORD` empty the
 health check fails rather than run without authentication.
 
-To change the password later, update it in Solr first and then in `.env`:
+To change the password later, run `./oss rotate SOLR_PASSWORD`: it sets the
+new password in Solr (`set-user` through the authentication API, with the old
+one), then in `.env`, then recreates Solr and the application. By hand, update
+it in Solr first and then in `.env` (or the secret file):
 
 ```bash
 docker compose exec solr sh -c 'curl -s -u "semascope:$SEMASCOPE_SOLR_PASSWORD" \
@@ -37,6 +40,19 @@ docker compose exec solr sh -c 'curl -s -u "semascope:$SEMASCOPE_SOLR_PASSWORD" 
   http://localhost:8983/solr/admin/authentication'
 # then set SOLR_PASSWORD=NEW-PASSWORD in .env and run ./oss up
 ```
+
+With Docker secrets (`compose.secrets.yaml`) the password comes from the file
+`SEMASCOPE_SOLR_PASSWORD_FILE` names; `init-security.sh`, the health check and
+the shim's backup and restore read it from there.
+
+## Mode
+
+Solr runs in SolrCloud mode with its embedded ZooKeeper, Solr 10's default
+(`compose.yaml` starts `solr-foreground` without `--user-managed`). The
+collections, their configsets and `security.json` live in ZooKeeper, and the
+Collections API that bootstrap, backup and restore use needs cloud mode;
+`./oss doctor` fails if Solr reports another mode. One node, one shard, one
+replica per collection.
 
 The embedded ZooKeeper (port 9983) is reachable only inside the compose
 network and has open ACLs; do not publish it.
