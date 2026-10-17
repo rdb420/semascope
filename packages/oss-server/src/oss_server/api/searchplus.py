@@ -12,13 +12,14 @@ from typing import Any
 
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
-from ninja import Router, Schema
+from ninja import Router, Schema, Status
 from ninja.errors import HttpError
 from pydantic import ValidationError
 
 from oss_server.api import search as search_mod
 from oss_server.api.access import read_scope
 from oss_server.api.schemas import DateRange, SearchIn
+from oss_server.audit.log import record
 from oss_server.catalogue.models import Document, SavedSearch
 from oss_server.knowledge.synonyms import fold, stopwords
 from oss_server.services import solr_client, solr_documents_collection
@@ -81,7 +82,7 @@ def list_saved(request: HttpRequest) -> list[SavedSearchOut]:
 
 
 @router.post("/saved", response={201: SavedSearchOut})
-def save_search(request: HttpRequest, payload: SavedSearchIn) -> tuple[int, SavedSearchOut]:
+def save_search(request: HttpRequest, payload: SavedSearchIn) -> Status[SavedSearchOut]:
     user = _user(request)
     try:
         query = SearchIn(**payload.query)
@@ -93,13 +94,13 @@ def save_search(request: HttpRequest, payload: SavedSearchIn) -> tuple[int, Save
         name=payload.name,
         defaults={"query": payload.query, "alert": payload.alert},
     )
-    return 201, _out(s)
+    return Status(201, _out(s))
 
 
 @router.delete("/saved/{saved_id}", response={204: None})
-def delete_saved(request: HttpRequest, saved_id: int) -> tuple[int, None]:
+def delete_saved(request: HttpRequest, saved_id: int) -> Status[None]:
     get_object_or_404(SavedSearch, pk=saved_id, user=_user(request)).delete()
-    return 204, None
+    return Status(204, None)
 
 
 LIST_METHODS = ("phrase", "words", "fuzzy")
@@ -225,6 +226,11 @@ def export_csv(request: HttpRequest, payload: SearchIn) -> HttpResponse:
         if len(res.hits) < 100:
             break
         page += 1
+    record(
+        "export.csv",
+        collection=payload.collection or "",
+        detail={"q": payload.q, "filters": payload.filters, "rows": written},
+    )
     resp = HttpResponse(buf.getvalue(), content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="semascope-search.csv"'
     return resp

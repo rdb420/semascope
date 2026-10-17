@@ -126,12 +126,16 @@ def test_stage_context_carries_active_pack_versions(monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.django_db
 def test_reconciliation_api(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Public when the operator says so (OpenRefine sends no token); signed in otherwise."""
+
     import pyoxigraph as ox
 
     from oss_server.knowledge import store as store_mod
 
     monkeypatch.setattr(store_mod, "store", lambda: _memory_store(ox))
     import_pack(REPO / "packs" / "demo" / "pack")
+    assert client.get("/api/reconcile").status_code == 401
+    monkeypatch.setenv("SEMASCOPE_RECONCILE_PUBLIC", "true")
     manifest = client.get("/api/reconcile").json()
     assert manifest["versions"] == ["0.2"] and manifest["name"] == "Semascope"
     body = {

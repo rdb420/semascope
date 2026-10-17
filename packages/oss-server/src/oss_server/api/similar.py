@@ -31,6 +31,7 @@ from oss_core.vectors import UnsupportedDimensionError, vector_field
 from oss_server import services
 from oss_server.api import search as search_mod
 from oss_server.api.access import check, read_scope
+from oss_server.api.errors import logged_detail
 from oss_server.catalogue.models import Document
 
 log = logging.getLogger(__name__)
@@ -189,14 +190,16 @@ def similar_documents(
         try:
             text_ids = _text_ranking(client, doc.id, fq, k)
         except Exception as exc:  # noqa: BLE001 - report it; the other signal may still answer
-            log.warning("more-like-this text query failed for %s: %s", doc.id, exc)
-            text_error = str(exc)[:300]
+            text_error = logged_detail(f"more-like-this text query failed for {doc.id}", exc)
     if mode in ("hybrid", "vector"):
         try:
             vector_ids = _vector_ranking(client, doc, fq, k)
         except Exception as exc:  # noqa: BLE001 - no embedder or no chunks: say so
-            log.info("more-like-this vector query unavailable for %s: %s", doc.id, exc)
-            vector_error = str(exc)[:300]
+            vector_error = (
+                str(exc)[:300]
+                if isinstance(exc, ValueError)  # our own explanation: no text, no embedder
+                else logged_detail(f"more-like-this vector query failed for {doc.id}", exc)
+            )
     scores = fuse(text_ids, vector_ids)
     ordered = sorted(scores, key=lambda d: -scores[d])[:rows]
     hits: list[SimilarHit] = []

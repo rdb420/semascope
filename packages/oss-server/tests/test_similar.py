@@ -145,7 +145,9 @@ def test_similar_reports_a_missing_signal_and_checks_access(
     monkeypatch.setattr(search_mod, "query_embedder", broken)
     auth = _auth(world["reader"])
     out = client.get(f"/api/documents/{A}/similar", headers=auth).json()
-    assert "no embedding endpoint" in out["vector_error"]
+    # the cause goes to the log under a reference, never to the caller (SEMA-051)
+    assert "no embedding endpoint" not in out["vector_error"]
+    assert "reference" in out["vector_error"]
     assert [h["id"] for h in out["hits"]] == [B, C]  # the text signal still answers
     vector_only = client.get(f"/api/documents/{A}/similar?mode=vector", headers=auth).json()
     assert vector_only["hits"] == [] and vector_only["vector_error"]

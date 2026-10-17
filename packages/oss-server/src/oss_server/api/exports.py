@@ -14,6 +14,7 @@ from oss_server import services
 from oss_server.api import search as search_mod
 from oss_server.api.access import check, read_scope
 from oss_server.api.schemas import SearchIn
+from oss_server.audit.log import record
 from oss_server.catalogue.models import Document
 from oss_server.exports import rdf
 from oss_server.exports.load import rdf_annotations, secret_lookup, site_of
@@ -85,6 +86,11 @@ def export_search(
                 return
             page += 1
 
+    record(
+        "export.search",
+        collection=payload.collection or "",
+        detail={"q": payload.q, "filters": payload.filters, "format": format, "limit": limit},
+    )
     graphs = rdf.document_graphs(
         documents(), site=site, secret=secret, annotations=rdf_annotations(site, secret)
     )

@@ -136,6 +136,24 @@ class Settings(BaseSettings):
     # private hosts or CIDR ranges that URL sources (web, feed, SPARQL, S3) may reach
     semascope_allowed_private_hosts: str = ""
 
+    # Request limits and the audit log (oss_server.ratelimit, oss_server.audit; docs/security.md)
+    # failed sign-ins before an account, or a client address, is refused for the lockout time
+    semascope_login_max_failures: int = 5
+    semascope_login_max_failures_per_ip: int = 50
+    semascope_login_lockout_s: int = 900
+    # per-user (per-token) rate limits of the expensive API routes: `scope=count/period`
+    # pairs that replace the defaults (`export=10/h,console=5/m`), or `off`
+    semascope_rate_limits: str = ""
+    # reverse proxies in front of the server (Caddy: 1); the client address used by the
+    # sign-in lockout and the anonymous limits is the one the outermost of them saw
+    semascope_trusted_proxies: int = 1
+    semascope_upload_max_mb: int = 512  # one uploaded file; Caddy caps the whole request
+    semascope_request_max_mb: int = 10  # any other request body (JSON, forms)
+    # the Reconciliation API without signing in (OpenRefine cannot send a token); off by
+    # default, because list packs can name people and clients
+    semascope_reconcile_public: bool = False
+    semascope_audit_retention_days: int = 365  # 0 keeps audit entries for ever
+
     # Optional OpenID Connect sign-in (any provider); local accounts always work
     semascope_oidc_name: str = ""  # label on the sign-in button, e.g. "Company SSO"
     semascope_oidc_server_url: str = ""  # issuer, e.g. https://login.example.com/realms/x

@@ -1,3 +1,6 @@
+from typing import Any
+
+from django import forms
 from django.contrib import admin
 
 from oss_server.curation.models import (
@@ -40,6 +43,35 @@ class EventAdmin(admin.ModelAdmin[Event]):
     list_filter = ("kind",)
 
 
+class WebhookForm(forms.ModelForm):  # type: ignore[type-arg]
+    """The signing secret is written, never shown: an empty field keeps the stored one."""
+
+    secret = forms.CharField(
+        required=False,
+        max_length=128,
+        widget=forms.PasswordInput(render_value=False),
+        help_text="HMAC-SHA256 key for X-Semascope-Signature; leave empty to keep the current one",
+    )
+
+    class Meta:
+        model = Webhook
+        fields = ("url", "kinds", "secret", "enabled")
+
+    def clean_secret(self) -> Any:
+        value = self.cleaned_data.get("secret") or ""
+        if not value and self.instance.pk:
+            stored = Webhook.objects.filter(pk=self.instance.pk).values_list("secret", flat=True)
+            return stored.first() or ""
+        return value
+
+
 @admin.register(Webhook)
 class WebhookAdmin(admin.ModelAdmin[Webhook]):
-    list_display = ("url", "enabled", "last_event_id", "created_at")
+    list_display = ("host", "enabled", "last_event_id", "created_at")
+    form = WebhookForm
+
+    @admin.display(description="address")
+    def host(self, obj: Webhook) -> str:
+        from oss_server.redact import mask_url
+
+        return mask_url(obj.url)

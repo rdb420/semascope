@@ -63,3 +63,7 @@ django_settings_module = "oss_server.settings_test"  # debug on: the type check 
 testpaths = ["packages", "scripts/tests"]
 addopts = "-q"
 DJANGO_SETTINGS_MODULE = "oss_server.settings_test"
+# django-ninja's deprecations fail the run, so the next major version breaks no route
+filterwarnings = [
+    "error:Returning tuple:DeprecationWarning",
+]

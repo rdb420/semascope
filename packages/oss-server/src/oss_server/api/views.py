@@ -16,7 +16,7 @@ from typing import Any
 
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
-from ninja import Router, Schema
+from ninja import Router, Schema, Status
 from ninja.errors import HttpError
 from pydantic import ValidationError
 
@@ -25,6 +25,7 @@ from oss_server.api import feeds, files, graph
 from oss_server.api import search as search_mod
 from oss_server.api.access import ROLES, check, read_scope, role_for
 from oss_server.api.auth import AUTH
+from oss_server.api.errors import logged_detail
 from oss_server.api.schemas import FacetValue, SearchHit, SearchIn
 from oss_server.catalogue.models import Document, SavedSearch
 
@@ -446,7 +447,7 @@ def alerts(request: HttpRequest, newest: int = 5) -> list[AlertOut]:
         except HttpError as exc:
             error = str(exc)
         except Exception as exc:  # noqa: BLE001 - a malformed saved query must not hide the rest
-            error = f"cannot run: {str(exc)[:200]}"
+            error = logged_detail(f"saved search {s.id} cannot run", exc)
         out.append(
             AlertOut(
                 id=s.id,
@@ -654,16 +655,16 @@ def get_feed_token(request: HttpRequest) -> FeedTokenOut:
 
 
 @router.post("/feeds/token", response={201: FeedTokenOut}, tags=["feeds"])
-def new_feed_token(request: HttpRequest) -> tuple[int, FeedTokenOut]:
+def new_feed_token(request: HttpRequest) -> Status[FeedTokenOut]:
     """A new feed token; feed URLs with the previous one stop working."""
 
-    return 201, FeedTokenOut(token=feeds.issue_feed_token(_user(request)))
+    return Status(201, FeedTokenOut(token=feeds.issue_feed_token(_user(request))))
 
 
 @router.delete("/feeds/token", response={204: None}, tags=["feeds"])
-def revoke_feed_token(request: HttpRequest) -> tuple[int, None]:
+def revoke_feed_token(request: HttpRequest) -> Status[None]:
     feeds.revoke_feed_token(_user(request))
-    return 204, None
+    return Status(204, None)
 
 
 def _format(fmt: str) -> str:

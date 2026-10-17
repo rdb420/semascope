@@ -320,6 +320,18 @@ server, an internal `extract` for Tika with the worker) with their new health
 checks; no data changes. The server now stops, and compose restarts it,
 until the Solr collections can be set up, instead of running without them.
 
+Upgrading past 1.0.0-rc.4 (server hardening): a migration adds the audit
+log table. Signing in through `POST /api/auth/login` needs the CSRF token
+(`GET /api/auth/csrf`, then `X-CSRFToken`), as the browser UI already sends;
+scripts use bearer tokens and are unaffected. The Reconciliation API needs a
+signed-in user with a role (set `SEMASCOPE_RECONCILE_PUBLIC=true` for
+OpenRefine), as do the packs and concepts routes. The expensive routes are
+rate-limited per token ([Limits and the audit log](#limits-and-the-audit-log));
+the CLI waits when it meets a limit. Source settings are no longer shown to
+readers and curators. Caddy takes `SEMASCOPE_TLS`, `SEMASCOPE_ADMIN_ALLOW` and
+`SEMASCOPE_UPLOAD_LIMIT` from `.env`; a Caddyfile edited for a certificate
+can go back to the shipped one with `SEMASCOPE_TLS` set instead.
+
 ## Backup and restore
 
 `./oss backup [dir] [--with-graph]` and `./oss restore <dir>` are described
@@ -419,6 +431,11 @@ endpoint answers; PostgreSQL, Valkey, Solr, Neo4j and Tika answer, and
 Valkey and Solr refuse anonymous clients. The server does not start until the
 Solr collections are set up.
 
+`/healthz` is public and answers 200 with the server's version once the
+server can reach its database, 503 otherwise; it says nothing else about the
+stores. The server's access log (gunicorn) writes each request's path without
+its query string, so feed tokens (`?token=`) never reach a log line.
+
 `./oss doctor` checks the server (and its version), PostgreSQL with the
 application's credentials (the server version and the latest migration of
 each app), Valkey with its password (version, tasks queued on `cpu` and
@@ -444,15 +461,50 @@ revoke tasks, which is why it listens on loopback only. Point
 elsewhere. The collector and Jaeger images have no shell, so those two have
 no health check.
 
+## Limits and the audit log
+
+Sign-in, request and rate limits, all in `.env` ([Security](security.md)):
+
+| Setting | Default | Effect |
+|---|---|---|
+| `SEMASCOPE_LOGIN_MAX_FAILURES` | 5 | failed sign-ins before an account is refused |
+| `SEMASCOPE_LOGIN_MAX_FAILURES_PER_IP` | 50 | failed sign-ins before a client address is refused |
+| `SEMASCOPE_LOGIN_LOCKOUT_S` | 900 | how long both counts last, from the first failure |
+| `SEMASCOPE_RATE_LIMITS` | (the defaults) | `scope=count/period` pairs, e.g. `export=10/h,console=5/m`; `off` turns every limit off |
+| `SEMASCOPE_TRUSTED_PROXIES` | 1 | proxies in front of the server; the client address is the one the outermost saw |
+| `SEMASCOPE_UPLOAD_MAX_MB` | 512 | largest uploaded file |
+| `SEMASCOPE_REQUEST_MAX_MB` | 10 | largest other request body |
+| `SEMASCOPE_UPLOAD_LIMIT` | 2GB | largest upload request Caddy lets through |
+| `SEMASCOPE_RECONCILE_PUBLIC` | false | the Reconciliation API without signing in |
+| `SEMASCOPE_AUDIT_RETENTION_DAYS` | 365 | audit entries older than this are removed daily; 0 keeps them |
+
+The rate-limit scopes are `search`, `export`, `list`, `graph`, `console`,
+`jobs`, `upload` and `reconcile`; each counts per bearer token (or session
+user, or client address when anonymous) and answers 429 with Retry-After
+past its rate. The counters and the sign-in failures live in Valkey, in
+the database after the task queue's (`/1`). To lift every lockout and reset
+every count before they expire (queued tasks are not touched):
+
+```bash
+docker compose exec server oss-manage shell -c "from django.core.cache import cache; cache.clear()"
+```
+
+The audit log is in PostgreSQL (`audit_auditentry`). Staff read it at
+`GET /api/audit` (filters: `action` as a prefix such as `auth.`, `actor`,
+`outcome`, `collection`, `since`, `until`; `before=<id>` pages back) and in
+the admin under *Audit log*. Each entry is also logged on the
+`semascope.audit` logger of the server and the workers. Entries survive the
+deletion of the user they name; nothing in the application changes them.
+
 ## Where the data lives
 
 | Volume | Holds |
 |---|---|
 | `blobs` (`/data`) | originals by content hash, previews, uploads, sources' work areas (`work/`), the pack store, the scheduler state |
-| `postgres` | collections, sources, documents with extracted text, packs and concepts, reviews, proposals, events |
+| `postgres` | collections, sources, documents with extracted text, packs and concepts, reviews, proposals, events, the audit log |
 | `solr` | the `documents`, `entities` and `chunks` collections |
 | `neo4j` | the graph projection |
-| `valkey` | the task queue; its append-only file keeps queued tasks over a restart. If it is lost, re-run the sources: queued documents are queued again |
+| `valkey` | the task queue (database 0), the rate-limit and sign-in counters (database 1); its append-only file keeps queued tasks over a restart. If it is lost, re-run the sources: queued documents are queued again |
 
 ## Integration tests
 

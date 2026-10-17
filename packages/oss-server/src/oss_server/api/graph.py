@@ -10,6 +10,8 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from oss_server.api.access import read_scope
+from oss_server.api.errors import console_error
+from oss_server.audit.log import record
 from oss_server.services import graph_client
 
 router = Router(tags=["graph"])
@@ -228,9 +230,39 @@ def shared(
     return rows
 
 
+CYPHER_TIMEOUT_S = 30.0
+CYPHER_MAX_ROWS = 1000
+
+
+def _console_rows(cypher: str, limit: int) -> list[dict[str, Any]]:
+    """A read transaction that stops after `limit` rows, under a server-side timeout.
+
+    The rows are pulled as they stream and the rest discarded, so a query matching
+    millions of rows never materialises them in this process; Neo4j refuses any write
+    in a read transaction, whatever the query text says.
+    """
+
+    from neo4j import unit_of_work
+
+    @unit_of_work(timeout=CYPHER_TIMEOUT_S)
+    def work(tx: Any) -> list[dict[str, Any]]:
+        tx.run(f"EXPLAIN {cypher}").consume()
+        rows: list[dict[str, Any]] = []
+        for row in tx.run(cypher):
+            rows.append(row.data())
+            if len(rows) >= limit:
+                break
+        return rows
+
+    client = graph_client()
+    with client._driver.session() as session:  # noqa: SLF001 - streaming needs the session
+        return list(session.execute_read(work))
+
+
 @router.post("/cypher", response=list[dict[str, Any]])
 def cypher(request: HttpRequest, payload: CypherIn) -> list[dict[str, Any]]:
-    """Staff only, read only: a MATCH/RETURN query, EXPLAIN-checked, row-capped."""
+    """Staff only, read only: a MATCH/RETURN query, EXPLAIN-checked, in a read transaction,
+    streamed and cut at `limit` rows (at most 1000), with a 30 s timeout."""
 
     if not getattr(request.user, "is_staff", False):
         raise HttpError(403, "staff only")
@@ -239,16 +271,16 @@ def cypher(request: HttpRequest, payload: CypherIn) -> list[dict[str, Any]]:
         r"\b(CREATE|MERGE|DELETE|SET|REMOVE|DROP|CALL\s*\{|LOAD\s+CSV|FOREACH)\b", q, re.I
     ):
         raise HttpError(422, "read-only queries only")
-    client = graph_client()
+    limit = max(1, min(payload.limit, CYPHER_MAX_ROWS))
+    record("console.cypher", detail={"query": q, "limit": limit})
     try:
-        client.run(f"EXPLAIN {q}")
-        rows = client.run(q)
+        rows = _console_rows(q, limit)
     except Exception as exc:  # noqa: BLE001
-        raise HttpError(422, str(exc)[:300]) from exc
+        raise console_error("Cypher", exc) from exc
     return [
         {
             k: (v if isinstance(v, str | int | float | bool | list | dict) or v is None else str(v))
             for k, v in r.items()
         }
-        for r in rows[: max(1, min(payload.limit, 1000))]
+        for r in rows[:limit]
     ]

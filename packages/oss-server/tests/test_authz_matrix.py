@@ -5,11 +5,15 @@ The table below holds one rule per route. A route without a rule fails
 deciding who may call it. The deployment runs with the default
 SEMASCOPE_DEFAULT_ROLE (none), so collection roles alone decide who reads what.
 
-Users: anonymous; `other` (reader on collection b only); `reader`, `curator` and
-`editor` on collection a; `admin` (staff). Requirements:
+Users: anonymous; `norole` (signed in, no role anywhere); `other` (reader on
+collection b only); `reader`, `curator` and `editor` on collection a; `admin`
+(staff). Requirements:
 
 - "public": anyone, signed in or not
-- "auth": any signed-in user (lists are filtered to readable collections)
+- "auth": any signed-in user (lists are filtered to readable collections; the
+  caller's own saved searches, feed token and account)
+- "member": a signed-in user with a role on some collection (the packs' vocabulary,
+  which is not collection data but can name people: list packs)
 - ("reader" | "curator" | "editor" | "admin", "a"): that role on collection a
 - ("editor", None): a global editor (packs, new collections)
 - "staff": Django staff only
@@ -47,7 +51,7 @@ from oss_server.curation.models import (
 )
 from oss_server.knowledge.models import Concept, Pack, PackDelta, PackJob
 
-USERS = ("anonymous", "other", "reader", "curator", "editor", "admin")
+USERS = ("anonymous", "norole", "other", "reader", "curator", "editor", "admin")
 ROLE_ORDER = ("reader", "curator", "editor", "admin")
 ROLES_ON_A = {"reader": "reader", "curator": "curator", "editor": "editor", "admin": "admin"}
 CONCEPT_IRI = "https://example.org/p#c"
@@ -84,7 +88,7 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("POST", "/api/documents/{doc_id}/reindex"): Rule(("editor", "a"), 202),
     # search
     ("POST", "/api/search"): Rule(("reader", "a"), 200, json={"q": "x", "collection": "a"}),
-    ("POST", "/api/search/tag-query"): Rule("auth", 200, json={"q": "x"}),
+    ("POST", "/api/search/tag-query"): Rule("member", 200, json={"q": "x"}),
     ("GET", "/api/suggest"): Rule(("reader", "a"), 200, query="q=x&collection=a"),
     ("GET", "/api/stats"): Rule("auth", 200),
     ("GET", "/api/search/saved"): Rule("auth", 200),
@@ -109,9 +113,9 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("GET", "/api/auth/me"): Rule("auth", 200),
     ("GET", "/api/ui/config"): Rule("auth", 200),
     # knowledge
-    ("GET", "/api/knowledge/packs"): Rule("auth", 200),
+    ("GET", "/api/knowledge/packs"): Rule("member", 200),
     ("POST", "/api/knowledge/packs/import"): Rule(("editor", None), 422, json={"path": "/nowhere"}),
-    ("GET", "/api/knowledge/packs/{pack_id}"): Rule("auth", 200),
+    ("GET", "/api/knowledge/packs/{pack_id}"): Rule("member", 200),
     ("POST", "/api/knowledge/packs/{pack_id}/activate"): Rule(
         ("editor", None), 202, query="version=1"
     ),
@@ -123,9 +127,9 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("POST", "/api/knowledge/packs/diff"): Rule(("editor", None), 422, json={"path": "/nowhere"}),
     ("GET", "/api/knowledge/packs/{pack_id}/diff"): Rule(("editor", None), 200, query="version=0"),
     ("DELETE", "/api/knowledge/packs/{pack_id}/versions/{version}"): Rule(("admin", None), 200),
-    ("GET", "/api/knowledge/packs/{pack_id}/tree"): Rule("auth", 200),
-    ("GET", "/api/knowledge/packs/{pack_id}/concepts"): Rule("auth", 200),
-    ("GET", "/api/knowledge/concepts"): Rule("auth", 200, query=f"iri={IRI_Q}"),
+    ("GET", "/api/knowledge/packs/{pack_id}/tree"): Rule("member", 200),
+    ("GET", "/api/knowledge/packs/{pack_id}/concepts"): Rule("member", 200),
+    ("GET", "/api/knowledge/concepts"): Rule("member", 200, query=f"iri={IRI_Q}"),
     ("GET", "/api/knowledge/concepts/documents"): Rule(
         ("reader", "a"), 200, query=f"iri={IRI_Q}&collection=a"
     ),
@@ -141,10 +145,11 @@ TABLE: dict[tuple[str, str], Rule] = {
     ),
     ("GET", "/api/knowledge/packs/{pack_id}/deltas/export"): Rule("auth", 200),
     ("POST", "/api/knowledge/packs/{pack_id}/deltas/export"): Rule(("editor", None), 200),
-    # reconciliation service (OpenRefine): the active packs' vocabulary, public by design
-    ("GET", "/api/reconcile"): Rule("public", 200),
-    ("POST", "/api/reconcile"): Rule("public", 200, json={"queries": {}}),
-    ("GET", "/api/reconcile/preview"): Rule("public", 200, query=f"iri={IRI_Q}"),
+    # reconciliation service (OpenRefine): the packs' vocabulary; public only when the
+    # operator sets SEMASCOPE_RECONCILE_PUBLIC (test_reconcile_can_be_made_public)
+    ("GET", "/api/reconcile"): Rule("member", 200),
+    ("POST", "/api/reconcile"): Rule("member", 200, json={"queries": {}}),
+    ("GET", "/api/reconcile/preview"): Rule("member", 200, query=f"iri={IRI_Q}"),
     # graph
     ("GET", "/api/graph/neighbours"): Rule(
         ("reader", "a"), 200, query="id=Document:{doc_id}&collection=a"
@@ -220,6 +225,8 @@ TABLE: dict[tuple[str, str], Rule] = {
     ("GET", "/api/opensearch.xml"): Rule("public", 200),
     ("GET", "/api/opensearch/suggest"): Rule("auth", 200, query="q=x"),
     ("GET", "/api/analytics/overview"): Rule(("reader", "a"), 200, query="collection=a"),
+    # the audit log (oss_server.audit)
+    ("GET", "/api/audit"): Rule("staff", 200),
 }
 
 
@@ -241,13 +248,15 @@ def expected(rule: Rule, user: str) -> int:
         return 401
     if need == "auth":
         return rule.ok
+    if need == "member":
+        return 403 if user == "norole" else rule.ok
     if need == "staff":
         return rule.ok if user == "admin" else 403
     assert isinstance(need, tuple)
     role, scope = need
     if user == "admin":
         return rule.ok
-    if scope is None or user == "other":
+    if scope is None or user in ("other", "norole"):
         return 403  # no one here holds a global role, and `other` has none on a
     have = ROLES_ON_A[user]
     return rule.ok if ROLE_ORDER.index(have) >= ROLE_ORDER.index(role) else 403
@@ -294,6 +303,7 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(services, "graph_client", lambda: FakeGraph())
     monkeypatch.setattr(graph, "graph_client", lambda: FakeGraph())
     monkeypatch.setattr(graph, "_raw", lambda *a, **k: [])
+    monkeypatch.setattr(graph, "_console_rows", lambda *a, **k: [])
     monkeypatch.setattr(services, "sync_dictionary", lambda *a, **k: 0)
     monkeypatch.setattr(store, "query", lambda *a, **k: [])
     monkeypatch.setattr(store, "drop_graph", lambda *a, **k: None)
@@ -317,6 +327,7 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.delenv("SEMASCOPE_DEFAULT_ROLE", raising=False)  # the default: none
+    monkeypatch.delenv("SEMASCOPE_RECONCILE_PUBLIC", raising=False)  # the default: signed in
     monkeypatch.setenv("SEMASCOPE_DATA_DIR", str(tmp_path / "data"))
     imports = tmp_path / "import"
     imports.mkdir()
@@ -326,6 +337,7 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     a = Collection.objects.create(slug="a", name="a")
     b = Collection.objects.create(slug="b", name="b")
     users: dict[str, User] = {
+        "norole": User.objects.create_user("norole"),
         "other": User.objects.create_user("other"),
         "reader": User.objects.create_user("reader"),
         "curator": User.objects.create_user("curator"),

@@ -426,6 +426,30 @@ def remote_checks(settings: Any) -> dict[str, tuple[str, dict[str, str] | None]]
 # --- API-backed commands -----------------------------------------------------------------------
 
 
+class PatientTransport(httpx.HTTPTransport):
+    """Waits out the server's rate limits: a 429 is retried after its Retry-After (at most
+    60 s, five times), so a long `oss eval` or export run slows down instead of failing."""
+
+    ATTEMPTS = 5
+    MAX_WAIT_S = 60
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        import time
+
+        response = super().handle_request(request)
+        for _ in range(self.ATTEMPTS):
+            if response.status_code != 429:
+                break
+            try:
+                wait = int(response.headers.get("Retry-After") or 1)
+            except ValueError:
+                wait = 1
+            response.close()
+            time.sleep(min(max(wait, 1), self.MAX_WAIT_S))
+            response = super().handle_request(request)
+        return response
+
+
 def _api() -> httpx.Client:
     settings = get_settings()
     token = settings.semascope_api_token.get_secret_value() if settings.semascope_api_token else ""
@@ -437,6 +461,7 @@ def _api() -> httpx.Client:
         base_url=f"{settings.semascope_api_url.rstrip('/')}/api",
         headers={"Authorization": f"Bearer {token}"},
         timeout=60.0,
+        transport=PatientTransport(),
     )
 
 

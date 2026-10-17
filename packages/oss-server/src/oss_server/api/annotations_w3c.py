@@ -26,6 +26,7 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from oss_server.api.access import check, read_scope
+from oss_server.audit.log import record
 from oss_server.catalogue.models import Collection, Document
 from oss_server.curation.models import Annotation, Proposal
 from oss_server.curation.services import propose
@@ -289,6 +290,13 @@ def import_annotations(request: HttpRequest, collection: str, dry_run: bool = Fa
                 user=user,
             )
     out.problems = problems[:MAX_REPORTED]
+    if not dry_run:
+        record(
+            "annotations.import",
+            collection=coll.slug,
+            target=coll,
+            detail={"received": out.received, "imported": out.imported},
+        )
     return out
 
 

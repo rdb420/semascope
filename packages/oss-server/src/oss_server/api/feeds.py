@@ -83,7 +83,9 @@ def feed_user(token: str) -> User | None:
     )
     if row is None or not row.user.is_active:
         return None
-    ApiToken.objects.filter(pk=row.pk).update(last_used_at=timezone.now())
+    from oss_server.api.auth import touch_last_used
+
+    touch_last_used(row)
     return row.user
 
 

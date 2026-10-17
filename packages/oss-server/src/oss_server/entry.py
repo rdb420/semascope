@@ -105,7 +105,14 @@ def prepare() -> None:
                 defaults={"name": "cli", "prefix": key[:8], "user": admin},
             )
         else:
-            log.info("api token for the cli: %s", issue_token(admin, "cli"))
+            # never logged (a token in a log line is a leaked token): written to a file only
+            # the server's user can read
+            path = s.semascope_data_dir / "cli-token"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="ascii") as out:
+                out.write(issue_token(admin, "cli") + "\n")
+            log.info("api token for the cli written to %s (mode 600)", path)
     # Without its collections the server cannot answer a search, so it does not start: the
     # container exits, compose restarts it, and its health check fails until Solr is ready.
     try:
@@ -143,6 +150,11 @@ def prepare_in_child() -> None:
     subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603 - fixed argv
 
 
+# gunicorn's default format less the query string (%(U)s is the path alone) and the
+# referrer, either of which can carry a token
+ACCESS_LOG_FORMAT = '%(h)s %(l)s %(u)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "%(a)s"'
+
+
 def server() -> None:
     parser = argparse.ArgumentParser(prog="oss-server")
     parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - container-internal
@@ -151,6 +163,9 @@ def server() -> None:
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    from oss_server.logredact import redact_handlers
+
+    redact_handlers()
     prepare_in_child()
     _django()
     if args.reload:
@@ -169,6 +184,9 @@ def server() -> None:
         str(args.workers),
         "--access-logfile",
         "-",
+        # the path without its query string: feed tokens travel in `?token=`
+        "--access-logformat",
+        ACCESS_LOG_FORMAT,
     ]
     from gunicorn.app.wsgiapp import run
 

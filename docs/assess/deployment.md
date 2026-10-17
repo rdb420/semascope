@@ -104,9 +104,10 @@ with `scripts/bench_size.py` on a sample of your own documents.
   was `reader`: on upgrade, set `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to
   keep open reading, or give users their roles.
 
-There is no anonymous access to the UI or the search API. The
-Reconciliation API (`/api/reconcile`) is public by design, so that
-OpenRefine can call it.
+There is no anonymous access to the UI, the search API or (by default) the
+Reconciliation API (`/api/reconcile`). OpenRefine sends no token, so set
+`SEMASCOPE_RECONCILE_PUBLIC=true` to let it call the Reconciliation API
+anonymously, limited per client address.
 
 ## TLS and host name
 
@@ -117,10 +118,14 @@ browsers will not trust. For a server:
 1. Set `SEMASCOPE_HOST` to the real name and keep `SEMASCOPE_HTTPS_PORT`
    at 443 or 8443. In rc.2 the server trusts form posts only from those
    two ports, so another port breaks sign-in from the browser.
-2. Either let Caddy obtain a certificate (replace `tls internal` in
-   `deploy/caddy/Caddyfile` with your e-mail address, port 443 reachable
-   from the internet), or put your own certificate in the Caddyfile, or
-   terminate TLS on your existing proxy and forward to Caddy.
+2. Either let Caddy obtain a certificate (`SEMASCOPE_TLS=you@example.org`
+   in `.env`, port 443 reachable from the internet), or mount your own
+   certificate into the caddy service and name it
+   (`SEMASCOPE_TLS=/certs/cert.pem /certs/key.pem`), or terminate TLS on
+   your existing proxy and forward to Caddy (then add that proxy to Caddy's
+   `trusted_proxies` and set `SEMASCOPE_TRUSTED_PROXIES=2`, so the sign-in
+   lockout and the audit log see the client's address, not the proxy's).
+   `SEMASCOPE_ADMIN_ALLOW` limits `/admin/` to the address ranges you list.
 3. Keep every other service unpublished. `compose.dev.yaml` publishes them
    on loopback for development only.
 

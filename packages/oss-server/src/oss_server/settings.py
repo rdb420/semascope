@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlsplit, urlunsplit
 
 import django_stubs_ext
 from django.core.exceptions import ImproperlyConfigured
@@ -52,6 +52,14 @@ INSTALLED_APPS = [
     "oss_server.catalogue",
     "oss_server.knowledge",
     "oss_server.curation",
+    "oss_server.audit",
+]
+
+# The sign-in lockout comes first: it refuses a locked account or address before any
+# backend checks the password (oss_server.ratelimit).
+AUTHENTICATION_BACKENDS = [
+    "oss_server.ratelimit.LoginLockoutBackend",
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 # Optional OpenID Connect through django-allauth; active only when an issuer is configured.
@@ -87,10 +95,7 @@ if OIDC_ENABLED:
     SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
     ACCOUNT_EMAIL_VERIFICATION = "none"
     LOGIN_REDIRECT_URL = "/"
-    AUTHENTICATION_BACKENDS = [
-        "django.contrib.auth.backends.ModelBackend",
-        "allauth.account.auth_backends.AuthenticationBackend",
-    ]
+    AUTHENTICATION_BACKENDS += ["allauth.account.auth_backends.AuthenticationBackend"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -99,8 +104,10 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "oss_server.audit.log.AuditContextMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "oss_server.security.SecurityHeadersMiddleware",
 ]
 if OIDC_ENABLED:
     MIDDLEWARE.append("allauth.account.middleware.AccountMiddleware")
@@ -156,8 +163,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = _settings.semascope_data_dir / "static"
-STATIC_ROOT.mkdir(parents=True, exist_ok=True)
+STATIC_ROOT = _settings.semascope_data_dir / "static"  # created by collectstatic (prepare)
 STATICFILES_DIRS = [p for p in [BASE_DIR / "static"] if p.exists()]
 WHITENOISE_ROOT = BASE_DIR / "static" / "web"  # built UI: /assets/*, /favicon.svg
 WHITENOISE_INDEX_FILE = False
@@ -165,15 +171,58 @@ STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 
+
+def cache_url(valkey_url: str) -> str:
+    """The Valkey database after the broker's (`/0` -> `/1`): the cache never shares a
+    database with Celery's queues, so clearing it cannot drop a queued task."""
+
+    parts = urlsplit(valkey_url)
+    db = parts.path.strip("/")
+    number = int(db) if db.isdigit() else 0
+    return urlunsplit(parts._replace(path=f"/{(number + 1) % 16}"))
+
+
+# Rate limits and the sign-in lockout count here (oss_server.ratelimit), as do allauth's
+# own limits: Valkey, so every server process shares the counters, in a database of its
+# own. Without a stack (an SQLite database: tests, a laptop) the counters stay in this
+# process's memory.
+CACHES: dict[str, dict[str, object]] = {
+    "default": (
+        {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+        if _settings.database_url.startswith("sqlite")
+        else {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": cache_url(_settings.valkey_url),
+            "KEY_PREFIX": "semascope",
+            "TIMEOUT": 3600,
+            "OPTIONS": {"socket_connect_timeout": 2, "socket_timeout": 2},
+        }
+    )
+}
+
+# Request bodies: JSON and forms up to SEMASCOPE_REQUEST_MAX_MB; uploaded files are checked
+# one by one against SEMASCOPE_UPLOAD_MAX_MB (api/root.py) and spooled to disk above 2.5 MB.
+# Caddy refuses larger requests before they reach the server (deploy/caddy/Caddyfile).
+DATA_UPLOAD_MAX_MEMORY_SIZE = max(1, _settings.semascope_request_max_mb) * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
+DATA_UPLOAD_MAX_NUMBER_FILES = 100
+
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 X_FRAME_OPTIONS = "DENY"
+# SecurityMiddleware sets nosniff, Referrer-Policy and Cross-Origin-Opener-Policy on every
+# response; Caddy replaces rather than repeats them (deploy/caddy/Caddyfile)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    # URL passwords masked in every line, tracebacks included (oss_server.logredact)
+    "formatters": {"redacted": {"()": "oss_server.logredact.RedactingFormatter"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "redacted"}},
     "root": {"handlers": ["console"], "level": "INFO"},
 }
 
