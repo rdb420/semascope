@@ -13,6 +13,7 @@ dependencies = [
     "pyshacl>=0.30",
     "warcio>=1.7",
     "google-re2>=1.1",
+    "beautifulsoup4>=4.12",
     "defusedxml>=0.7",
     "pypdfium2>=4.30",
     "pillow>=11",

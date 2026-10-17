@@ -57,9 +57,23 @@ attaches annotations to existing documents as notes instead) and `pst`
 (Outlook `.pst` and `.ost` files, each message an RFC 822 document with its
 attachments as child documents; it needs the optional `pst` extra, libpff
 under LGPL-3.0, which the published image does not contain:
-[ADR-0015](adr/0015-pst-libpff-extra.md)). Outlook `.msg` files need no
+[ADR-0015](adr/0015-pst-libpff-extra.md)), and `mastodon` (public posts
+of a Mastodon-compatible server: `hashtags`, `accounts` and the `local` or
+`federated` timeline, with an optional `token`; one document per post, a
+boost as the post it boosts, the server's HTML reduced to text; like a
+feed, posts that roll off are not deleted). Outlook `.msg` files need no
 connector of their own: Tika parses them, with their attachments' text, from
-any file source.
+any file source. X (Twitter) has no connector: its API cannot be read
+without a paid agreement.
+
+A web source's `scrape` rules pick what a page is about with CSS selectors:
+`remove` drops elements (menus, adverts), `content` keeps only the matching
+elements as the document, `title` gives the title, and `fields` fills
+custom fields, `{"author": "meta[name=author] @content", "tags":
+"ul.tags li"}` giving `author_ss` and `tags_ss` (` @attribute` takes an
+attribute's value instead of the text). A crawl still follows every link of
+the whole page; a change to the rules makes the next run process the pages
+again.
 
 A file the `filesystem` connector reads can carry **sidecar metadata**: a
 `<file>.meta.json` object, or an XMP packet in `<file>.xmp` (or
