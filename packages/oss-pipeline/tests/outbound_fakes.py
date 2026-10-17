@@ -18,6 +18,7 @@ an RSS feed, SPARQL JSON results, a webhook receiver and an S3 bucket (`bkt`, on
 
 from __future__ import annotations
 
+import gzip
 import ipaddress
 import socket
 import threading
@@ -138,7 +139,16 @@ class Origin:
                         f'</LastModified><ETag>"e"</ETag><Size>{len(OBJECT)}</Size>'
                         "<StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"
                     )
-                    self._reply(200, body.encode(), "application/xml")
+                    data = body.encode()
+                    if "gzip" in self.headers.get("Accept-Encoding", ""):
+                        data = gzip.compress(data)  # as MinIO does for larger listings
+                        self.send_response(200)
+                        self.send_header("Content-Encoding", "gzip")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers()
+                        self.wfile.write(data)
+                    else:
+                        self._reply(200, data, "application/xml")
                 elif path == "/bkt/k.txt":
                     self._reply(200, OBJECT, "application/octet-stream")
                 elif path == "/hook":

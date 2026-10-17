@@ -498,10 +498,14 @@ def guard_s3_client(client: Any, *, max_bytes: int = MAX_BYTES_CEILING) -> Any:
         body = request.body
         if hasattr(body, "read"):
             body = body.read()
+        headers = list(request.headers.items())
+        if not any(k.lower() == "accept-encoding" for k, _ in headers):
+            # botocore reads raw bytes (urllib3 asks for identity); httpx would ask for gzip
+            headers.append(("Accept-Encoding", "identity"))
         outgoing = http.build_request(
             request.method,
             request.url,
-            headers=list(request.headers.items()),
+            headers=headers,
             content=body if body else None,
             extensions={MAX_BYTES_EXTENSION: cap},
         )
