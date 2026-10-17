@@ -1,23 +1,74 @@
+# Semascope's only published port. Caddy terminates TLS and proxies to the server.
+#
+# Settings (environment of the caddy service, passed by compose.yaml):
+#   SEMASCOPE_HOST          the host name in the certificate and the URL (localhost)
+#   SEMASCOPE_TLS           `internal` (Caddy's own authority, the default), an e-mail
+#                           address (a public certificate through ACME), or
+#                           `/certs/cert.pem /certs/key.pem` (files you mount)
+#   SEMASCOPE_ADMIN_ALLOW   client ranges that may reach /admin/ (default: everyone),
+#                           e.g. `10.0.0.0/8 192.168.0.0/16`
+#   SEMASCOPE_UPLOAD_LIMIT  largest upload request (default 2GB); the server also caps
+#                           each file (SEMASCOPE_UPLOAD_MAX_MB)
+#
+# The server sets the Content-Security-Policy of its pages itself (it names the map-tile
+# and sign-on hosts from its settings; oss_server/security.py). The headers below replace,
+# never repeat, the ones Django also sets.
+{
+	servers {
+		# plain HTTP sent to the HTTPS port is answered with a redirect to HTTPS
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+		timeouts {
+			read_header 10s
+			read_body 10m
+			idle 2m
+		}
+	}
+}
+
 {$SEMASCOPE_HOST}:443 {
-	tls internal
+	tls {$SEMASCOPE_TLS:internal} {
+		protocols tls1.2 tls1.3
+	}
 	encode zstd gzip
 
-	handle /api/* {
-		reverse_proxy server:8000
+	# request bodies: uploads up to SEMASCOPE_UPLOAD_LIMIT, everything else 32 MB
+	@upload path_regexp upload ^/api/collections/[^/]+/upload$
+	request_body @upload {
+		max_size {$SEMASCOPE_UPLOAD_LIMIT:2GB}
 	}
-	handle /admin/* {
-		reverse_proxy server:8000
+	@not_upload not path_regexp ^/api/collections/[^/]+/upload$
+	request_body @not_upload {
+		max_size 32MB
 	}
-	handle /healthz {
-		reverse_proxy server:8000
+
+	# the Django admin only from SEMASCOPE_ADMIN_ALLOW
+	@admin_refused {
+		path /admin /admin/*
+		not remote_ip {$SEMASCOPE_ADMIN_ALLOW:0.0.0.0/0 ::/0}
 	}
+	respond @admin_refused "Forbidden" 403
+
 	handle {
-		reverse_proxy server:8000
+		reverse_proxy server:8000 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 5m
+			}
+		}
 	}
 
 	header {
+		defer
+		-Server
+		-X-Powered-By
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
+		Cross-Origin-Opener-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		?X-Frame-Options DENY
 	}
 }
