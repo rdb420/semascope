@@ -127,6 +127,10 @@
   - packages/oss-pipeline/tests/test_stages.py::test_patterns_find_every_entity_type
 
 "Enrichment | Dictionary tagging against packs, hierarchical facet per scheme (`tag`)":
+  - packages/oss-pipeline/tests/test_tagger_windows.py::test_a_request_that_reaches_the_tag_limit_is_continued
+  - packages/oss-pipeline/tests/test_tagger_windows.py::test_a_label_across_a_window_edge_is_found_once
+  - packages/oss-pipeline/tests/test_tagger_windows.py::test_spans_after_emoji_stay_on_their_words
+  - tests/integration/test_enrichment.py::test_tag_spans_stay_on_their_words_after_emoji
   - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_tag_attributes_a_shared_iri_to_the_higher_precedence_pack
   - packages/oss-pipeline/tests/test_stages.py::test_expand_paths
   - tests/integration/test_api.py::test_golden_tags
@@ -135,6 +139,8 @@
   - scripts/tag_quality.py
 
 "Enrichment | Named entities, spaCy on CPU":
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_ner_events_reach_the_events_facet
+  - tests/integration/test_enrichment.py::test_ner_events_reach_the_events_facet
   - packages/oss-pipeline/tests/test_stages.py::test_ner_name_filter
   - tests/integration/test_api.py::test_every_stage_ran
   - scripts/bench.py
@@ -146,11 +152,13 @@
   - packages/oss-pipeline/tests/test_providers.py::test_remote_provider_posts_windows_with_labels_and_token
 
 "Enrichment | Linking entities to pack individuals by label (`link`)":
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_the_link_dictionary_is_fetched_again_when_it_changes
   - packages/oss-pipeline/tests/test_dictionary_precedence.py::test_link_picks_the_higher_precedence_pack_for_a_shared_label
   - tests/integration/test_api.py::test_curation_endpoint_lists_pack_tags
   - scripts/tag_quality.py
 
 "Enrichment | SHACL validation of document metadata (`validate`)":
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_validate_survives_carriage_returns_and_odd_iris
   - packages/oss-pipeline/tests/test_validate.py::test_document_graph_conforms_to_base_shapes
   - packages/oss-pipeline/tests/test_validate.py::test_document_graph_reports_violations
 
@@ -158,6 +166,7 @@
   - packages/oss-pipeline/tests/test_stages.py::test_preview_renders_pdf_and_image
 
 "Enrichment | Chunk embeddings, FastEmbed bge-small on CPU or CUDA":
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_a_skipped_embed_stage_deletes_the_old_chunks
   - tests/integration/test_api.py::test_every_document_is_indexed
   - tests/integration/test_api.py::test_vector_search
   - scripts/bench.py
@@ -711,3 +720,12 @@
 "Operation | README quick start on a fresh clone":
   - .github/scripts/fresh-clone.sh
   - packages/oss-cli/tests/test_shim.py::test_upload_sends_the_host_files_into_the_container
+
+"Enrichment | Unknown profile fails the document":
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_an_unknown_profile_raises
+  - packages/oss-server/tests/test_task_retry.py::test_an_unknown_profile_fails_the_document_instead_of_running_another
+
+"Enrichment | Stages and their clients (Neo4j driver, Solr, services) kept per worker process":
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_stages_are_built_once_per_process
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_the_graph_stage_keeps_one_driver_per_process
+  - packages/oss-pipeline/tests/test_stage_hardening.py::test_stage_clients_are_reused_and_rebuilt_when_settings_change

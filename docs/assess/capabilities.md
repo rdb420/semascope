@@ -49,18 +49,20 @@ implemented has none, or names a test that does not exist.
 |---|---|---|---|
 | Pages and chunks (`structure`) | implemented | ci | |
 | Patterns: emails, URLs, phone numbers, amounts, hashtags | implemented | ci | |
-| Dictionary tagging against packs, hierarchical facet per scheme (`tag`) | implemented | quality | precision 1.00, recall 0.98 on the demo golden set |
-| Named entities, spaCy on CPU | implemented | bench | English and multilingual small models |
+| Dictionary tagging against packs, hierarchical facet per scheme (`tag`) | implemented | quality | precision 1.00, recall 0.98 on the demo golden set; long texts are paged: windows overlap at a space, a request at the tagger's 5,000 cap is continued, offsets converted from UTF-16 |
+| Named entities, spaCy on CPU | implemented | bench | English and multilingual small models; fills the persons, organisations, places and events facets |
 | Named entities, GLiNER2 zero-shot on GPU, pack classes as labels | experimental | ci (parser), bench | measured on an RTX 3090 |
 | Named entities, remote `/entities` service | experimental | ci (mock) | |
-| Linking entities to pack individuals by label (`link`) | implemented | quality | exact normalised-label match |
+| Linking entities to pack individuals by label (`link`) | implemented | quality | exact normalised-label match; dictionary cached per process and refetched when Solr's fingerprint of it changes |
 | Text of embedded items (attachments, archive members, images in Office files) indexed with their container | experimental | ci (mock) | not separate documents |
 | SHACL validation of document metadata (`validate`) | implemented | ci | `full` profile only |
 | Previews: PDF pages and image thumbnails | implemented | ci | |
 | Chunk embeddings, FastEmbed bge-small on CPU or CUDA | implemented | bench | model baked into the image |
-| Embeddings through an OpenAI-compatible endpoint or a sidecar | experimental | ci (sidecar mock, field per dimension) | the `chunks` index has a vector field per dimension (256 to 4096) since the fix after rc.2; `oss doctor` reports a model the schema cannot hold; a change of dimension needs `oss reindex --stage embed` |
+| Embeddings through an OpenAI-compatible endpoint or a sidecar | experimental | ci (sidecar mock, field per dimension) | the `chunks` index has a vector field per dimension (256 to 4096) since the fix after rc.2; `oss doctor` reports a model the schema cannot hold; a change of dimension needs `oss reindex --stage embed`; the OpenAI embedder sends 64 inputs per request |
 | Duplicate detection | implemented (exact) | ci | by content hash; no near-duplicate detection |
 | Partial replay (`oss reindex --stage …`) | implemented | ci | |
+| Unknown profile fails the document | implemented | ci | |
+| Stages and their clients (Neo4j driver, Solr, services) kept per worker process | implemented | ci | |
 | Optional LLM answers | planned | — | settings exist; nothing reads them |
 
 ## Search

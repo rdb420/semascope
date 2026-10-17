@@ -167,6 +167,9 @@ and the project follows semantic versioning.
 
 ### Changed
 
+- Stages and their clients live as long as the worker process (one Neo4j
+  driver per process); the OpenAI-compatible embedder sends 64 inputs per
+  request (`SEMASCOPE_EMBED_BATCH`).
 - Significant terms are scored against the readable collections searched.
   Search parameters are bounded (page_size 0–100, page 1–500, facet_limit
   1–100, no paging past the 10,000th hit); hybrid search fuses the whole
@@ -205,6 +208,14 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- Tagging no longer drops matches: a request at the tagger's 5,000-match cap
+  is continued, window edges overlap at a space, and UTF-16 offsets are
+  converted, so spans after an emoji stay on their words. NER events reach
+  the `events_ss` facet. A skipped embed stage deletes the document's old
+  chunks. The validate stage survives carriage returns and odd IRIs. The
+  link stage picks up re-synced dictionaries and draft labels without a
+  restart. An unknown profile fails its documents instead of running
+  `default`; a remote provider without a base URL fails the stage.
 - `./oss upload` of a host file; the shim creates the import folder before
   Docker can create it as root; the server no longer runs healthy without its
   Solr collections; restore puts the Solr configsets back from the image
@@ -296,6 +307,8 @@ and the project follows semantic versioning.
 
 ### Upgrade notes
 
+- Stage versions changed (tag 3, index 3, validate 2): run `./oss reindex
+  --collection <slug>` for corrected spans and the events facet.
 - `./oss up` adds `SEMASCOPE_PSEUDONYM_KEY` to an older `.env` as a copy of the
   old secret key, so existing pseudonyms stay the same.
 - Run `./oss reindex --collection <slug> --stage index` for each collection to
