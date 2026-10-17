@@ -1,6 +1,7 @@
 """Neo4j client for the graph projection: constraints, batched merges, read queries.
 
-One driver per process. Writes are `UNWIND` batches with MERGE on the key
+One driver per client; the graph stage keeps its client for the life of the
+worker process. Writes are `UNWIND` batches with MERGE on the key
 property, retried on transient errors by the driver's managed transactions.
 """
 

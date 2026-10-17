@@ -1,6 +1,7 @@
 # Coming from Open Semantic Search
 
-Status: **draft**, 2026-10-16. Describes 1.0.0-rc.2 (commit `8e4cb2b`).
+Status: **draft**, updated 2026-10-17. Describes 1.0.0-rc.3 (unreleased: the
+main line after 1.0.0-rc.2).
 
 ## Inspiration, not compatibility
 
@@ -28,8 +29,11 @@ vocabulary, and browse it through facets. Concepts map roughly like this:
 | Dictionary-based tagging in the ETL | the `tag` stage (Solr Tagger) |
 | spaCy NER service | the `ner` stage (spaCy, GLiNER2 or a remote service) |
 | Facets from the thesaurus | one hierarchical facet per concept scheme |
-| Crawlers and file-system indexing | sources and connectors (folder, web, feed, mail, archive, table, S3, RDF) |
-| Tags and annotations in the UI | review queue, tag decisions and annotations, logged as proposals |
+| Crawlers and file-system indexing | sources and [connectors](../connectors.md) (folder with sidecar metadata, web with scrape rules, feed, mail, PST, archive, table, S3, RDF, WARC, Hypothesis, Mastodon); `oss watch` for changes as they happen |
+| Plugins of the ETL | [connector and stage plugins](../plugins.md) through Python entry points |
+| OCR later | `ocr: later` per collection ([Languages and OCR](../languages.md)) |
+| Tags and annotations in the UI | review queue, tag decisions, bulk tagging and annotations, logged as proposals and sent through the [outbox and webhooks](../events.md) |
+| Linking to the original file | an authorised download of the stored original ([ADR-0016](../adr/0016-original-file-download.md)) |
 | Search UI (PHP) | the React UI and the HTTP API |
 
 ## Moving a corpus across
@@ -56,8 +60,8 @@ What cannot be moved in 1.0:
 | Item | Status |
 |---|---|
 | An existing Solr index | not imported; re-index from the originals |
-| Tags and annotations made by people in OSS | no importer; a CSV or JSON import of `(document URI, IRI, decision)` rows into the proposal log is the likely shape if there is demand |
-| Saved searches | no importer; the query syntax differs |
+| Tags and annotations made by people in OSS | annotations kept in Hypothesis can be imported as notes (`POST /api/annotations/w3c/import` takes a Hypothesis or W3C export) or read by the `hypothesis` connector; for tags there is no importer: a CSV or JSON import of `(document URI, IRI, decision)` rows into the proposal log is the likely shape if there is demand |
+| Saved searches and bookmarked search URLs | no importer, and the URLs differ: a Semascope search URL keeps its words, filters, view, mode and options in its query string (`/?q=…&collection=…`; see [Decisions](decisions.md), D-6), and the query syntax is in [Searching](../search.md) |
 | OSS ETL plugins and configuration | not supported; Semascope stages are Python entry-point plugins |
 
 If you have a corpus with significant manual curation in OSS, tell us in an

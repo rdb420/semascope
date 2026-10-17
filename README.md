@@ -10,16 +10,35 @@ bundles, called *packs*), and lets people explore and curate the result through
 faceted search, concept and entity pages, a document-entity graph in Neo4j, and
 review queues whose decisions are exported for whatever system owns the data.
 
-Status: **1.0.0-rc.2.** Every phase of the plan is implemented, and the heavy stages run on CPU, on a local GPU or through remote services (ADR-0008).
-From a fresh clone the stack starts, indexes folders, uploads, web pages,
-feeds, mail, archives, tables, S3 buckets and RDF (including OCR of scanned
-pages), tags every document against the knowledge models you import
-(hierarchical facets, named entities linked to your individuals, SHACL
-checks), projects it into Neo4j, and answers keyword, semantic and hybrid
-searches through the browser UI, the API and the CLI. Curators review what
-the machine proposed; every decision is logged and exported through the
-outbox. `./oss demo` loads sixteen public-domain texts and a demo model. The development plan is in [`docs/plan.md`](docs/plan.md)
-and the architecture decisions in [`docs/adr/`](docs/adr/).
+Status: **release candidate.** The last release candidate was 1.0.0-rc.2
+(not tagged in git, and published only as a `:main` image); the main line,
+to become 1.0.0-rc.3, adds the hardening and features in the
+[changelog](CHANGELOG.md)'s *Unreleased* section. Nothing has been released
+through the tag-driven release workflow yet.
+
+From a fresh clone the stack starts, indexes folders, uploads, web pages
+(with scrape rules), feeds, mail, archives, tables, S3 buckets, RDF and web
+archives (including OCR of scanned pages, now or later), tags every document
+against the knowledge models you import (hierarchical facets, named entities
+linked to your individuals, SHACL checks), projects it into Neo4j, and
+answers keyword, semantic and hybrid searches in 28 languages through the
+browser UI, the API and the CLI. Curators review what the machine proposed;
+every decision is logged and leaves through the outbox and webhooks.
+`./oss demo` loads sixteen public-domain texts and a demo model.
+
+What is **experimental** (code ships, tested only against mocks or stand-ins,
+or not yet run end to end): the `gpu` and `remote` runtimes (GLiNER2,
+MinerU, remote embedding and entity services), the `pst`, `hypothesis` and
+`mastodon` connectors, indexing the text of embedded items, the
+observability profile, and the release workflow (multi-arch images with
+SBOM, provenance and cosign signatures, gated on CI), which has not yet run
+from a tag. What is **planned** and not built: optional LLM answers (the
+settings exist; nothing reads them), merging entities, entity pages for
+unlinked named entities, managing sources and collections in the UI, Helm
+and multi-host scaling. The [capability matrix](docs/assess/capabilities.md)
+gives the state and the tests of every capability; the
+[development plan](docs/plan.md) says what is left before and after 1.0, and
+the architecture decisions are in [`docs/adr/`](docs/adr/).
 
 ## Quick start
 
@@ -37,28 +56,38 @@ git clone https://github.com/rdb420/semascope && cd semascope
 Then open `https://localhost:8443/` and sign in as `admin` with the
 `SEMASCOPE_ADMIN_PASSWORD` from `.env`. You need Docker with the Compose
 plugin and bash; `./oss init` uses `uv` when the host has it and otherwise
-runs in the app image. The `fresh-clone` CI job runs these steps (`init`,
-`up`, a one-text `demo`, `search`, `upload`) in a clean clone for pushes to
-`main` and pull requests. `./oss rotate` replaces the secrets later, in the
+runs in the app image. Until a release is published, `./oss up` builds the
+app image from the checkout the first time. The `fresh-clone` job of the
+`integration` workflow runs these steps (`init`, `up`, a one-text `demo`,
+`search`, `upload`) in a clean clone for pushes to `main` and pull requests;
+`just fresh-clone` runs it locally. The [install guide](docs/install.md)
+covers prerequisites, a first collection and upgrades. `./oss rotate` replaces the secrets later, in the
 stores and in `.env` together; see [operations](docs/operations.md#secrets),
 which also covers Docker secrets.
 
 The admin site is at `https://localhost:8443/admin/` (user `admin`, password in
 `.env`) and the OpenAPI document at `https://localhost:8443/api/docs`.
 
-Everything runs on a laptop with no cloud account, no API key and no GPU.
+Everything runs on a laptop with no cloud account, no API key and no GPU
+(the map loads OpenStreetMap tiles in the browser unless
+`SEMASCOPE_MAP_TILE_URL` points elsewhere or is empty).
 With a GPU, `./oss init --runtime gpu` moves entity recognition and
 embeddings onto the card; `--runtime remote` points those stages at your own
 inference services instead (see [operations](docs/operations.md#runtimes)).
 
 ## Principles
 
-1. **Agnostic.** No assumption about domain, corpus, language, ontology or
-   downstream system. Domain knowledge enters only through packs and
-   configuration.
-2. **Clone, set up, run.** One init, one up, every feature works.
+1. **Agnostic.** No assumption about domain, corpus, ontology or downstream
+   system; domain knowledge enters only through packs and configuration.
+   Search analyses 28 languages; the bundled OCR, entity and embedding
+   models default to English or multilingual small models and can be
+   changed ([Languages and OCR](docs/languages.md)).
+2. **Clone, set up, run.** One init and one up give a working stack with
+   every bundled CPU feature; the GPU and remote runtimes and the PST extra
+   need their own setup.
 3. **No legacy.** Every dependency is a maintained release under a licence
-   compatible with Apache-2.0.
+   compatible with Apache-2.0 (psycopg's LGPL and the `-gpu` image's CUDA
+   libraries are the recorded exceptions: ADR-0011, ADR-0008).
 4. **Standards at the edges.** RDF, SKOS, OWL, SHACL, OpenAPI, OpenTelemetry,
    the W3C Reconciliation API, Compose.
 5. **Review before write.** Curation produces proposals; proposals are logged

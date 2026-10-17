@@ -12,8 +12,9 @@ Projection (rebuild specification, section 8):
 
 Entity keys: the IRI for pack individuals; `<class>/<normalised label>` for
 NER entities, or an HMAC of that when the collection sets `pseudonymise`
-(the label then stays in Postgres only). Machine edges are replaced on every
-run; `CURATED` edges (Phase 3 review) are never touched here. Spans, matched
+(the label then stays out of Neo4j; PostgreSQL, the Solr entity facets and
+the text still hold it). Machine edges are replaced on every run; `CURATED`
+edges (curators' decisions) are never touched here. Spans, matched
 labels and `linked_from` stay in PostgreSQL; an edge carries the count only.
 """
 

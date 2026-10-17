@@ -1,1 +1,1 @@
-"""Semascope pipeline. Connectors and stages arrive in Phase 1 and Phase 2."""
+"""Semascope pipeline: connectors, stages, the Celery app and the store clients."""

@@ -1,6 +1,7 @@
 # Capability matrix
 
-Status: **draft**, 2026-10-16. Describes 1.0.0-rc.2 (commit `8e4cb2b`).
+Status: **draft**, updated 2026-10-17. Describes 1.0.0-rc.3 (unreleased: the
+main line after 1.0.0-rc.2).
 
 Every advertised capability, with its state and the evidence for it.
 
@@ -10,13 +11,18 @@ Every advertised capability, with its state and the evidence for it.
 | **experimental** | code ships, but it is tested only against mocks or not at all, or it has a known defect listed in the notes |
 | **planned** | documented or configured, no working code yet |
 
-"Tests" names the evidence: `ci` is the pytest suite run on every push;
-`smoke` is the Playwright browser journey (`tests/e2e/ui_smoke.py`, run by
+"Tests" names the evidence: `ci` is the pytest suite, which the `ci`
+workflow runs on pushes to `main` and pull requests; `integration` is the
+suite against a real stack (`tests/integration`, `just integration` and the
+`integration` workflow); `smoke` is the Playwright browser journey
+(`tests/e2e/ui_smoke.py`, run by `just integration` and that workflow, or by
 hand against a live stack); `bench` and `quality` are
 `scripts/bench.py` and `scripts/tag_quality.py`, whose results are in
 [Quality numbers](../quality.md). [`evidence.yaml`](evidence.yaml) names the
 tests behind each row; `scripts/tests/test_claims.py` fails when a row marked
-implemented has none, or names a test that does not exist.
+implemented has none, or names a test that does not exist. The workflows are
+in the repository but have not yet run on GitHub for this version: the
+evidence is the tests, run locally, not a CI record.
 
 ## Inputs
 
@@ -61,7 +67,7 @@ implemented has none, or names a test that does not exist.
 | Legal references (`law_ss`, `LegalReference` entities), configurable patterns | implemented | ci | |
 | Amounts with ISO 4217 currency (`currency_ss`, `amount_ss`) | implemented | ci | |
 | User regex lists per collection (RE2, `x_<name>_ss`) | implemented | ci | |
-| Dictionary tagging against packs, hierarchical facet per scheme (`tag`) | implemented | quality | precision 1.00, recall 0.98 on the demo golden set; long texts are paged: windows overlap at a space, a request at the tagger's 5,000 cap is continued, offsets converted from UTF-16 |
+| Dictionary tagging against packs, hierarchical facet per scheme (`tag`) | implemented | quality | document-level precision 1.00, recall 0.98 on eight demo texts against the project's own golden set (no span-level figures yet); long texts are paged: windows overlap at a space, a request at the tagger's 5,000 cap is continued, offsets converted from UTF-16 |
 | Named entities, spaCy on CPU | implemented | bench | English and multilingual small models; fills the persons, organisations, places and events facets |
 | Named entities, GLiNER2 zero-shot on GPU, pack classes as labels | experimental | ci (parser), bench | measured on an RTX 3090 |
 | Named entities, remote `/entities` service | experimental | ci (mock) | |
@@ -154,7 +160,7 @@ implemented has none, or names a test that does not exist.
 | Annotations on documents | implemented | ci | |
 | Import W3C Web Annotations or Hypothesis exports as notes, matched by URI, anchored by quote | implemented | ci | |
 | Proposals with stable references, applied at once, kept across reindexing | implemented | ci | append-only log, the newest decision wins, one `external_ref` per decision (fixed after rc.2, where accept, reject, accept was not applied); a decision keeps the tag it was taken on and its pack version; a rejected tag stays on the document, flagged, and is left out of Solr and the graph; the decision, the document's record and the outbox event commit together; Solr and Neo4j are written after it, a periodic sweep applies what a store missed, and hierarchical facets follow the decisions, also after reindex |
-| Curator changes to a pack as deltas | implemented | ci |; exported through an RDF serialiser; IRIs and language tags are checked |
+| Curator changes to a pack as deltas | implemented | ci | exported through an RDF serialiser; IRIs and language tags are checked |
 | Bulk tagging: accept or reject a concept on every document of a search, as a job, one proposal per document | implemented | ci, smoke | at most 10,000 documents; keyword search and filters; a dry run counts first |
 | Explanation of a tag: occurrences with pages, method and stage version, matched label, model, `linked_from`, decision history (API and document page) | implemented | ci, smoke | |
 | Merge entities | planned | — | |
@@ -186,7 +192,7 @@ implemented has none, or names a test that does not exist.
 | Pack upgrade as a diff and a reindex plan; activation needs confirmation | implemented | ci | affected documents per collection, counted from Solr |
 | Remove a pack version (admin) | implemented | ci | tagged documents keep their tags until reindex |
 | Packs in Turtle, N-Triples, RDF/XML or JSON-LD; `skos:notation`; preferred labels in several languages | implemented | ci | shapes must be Turtle |
-| Pack precedence for shared IRIs and labels; curator draft labels scoped to their collection | implemented | ci |; a new draft label queues the tag stage for the collection's documents that contain it; the dictionary sync swaps entries and is never empty |
+| Pack precedence for shared IRIs and labels; curator draft labels scoped to their collection | implemented | ci | a new draft label queues the tag stage for the collection's documents that contain it; the dictionary sync swaps entries and is never empty |
 | Pack import and activation as background jobs the UI and `oss pack` follow | implemented | ci | |
 | Import a plain list of names as a pack | implemented | ci, smoke | |
 | Polyhierarchy (a facet path through each broader concept) and `skos:related` | implemented | ci | |
@@ -206,11 +212,11 @@ implemented has none, or names a test that does not exist.
 | Graph projection survives a Neo4j outage | implemented | ci, bench | documents stay searchable with the graph pending, and are projected when Neo4j answers |
 | Worker memory: pool processes are replaced past their share of the memory cap | implemented | ci, bench | |
 | OpenTelemetry traces and metrics | experimental | ci (set-up) | traces to Jaeger (in memory), metrics to Prometheus, a provisioned Grafana dashboard; server, workers and beat export; Flower on loopback behind a password; checked live by hand, not in CI |
-| Multi-arch images (amd64, arm64) with SBOM and provenance | implemented | release workflow | the `-gpu` image (amd64 only) has an SBOM too; not yet exercised by a tag |
+| Multi-arch images (amd64, arm64) with SBOM and provenance | experimental | release workflow | the `-gpu` image (amd64 only) has an SBOM too; not yet exercised by a tag |
 | Signed releases | experimental | — | keyless cosign signatures in the release workflow, not yet exercised by a tag |
 | Release gated on CI and integration (tags only) | experimental | release workflow | the tag must match the version; `ci` and `integration` run on the tagged commit before any image is pushed; not yet exercised |
 | Dependency audit and licence policy | implemented | ci | pip-audit and pnpm audit fail the build; GPL and AGPL refused, LGPL only with an ADR (psycopg, ADR-0011); the `-gpu` image's extra wheels are not covered yet |
-| README quick start on a fresh clone | implemented | integration (fresh-clone job) | init, up, demo, search and upload of a host file pass in a clean clone |
+| README quick start on a fresh clone | implemented | integration (fresh-clone job) | init, up, demo, search and upload of a host file, scripted in the fresh-clone job (`just fresh-clone`); the job has not yet run on GitHub |
 | Files on the host for upload, pack import, diff and validate, eval and export | implemented | ci, fresh-clone check | sent into the cli container as a tar on stdin; no bind mounts |
 | Secret rotation in the stores and `.env` together (`./oss rotate`) | implemented | ci | PostgreSQL, Neo4j, Solr, admin, API token, Grafana; the pseudonym key is never rotated |
 | Secrets from files (`*_FILE`, Docker secrets overlay) | implemented | ci | `compose.secrets.yaml`; the observability profile needs `.env` |
@@ -226,4 +232,4 @@ implemented has none, or names a test that does not exist.
 | Service secrets: none has a default, placeholders refused at start, Valkey requires a password | implemented | ci | |
 | Collection settings accept tuning keys only (no service addresses or credentials) | implemented | ci | |
 | Outbound requests: one guard for web pages, robots.txt, sitemaps, feeds, SPARQL, S3 and webhooks (globally routable addresses only, checked address pinned per connection, no redirects to private ones, timeouts, body caps while streaming) | implemented | ci, integration | operator-configured services (Tika, MinerU, embedding and NER providers) use a capped client with timeouts and no address check |
-| Helm chart, OpenSearch, multi-instance scaling | planned | — | after 1.0 |
+| Helm chart, OpenSearch, multi-instance scaling | planned | — | after 1.0 (OpenSearch here is the search engine as an alternative backend, not the browser description) |
