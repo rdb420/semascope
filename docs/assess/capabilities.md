@@ -198,5 +198,5 @@ implemented has none, or names a test that does not exist.
 | Web UI lint, type-check, tests and bundle budget | implemented | ci | first load about 114 kB of gzipped JavaScript |
 | Service secrets: none has a default, placeholders refused at start, Valkey requires a password | implemented | ci | |
 | Collection settings accept tuning keys only (no service addresses or credentials) | implemented | ci | |
-| Outbound requests: one guard for web, feeds, SPARQL, S3 and webhooks (globally routable addresses only, no redirects to private ones, size ceiling) | implemented | ci | a name that changes between the check and the connection is not covered |
+| Outbound requests: one guard for web pages, robots.txt, sitemaps, feeds, SPARQL, S3 and webhooks (globally routable addresses only, checked address pinned per connection, no redirects to private ones, timeouts, body caps while streaming) | implemented | ci, integration | operator-configured services (Tika, MinerU, embedding and NER providers) use a capped client with timeouts and no address check |
 | Helm chart, OpenSearch, multi-instance scaling | planned | — | after 1.0 |

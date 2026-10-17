@@ -7,6 +7,15 @@ and the project follows semantic versioning.
 
 ### Security
 
+- Outbound requests to any URL a source, user or document supplies resolve
+  the host once per connection, refuse it unless every address is public or
+  allowed by `SEMASCOPE_ALLOWED_PRIVATE_HOSTS`, and connect to the checked
+  address while TLS verifies the host name, so DNS rebinding cannot reach a
+  private address. Redirects stop after 10, environment proxies are not used
+  for them, every client has timeouts, and bodies are capped while streaming
+  (S3 objects by the bytes actually read). Tika, MinerU and the embedding and
+  NER providers get timeouts, no redirects and a body cap; `oss export` notices
+  a stalled server.
 - Any setting can be read from a file named by `<NAME>_FILE`; `oss init
   --secrets-dir` and `compose.secrets.yaml` keep every secret out of `.env`.
   `./oss rotate` changes secrets in PostgreSQL, Neo4j, Solr, the admin

@@ -20,6 +20,10 @@ import typer
 app = typer.Typer(help="Export documents as RDF and annotations as W3C Web Annotations.")
 
 
+# a long export streams for a while: no limit on the whole, but a stalled server is noticed
+EXPORT_TIMEOUT = httpx.Timeout(30.0, read=600.0)
+
+
 def _client() -> httpx.Client:
     from oss_cli.main import _api
 
@@ -70,7 +74,7 @@ def export_search(
             "/export/search",
             params={"format": format, "limit": limit},
             json=body,
-            timeout=None,
+            timeout=EXPORT_TIMEOUT,
         ) as resp,
     ):
         n = _stream(resp, out)

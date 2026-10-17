@@ -557,7 +557,18 @@
   - packages/oss-server/tests/test_collection_settings.py::test_the_api_refuses_service_settings
   - packages/oss-server/tests/test_collection_settings.py::test_the_workers_ignore_service_settings_already_stored
 
-"Operation | Outbound requests: one guard for web, feeds, SPARQL, S3 and webhooks (globally routable addresses only, no redirects to private ones, size ceiling)":
+"Operation | Outbound requests: one guard for web pages, robots.txt, sitemaps, feeds, SPARQL, S3 and webhooks (globally routable addresses only, checked address pinned per connection, no redirects to private ones, timeouts, body caps while streaming)":
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_a_name_that_rebinds_to_a_private_address_never_reaches_it
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_the_same_runs_reach_an_allowed_host_through_the_pinned_address
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_a_redirect_to_a_private_address_is_refused
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_redirect_chains_stop
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_bodies_stop_at_the_cap_without_being_buffered
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_the_s3_download_is_capped_by_bytes_read
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_operator_services_have_a_cap_and_timeouts
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_every_timeout_is_set
+  - packages/oss-pipeline/tests/test_outbound_guard.py::test_tls_verifies_the_host_name_on_a_pinned_connection
+  - packages/oss-server/tests/test_webhook_guard.py::test_a_webhook_host_that_rebinds_to_a_private_address_is_never_reached
+  - tests/integration/test_sources.py::test_s3_bucket_through_minio
   - packages/oss-pipeline/tests/test_guard.py::test_private_and_odd_addresses_are_refused
   - packages/oss-pipeline/tests/test_guard.py::test_redirects_to_private_addresses_are_refused
   - packages/oss-pipeline/tests/test_guard.py::test_bodies_over_the_cap_are_refused
