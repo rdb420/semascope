@@ -38,7 +38,10 @@ CUDA runtime libraries from pip, which are redistributable under the CUDA
 EULA; keep that list in the Dockerfile and in ADR-0008.
 
 Non-OSI licences (including the Neo4j Visualization Library licence) are not
-accepted in the product.
+accepted in the product. The one exception is NVIDIA's CUDA runtime in the
+optional `-gpu` image (ADR-0008). ADR-0011, which allows psycopg, is still
+proposed; until it is accepted, ADR-0001's rule (LGPL only as an optional
+extra) is the accepted text and psycopg is a known exception to it.
 
 ## Workflow
 
@@ -46,8 +49,9 @@ accepted in the product.
 - Conventional commits. Semantic versioning.
 - Every change to a contract in `packages/oss-core` needs an ADR in
   `docs/adr/`.
-- Tests run against real services in containers; a change without tests is
-  not merged.
+- A change without tests is not merged. Unit tests (`uv run pytest`) need no
+  services; the integration suite (`just integration`) runs the API, browser
+  and backup tests against real services in containers.
 - Australian English in prose and UI strings (`colour`, `licence`,
   `organisation`).
 
@@ -69,6 +73,8 @@ CI (`.github/workflows/ci.yml`) runs all of these on every pull request, and
 `integration.yml` adds the real stack and the README quick start in a fresh
 clone (`just fresh-clone`). Releases are cut from tags only, after both pass
 on the tagged commit; see [Operations](docs/operations.md#continuous-integration-and-releases).
+Most of these jobs are new since 1.0.0-rc.2 and have not yet run on GitHub;
+run the checks locally before you push.
 
 Against a running stack with the demo loaded (`./oss up && ./oss demo`):
 

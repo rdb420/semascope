@@ -1,16 +1,19 @@
 # Solr 10 configsets
 
-Phase 1 adds three configsets here, written from scratch for Solr 10:
+Three configsets, written from scratch for Solr 10:
 
 | Collection | Unit | Purpose |
 |---|---|---|
 | `documents` | one document | metadata, full text, facets, pack tags with `pack_version` |
-| `chunks` | one chunk | `DenseVectorField` (cosine, quantised), chunk text, document id |
+| `chunks` | one chunk | a `DenseVectorField` per dimension, 256 to 4096 (cosine, HNSW, not quantised), chunk text, document id, model |
 | `entities` | one label of one concept or individual, per pack version | the Tagger handler dictionary |
 
 Rules: managed schema with schemaless off; nothing that Solr 10 removed
 (`<lib>`, `ManagedSynonymFilterFactory`, language response writers,
-`ExternalFileField`).
+`ExternalFileField`). Query-time synonyms come from a plain file,
+`documents/conf/synonyms_packs.txt`, which the server rewrites from the active
+packs ([Searching](../../docs/search.md#synonyms)). Polish stemming needs Solr's
+`analysis-extras` module, which `compose.yaml` loads.
 
 ## Authentication
 

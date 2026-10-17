@@ -1,6 +1,6 @@
 # Benchmarks
 
-Status: **draft**, 2026-10-16. The protocol below is what 1.0 will publish.
+Status: **draft**, updated 2026-10-17. The protocol below is what 1.0 will publish.
 The figures recorded so far are in [Quality numbers](../quality.md); the
 table at the end says which parts of this protocol they already cover.
 

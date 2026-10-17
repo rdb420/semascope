@@ -1,8 +1,8 @@
 # Pack specification
 
-Status: **draft**, 2026-10-16. Describes what 1.0.0-rc.2 (commit `8e4cb2b`)
-does with a pack, as read from the code, updated for the pack hardening
-after rc.2 (branch `hardening/packs`). Where the code does less than
+Status: **draft**, updated 2026-10-17. Describes what 1.0.0-rc.3
+(unreleased: the main line after 1.0.0-rc.2) does with a pack, as read from
+the code. Where the code does less than
 [ADR-0007](../adr/0007-pack-contract.md) promises, the gap is listed at the
 end rather than written over.
 
@@ -147,8 +147,9 @@ characters becomes one entry in the Solr `entities` dictionary that the
 `tag` stage matches against. Labels that are all upper case and six
 characters or shorter match case-sensitively.
 
-Not used in 1.0: `skos:narrower` (only `broader` is read), `skos:related`,
-the SKOS mapping properties, `skos:scopeNote`, `owl:sameAs`,
+`skos:related` is kept in both directions and shown on the concept page; it
+does not tag or make facets. Not used in 1.0: `skos:narrower` (only
+`broader` is read), the SKOS mapping properties, `skos:scopeNote`, `owl:sameAs`,
 `owl:equivalentClass`, and the language of alternative and hidden labels
 (they take the main label's).
 

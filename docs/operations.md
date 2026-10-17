@@ -120,7 +120,7 @@ chunks, so passages of an earlier version never stay searchable; a failed
 a Word file) that is added to a document's own text. Service addresses, credentials, Solr collection names, paths and
 secrets come from `.env` only: the API refuses a collection that sets any
 other key (422), and the workers ignore other keys in collections saved
-before 1.0.0-rc.4 or edited in the admin, with a warning in the worker log.
+before 1.0.0-rc.3 or edited in the admin, with a warning in the worker log.
 
 ## Source runs and deletion
 
@@ -294,7 +294,7 @@ unset keeps the default.
 ```bash
 git pull                   # or: edit SEMASCOPE_IMAGE_TAG in .env to the new version
 ./oss backup               # always, before an upgrade
-./oss up                   # pulls the new image, runs migrations, reloads the Solr
+./oss up                   # fetches the new tag's image, runs migrations, reloads the Solr
                            # configsets, re-imports the bundled packs, waits for health
 ./oss doctor
 ```
@@ -310,7 +310,9 @@ enrichment and indexing from the stored text without touching the originals.
 The graph is a projection: `./oss reindex` rebuilds it after a Neo4j
 upgrade or a projection change.
 
-Upgrading to 1.0.0-rc.4: `SEMASCOPE_DEFAULT_ROLE` now defaults to `none`,
+Upgrading from 1.0.0-rc.2 to 1.0.0-rc.3 changes more than most upgrades;
+every step is listed under "Upgrade from 1.0.0-rc.2" in the changelog. In
+short: `SEMASCOPE_DEFAULT_ROLE` now defaults to `none`,
 so a user reads only the collections they hold a role on; put
 `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to keep open reading. `./oss up`
 adds a `VALKEY_PASSWORD`, and the application refuses to start while any
@@ -320,8 +322,7 @@ server, an internal `extract` for Tika with the worker) with their new health
 checks; no data changes. The server now stops, and compose restarts it,
 until the Solr collections can be set up, instead of running without them.
 
-Upgrading past 1.0.0-rc.4 (server hardening): a migration adds the audit
-log table. Signing in through `POST /api/auth/login` needs the CSRF token
+The same upgrade adds the audit log table (a migration). Signing in through `POST /api/auth/login` needs the CSRF token
 (`GET /api/auth/csrf`, then `X-CSRFToken`), as the browser UI already sends;
 scripts use bearer tokens and are unaffected. The Reconciliation API needs a
 signed-in user with a role (set `SEMASCOPE_RECONCILE_PUBLIC=true` for
@@ -366,7 +367,7 @@ or a placeholder such as `change-me` (the values in `.env.example`); the
 error names each one. Only debug mode (`SEMASCOPE_DEBUG=true`, for
 development) skips the check. `oss init` generates all of them.
 
-Valkey requires `VALKEY_PASSWORD` (from 1.0.0-rc.4); the workers and the
+Valkey requires `VALKEY_PASSWORD` (from 1.0.0-rc.3); the workers and the
 server reach it through `VALKEY_URL`, which compose builds with the
 password. An install whose `.env` predates this gets a generated
 `VALKEY_PASSWORD` added by the next `./oss up`; Valkey reads it when it
@@ -385,16 +386,19 @@ POSTGRES_PASSWORD SOLR_PASSWORD` rotates only those. The previous file is
 kept as `.env.before-rotate-<time>` (mode 600; delete it once the stack
 runs). Rotating `SEMASCOPE_SECRET_KEY` signs everyone out;
 `SEMASCOPE_PSEUDONYM_KEY`, which keys the pseudonyms of pseudonymised graph
-entities, is never rotated (an `.env` from before rc.4 gets the old secret
-key as its pseudonym key, so the pseudonyms stay the same).
+entities, is never rotated. Without `SEMASCOPE_PSEUDONYM_KEY` (an `.env` from before
+1.0.0-rc.3) the secret key keys the pseudonyms, as it always did; rotating
+the secret key first copies the old one into `SEMASCOPE_PSEUDONYM_KEY`, so
+the pseudonyms stay the same.
 
 `oss init --force` writes new secrets into `.env` and keeps every other
 setting (host, size, runtime, roles, single sign-on, allowed hosts, the
 pseudonym key and any line `init` does not write); an option given with it,
 such as `--size`, changes only its own lines. It does not touch the stores,
 so use it only before the first `./oss up` or when the volumes will be
-recreated. The API token (`SEMASCOPE_API_TOKEN`) can also be replaced by
-creating a token in the admin and putting its value in `.env`.
+recreated. The API token (`SEMASCOPE_API_TOKEN`) is replaced with `./oss
+rotate SEMASCOPE_API_TOKEN`; the admin lists and revokes tokens but cannot
+show a new one's value ([API](api.md#signing-in)).
 
 ### Docker secrets
 
@@ -422,8 +426,8 @@ replace its file and run `./oss up`.
 
 ## Logs and health
 
-`./oss logs <service>` follows a service. Every service in `compose.yaml`
-has a health check, and `./oss up` waits for all of them: the server
+`./oss logs <service>` follows a service. Every long-running service in
+`compose.yaml` has a health check (the one-off `cli` has none), and `./oss up` waits for all of them: the server
 answers `/healthz` (with up to ten minutes to start, for migrations on a
 first start or an upgrade); the worker's Celery node answers a ping through
 Valkey; beat has written its schedule in the last five minutes; Caddy's admin
@@ -595,7 +599,10 @@ release of that version publishes. Set `SEMASCOPE_IMAGE_TAG` in `.env` to run
 another release. `:main` is a development tag only: `compose.dev.yaml` builds
 it from the checkout and never pulls it, and nothing publishes it any more.
 Until a version has been released, `./oss up` cannot pull its tag and builds
-the image from the checkout instead.
+the image from the checkout instead. No version has been released through
+this workflow yet: there are no `v*` tags, so the `release` workflow, its
+image signatures and attestations and the Pages deploy have not run, and the
+images on GHCR are older `:main` builds.
 
 ### Cutting a release
 

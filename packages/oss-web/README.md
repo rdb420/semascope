@@ -20,7 +20,9 @@ Every page except search is its own chunk, loaded on first visit
 gzipped JavaScript instead of 697 kB. `scripts/bundle-size.mjs` fails CI when
 the first load or any chunk outgrows its budget.
 
-Phase 1 views: sign in, search with facets and highlighted snippets, document
-page with extracted text per page, found entities and pipeline stage runs.
-Later phases add previews, the graph, the map, the timeline and the curation
-queue.
+Pages: sign in; search (list, media, terms, table, entities and graph views,
+facets, timeline, suggestions); document (text per page, previews, tags and
+why, query highlighting, original file, similar documents, annotations);
+packs, concepts and the review queue; graph; map; list search; alerts and
+feeds; overview. The capability matrix (`docs/assess/capabilities.md`) lists
+them with their tests.

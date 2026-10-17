@@ -1,6 +1,7 @@
 # Deployment guide
 
-Status: **draft**, 2026-10-16. Describes 1.0.0-rc.2 (commit `8e4cb2b`).
+Status: **draft**, updated 2026-10-17. Describes 1.0.0-rc.3 (unreleased: the
+main line after 1.0.0-rc.2).
 Day-to-day commands are in [Operations](../operations.md); this page is what
 to check before you choose where to run Semascope.
 
@@ -8,7 +9,7 @@ to check before you choose where to run Semascope.
 
 | | Supported | Tested |
 |---|---|---|
-| Host OS | Linux with Docker Engine and the Compose plugin | Ubuntu 24.04 (CI), Ubuntu VM (fresh-clone check) |
+| Host OS | Linux with Docker Engine and the Compose plugin | Ubuntu 24.04 on the development host; the CI workflows (Ubuntu 24.04 runners, a fresh-clone job) are set up but have not run for this version |
 | CPU architecture | amd64 and arm64 (multi-arch image) | amd64; arm64 is built, not yet exercised end to end |
 | macOS and Windows | through Docker Desktop, unsupported | not tested |
 | GPU runtime | amd64 Linux with an NVIDIA card, driver and NVIDIA Container Toolkit | RTX 3090 (24 GB) |
@@ -27,12 +28,12 @@ runs on one host.
 | valkey | `valkey/valkey:8-alpine` | task queue (append-only file on, password from `VALKEY_PASSWORD`) |
 | solr | `solr:10.0.0` | `documents`, `entities` (tagging dictionary) and `chunks` (vectors) |
 | neo4j | `neo4j:5.26-community` | the document-entity graph; no plugins needed |
-| tika | `apache/tika:3.3.0.0-full` | text extraction and OCR (Tesseract, English) |
+| tika | `apache/tika:3.3.0.0-full` | text extraction and OCR (Tesseract with deu, eng, fra, ita, jpn and spa; English unless a collection sets `ocr_languages`) |
 
 The `gpu` runtime replaces the worker image with
 `ghcr.io/rdb420/semascope-gpu:<tag>` (about 15 GB, amd64).
-`compose.observe.yaml` adds an OpenTelemetry collector, Prometheus and
-Grafana.
+`compose.observe.yaml` adds an OpenTelemetry collector, Jaeger, Prometheus,
+Grafana and Flower. Every image except the app's is pinned by digest.
 
 ## Memory and CPU
 
@@ -63,7 +64,7 @@ of GPU memory; two processes peaked at 22 GB on an RTX 3090.
 |---|---|---|
 | `blobs` (`/data`) | the originals (stored once per content hash), page previews, uploads, packs | usually the largest; plan for the corpus size plus previews |
 | `postgres` | extracted text and tags per document | roughly the extracted text size plus indexes |
-| `solr` | indexed text, the dictionary, and one 384-dimension vector per chunk | |
+| `solr` | indexed text (as written and, for 28 languages, analysed), the dictionary, and one vector per chunk in the field of the model's dimension (384 for the bundled model) | |
 | `neo4j` | documents, concepts, entities and edges | a projection; `oss reindex` rebuilds it |
 | `valkey` | queued tasks | small; safe to lose |
 | backups | `data/backups/<stamp>` | each backup is a full copy |
@@ -85,8 +86,10 @@ with `scripts/bench_size.py` on a sample of your own documents.
 - **Local accounts.** `oss init` generates the `admin` password. Passwords
   are at least 12 characters. There is no self-service sign-up: an
   administrator creates local accounts (in the admin or with `oss-manage`).
-- **API tokens.** Bearer tokens (`oss_…`), stored hashed, created in the
-  admin. `SEMASCOPE_API_TOKEN` in `.env` is the CLI's token.
+- **API tokens.** Bearer tokens (`oss_…`), stored hashed.
+  `SEMASCOPE_API_TOKEN` in `.env` is the CLI's token (`./oss rotate` replaces
+  it); the admin lists and revokes tokens, and further ones are issued from
+  a shell ([API](../api.md#signing-in)).
 - **Single sign-on.** OpenID Connect when `SEMASCOPE_OIDC_SERVER_URL`,
   `SEMASCOPE_OIDC_CLIENT_ID` and `SEMASCOPE_OIDC_CLIENT_SECRET` are set.
   A first sign-in creates the account when `SEMASCOPE_OIDC_AUTO_SIGNUP` is
@@ -100,9 +103,9 @@ with `scripts/bench_size.py` on a sample of your own documents.
   only the collections they hold a role on (or all of them with a global
   role); set it to `reader` to let every signed-in user read every
   collection (see [Roles](../concepts.md#roles)). Releases up to 1.0.0-rc.2
-  did not restrict reading per collection, and up to 1.0.0-rc.3 the default
-  was `reader`: on upgrade, set `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to
-  keep open reading, or give users their roles.
+  did not restrict reading per collection: on upgrade, set
+  `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` to keep open reading, or give
+  users their roles.
 
 There is no anonymous access to the UI, the search API or (by default) the
 Reconciliation API (`/api/reconcile`). OpenRefine sends no token, so set
@@ -115,9 +118,9 @@ Caddy serves `https://SEMASCOPE_HOST:SEMASCOPE_HTTPS_PORT/` with a
 certificate from its own internal authority (`tls internal`), which
 browsers will not trust. For a server:
 
-1. Set `SEMASCOPE_HOST` to the real name and keep `SEMASCOPE_HTTPS_PORT`
-   at 443 or 8443. In rc.2 the server trusts form posts only from those
-   two ports, so another port breaks sign-in from the browser.
+1. Set `SEMASCOPE_HOST` to the real name and `SEMASCOPE_HTTPS_PORT` to the
+   port people use (443 for a server); the server trusts form posts from
+   that host and port.
 2. Either let Caddy obtain a certificate (`SEMASCOPE_TLS=you@example.org`
    in `.env`, port 443 reachable from the internet), or mount your own
    certificate into the caddy service and name it
@@ -151,7 +154,7 @@ not.
 ./oss doctor
 ```
 
-From 1.0.0-rc.4 `SEMASCOPE_DEFAULT_ROLE` defaults to `none`: users without
+From 1.0.0-rc.3 `SEMASCOPE_DEFAULT_ROLE` defaults to `none`: users without
 a role on a collection no longer read it. Set `SEMASCOPE_DEFAULT_ROLE=reader`
 in `.env` before upgrading to keep open reading. Valkey requires a password: `./oss up` adds a generated
 `VALKEY_PASSWORD` to an older `.env`, and the application refuses to start
@@ -160,8 +163,11 @@ with an empty or placeholder secret (see [Secrets](../operations.md#secrets)).
 A release whose index layout changes says so in the changelog; then run
 `./oss reindex --collection <slug>` for each collection. Reindexing replays
 enrichment from the stored text without fetching or extracting again.
-Image tags are pinned by version; use a release tag, not `main`, in
-production.
+The app image's tag defaults to the checkout's version; use a release tag,
+not `main`, in production. Until a version is released, `./oss up` builds
+the image from the checkout ([Image tags](../operations.md#image-tags)).
+Upgrade notes for each version are in the changelog; [Install](../install.md#upgrading)
+has the steps.
 
 ## Offline and air-gapped operation
 
@@ -170,7 +176,8 @@ host:
 
 - the embedding model (bge-small), the spaCy models and, in the `-gpu`
   image, GLiNER2 are baked into the images;
-- Tesseract's English data is in the Tika image;
+- Tesseract's data for German, English, French, Italian, Japanese and
+  Spanish is in the Tika image;
 - no telemetry is sent anywhere unless you point
   `OTEL_EXPORTER_OTLP_ENDPOINT` at a collector.
 

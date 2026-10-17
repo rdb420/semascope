@@ -1,7 +1,7 @@
 # Explainability model
 
-Status: **draft**, 2026-10-16. Describes the 1.0 record (branch
-`hardening/explain`, after 1.0.0-rc.3); see
+Status: **draft**, updated 2026-10-17. Describes the record in 1.0.0-rc.3
+(unreleased); see
 [ADR-0009](../adr/0009-explainability-record.md).
 
 Every link between a document and a concept or entity should answer five
@@ -158,10 +158,10 @@ navigation need. Spans and provenance are kept out of Solr on purpose.
 
 1. Reversing a decision and then reversing it back (accept, reject,
    accept) returned the first stored proposal without applying it again.
-   The proposal log is now append-only (rc.3).
+   The proposal log is now append-only (1.0.0-rc.3).
 2. For named entities that are not pack individuals, the `CURATED` edge was
    written to a node keyed by the full IRI. It now uses the graph stage's
-   key (rc.3).
+   key (1.0.0-rc.3).
 3. A rejected tag was removed from `Document.tags` by the decision and came
    back with the next reindex, so PostgreSQL disagreed with itself and with
    Solr and Neo4j. Rejected tags are now always kept, flagged.

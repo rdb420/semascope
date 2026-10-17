@@ -18,8 +18,11 @@ docker compose run --rm -v "$PWD/scripts:/scripts:ro" -v "$PWD/packs/demo/golden
   cli python /scripts/tag_quality.py --collection demo --golden /golden.yaml
 ```
 
-Span-level precision and recall, and NER quality, arrive with the review
-queue in Phase 3, when curators' decisions give a labelled set.
+These are document-level figures on a golden set the project wrote itself,
+over eight texts. Span-level precision and recall and named-entity quality
+are not measured yet: they need a labelled set, which curators' decisions
+can provide once a corpus has been reviewed. Search relevance is measured
+separately ([Relevance evaluation](#relevance-evaluation)).
 
 ## Performance baseline
 

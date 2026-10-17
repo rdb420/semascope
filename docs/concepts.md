@@ -30,8 +30,9 @@ absence, because entries roll off a feed while the articles still exist; a
 source's `delete_missing` (true or false) overrides its connector. A
 document deleted by an earlier run comes back when its source has it again.
 
-Connectors: `filesystem` (a folder under the import directory, include and
-exclude globs), `web` (pages, a sitemap, or a bounded same-host crawl that
+Connectors (their settings are in [Connector settings](connectors.md)):
+`filesystem` (a folder under `SEMASCOPE_SOURCE_ROOTS`, by default the import
+directory, with include and exclude globs), `web` (pages, a sitemap, or a bounded same-host crawl that
 respects robots.txt and refuses private addresses), `upload` (files sent
 through the API or `oss upload`), `feed` (RSS and Atom), `mail` (mbox and
 eml, attachments as child documents; a message is `mail:<Message-ID>#<hash>`,
@@ -168,7 +169,7 @@ that name rather than running one of these.
 One step of the pipeline, declared with the fields it reads and writes.
 A document's whole profile runs in one task in one worker process
 ([ADR-0010](adr/0010-one-task-per-document.md)). Stages are plugins
-registered through entry points.
+registered through entry points ([Writing a plugin](plugins.md)).
 Stages: `fetch` (store the original under the SHA-256 of the bytes it
 read), `extract` (Tika text and metadata, OCR for images and scanned PDFs in
 the collection's `ocr_languages`, language detection, and the text of
@@ -239,7 +240,7 @@ concept a curator added joins it) and to a `CURATED` edge in the graph. If
 Solr or Neo4j is down, the proposal is kept with `applied: false` and a
 periodic task applies it when they are back. The **outbox**
 (`/api/curation/events`, read by cursor) lets an external system of record
-mirror, reject or audit every decision.
+mirror, reject or audit every decision ([Events](events.md)).
 
 **Bulk tagging** applies one decision to every document a search finds: on
 a concept's page a curator counts the documents of a keyword search in a
@@ -322,8 +323,8 @@ token on the Alerts page cuts every older feed URL off; revoking removes it.
 ## Search modes
 
 `keyword` matches words and phrases (Solr edismax over title and text, with
-highlighting). `semantic` embeds the query with the bundled FastEmbed model
-and ranks documents by their best-matching chunks, returning the passages.
+highlighting). `semantic` embeds the query with the configured embedding model
+(the bundled FastEmbed one by default) and ranks documents by their best-matching chunks, returning the passages.
 `hybrid` fuses both rankings with reciprocal rank fusion. Every document's
 chunks are embedded by the `embed` stage into the `chunks` collection, each
 chunk recording its model; the embedder is a runtime choice (bundled
@@ -357,8 +358,8 @@ they hold no role on:
 | `curator`, `editor`, `admin` | that role on every collection, for small single-team installs |
 
 An unknown value counts as `none`. Up to 1.0.0-rc.2 every signed-in user
-could read every collection whatever this setting said; up to 1.0.0-rc.3 the
-default was `reader`. An install that relied on open reading sets
+could read every collection whatever this setting said; from 1.0.0-rc.3 the
+default is `none`. An install that relied on open reading sets
 `SEMASCOPE_DEFAULT_ROLE=reader` in `.env` explicitly (`oss init` writes
 `none` for new installs). Packs, concepts and
 the Reconciliation API are not collection data and are readable by every

@@ -1,8 +1,8 @@
 # Walkthrough: one piece of evidence, end to end
 
-Status: **draft**, 2026-10-16. The steps and commands are final; the
-screenshots marked *to capture* are still to be taken on a stack running
-1.0.0-rc.2 with the demo loaded. `tests/e2e/ui_smoke.py` already captures
+Status: **draft**, updated 2026-10-17. The steps and commands describe
+1.0.0-rc.3 (unreleased); the screenshots marked *to capture* are still to be
+taken on a stack running it with the demo loaded. `tests/e2e/ui_smoke.py` already captures
 the pages marked *smoke* (its file name in brackets).
 
 The thread: the demo corpus's *Odyssey* (Samuel Butler's translation)
@@ -39,8 +39,8 @@ hierarchical facet [03-facet.png].
 Open the *Odyssey*. The tag list shows **Odysseus** from the `tag` stage,
 its confidence and the number of occurrences: the translation uses
 "Ulysses" over six hundred times and "Odysseus" a handful. The confidence is
-1.0 for a preferred-label match and 0.9 for an alternative label; in rc.2
-it is set by whichever label occurs first. The stage-run panel shows which stage versions
+1.0 for a preferred-label match and 0.9 for an alternative label, taken
+over all occurrences (rc.2 used whichever label occurred first). The stage-run panel shows which stage versions
 produced the tags and how long each took.
 
 The same facts through the API:
