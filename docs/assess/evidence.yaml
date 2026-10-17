@@ -729,3 +729,61 @@
   - packages/oss-pipeline/tests/test_stage_hardening.py::test_stages_are_built_once_per_process
   - packages/oss-pipeline/tests/test_stage_hardening.py::test_the_graph_stage_keeps_one_driver_per_process
   - packages/oss-pipeline/tests/test_stage_hardening.py::test_stage_clients_are_reused_and_rebuilt_when_settings_change
+
+"Inputs | Outlook PST/OST (`pst`), messages and attachments":
+  - packages/oss-pipeline/tests/test_pst.py::test_messages_and_attachments
+  - packages/oss-pipeline/tests/test_pst.py::test_without_the_extra_the_run_fails_and_says_why
+
+"Inputs | Web archives (`warc`): `.warc` and `.warc.gz`, one document per archived page":
+  - packages/oss-pipeline/tests/test_warc.py::test_one_document_per_archived_page_with_its_url_and_date
+  - packages/oss-pipeline/tests/test_warc.py::test_limits_skip_large_payloads_and_stop_the_run
+  - packages/oss-pipeline/tests/test_warc.py::test_an_unreadable_archive_is_reported
+  - tests/integration/test_ingest_parity.py::test_a_warc_archive_is_one_document_per_page
+
+"Inputs | Hypothesis annotations as a source (`hypothesis`)":
+  - packages/oss-pipeline/tests/test_hypothesis.py::test_annotations_become_documents
+  - packages/oss-server/tests/test_ingest_connectors.py::test_a_hypothesis_token_is_never_read_back
+
+"Inputs | Mastodon public timelines (`mastodon`)":
+  - packages/oss-pipeline/tests/test_mastodon.py::test_hashtag_posts_become_documents
+
+"Inputs | Scraper rules for web sources (CSS content, title, fields)":
+  - packages/oss-pipeline/tests/test_scraper.py::test_rules_pick_content_title_and_fields
+  - packages/oss-pipeline/tests/test_scraper.py::test_the_web_connector_applies_the_rules_and_still_crawls
+  - packages/oss-pipeline/tests/test_scraper.py::test_bad_rules_are_refused
+
+"Inputs | Sidecar metadata (`.meta.json`, `.xmp`) merged as custom fields":
+  - packages/oss-pipeline/tests/test_sidecar.py::test_sidecars_are_merged_and_not_indexed_themselves
+  - packages/oss-server/tests/test_ingest_connectors.py::test_a_changed_sidecar_alone_queues_its_document_again
+  - tests/integration/test_ingest_parity.py::test_sidecar_fields_and_extractor_facets
+
+"Inputs | `oss watch`: folder sources run as soon as files change":
+  - packages/oss-cli/tests/test_watch.py::test_a_burst_of_changes_starts_one_run
+  - packages/oss-cli/tests/test_watch.py::test_the_debouncer_waits_for_quiet
+  - packages/oss-cli/tests/test_watch.py::test_the_loop_touches_its_heartbeat
+
+"Enrichment | OCR later (`ocr` set to now, later or off): text layer first, OCR on a low-priority pass":
+  - packages/oss-pipeline/tests/test_ocr_later.py::test_later_reads_the_text_layer_only_and_marks_the_document
+  - packages/oss-server/tests/test_ocr_later_task.py::test_the_first_pass_indexes_without_ocr_and_queues_the_ocr_pass
+  - packages/oss-server/tests/test_ocr_later_task.py::test_the_ocr_pass_replays_extract_with_ocr_and_keeps_the_fingerprint
+  - packages/oss-server/tests/test_ocr_later_task.py::test_a_failed_ocr_pass_keeps_the_text_layer_searchable
+  - tests/integration/test_ingest_parity.py::test_ocr_later_indexes_first_and_ocrs_on_a_low_priority_pass
+
+"Enrichment | IBANs with check-digit validation (`iban_ss`)":
+  - packages/oss-pipeline/tests/test_extractors.py::test_ibans_are_found_grouped_or_not_and_checked
+  - packages/oss-pipeline/tests/test_extractors.py::test_the_iban_checksum
+  - tests/integration/test_ingest_parity.py::test_sidecar_fields_and_extractor_facets
+
+"Enrichment | Legal references (`law_ss`, `LegalReference` entities), configurable patterns":
+  - packages/oss-pipeline/tests/test_extractors.py::test_default_law_references
+  - packages/oss-pipeline/tests/test_extractors.py::test_collections_add_law_patterns_and_can_drop_the_defaults
+
+"Enrichment | Amounts with ISO 4217 currency (`currency_ss`, `amount_ss`)":
+  - packages/oss-pipeline/tests/test_extractors.py::test_amounts_carry_their_currency
+  - packages/oss-pipeline/tests/test_extractors.py::test_numbers_with_either_decimal_mark
+
+"Enrichment | User regex lists per collection (RE2, `x_<name>_ss`)":
+  - packages/oss-pipeline/tests/test_extractors.py::test_regex_lists_from_a_mapping_or_tsv
+  - packages/oss-pipeline/tests/test_extractors.py::test_regex_lists_are_validated
+  - packages/oss-pipeline/tests/test_extractors.py::test_catastrophic_patterns_run_in_linear_time
+  - packages/oss-server/tests/test_extractor_settings.py::test_bad_extractor_settings_are_refused

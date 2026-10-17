@@ -23,14 +23,21 @@ implemented has none, or names a test that does not exist.
 | Capability | State | Tests | Notes |
 |---|---|---|---|
 | Folder (`filesystem`), include and exclude globs, change detection by content hash | implemented | ci | files up to 512 MiB |
+| Sidecar metadata (`.meta.json`, `.xmp`) merged as custom fields | implemented | ci | |
+| `oss watch`: folder sources run as soon as files change | implemented | ci | the `watch` compose profile is not run in CI |
 | Upload (`oss upload`, `POST /collections/{slug}/upload`) | implemented | ci | |
-| Mail: mbox and `.eml`, attachments as child documents | implemented | ci | no PST or MSG; a message's identity is its Message-ID plus a hash of the message; duplicate attachment names are numbered |
+| Mail: mbox and `.eml`, attachments as child documents | implemented | ci | PST through the `pst` connector (optional extra); `.msg` files are parsed by Tika; a message's identity is its Message-ID plus a hash of the message; duplicate attachment names are numbered |
+| Outlook PST/OST (`pst`), messages and attachments | experimental | ci (stand-in for libpff) | needs the optional LGPL `pst` extra, not in the image (ADR-0015) |
 | Archives: zip and tar (gz, bz2, xz), nested, with size, ratio and depth limits | implemented | ci | members streamed to disk; one byte budget across every nesting level (100 times the archive's size, at most 4 GiB) and a member count across levels; 7z and rar are recognised but not unpacked |
+| Web archives (`warc`): `.warc` and `.warc.gz`, one document per archived page | implemented | ci | original URL, capture date, latest capture wins; `max_record_bytes`, `max_records` |
 | Tables: CSV, TSV and XLSX, one document per row, chosen columns as facets | implemented | ci | |
 | RDF files (`.ttl`, `.nt`, `.n3`, `.rdf`, `.owl`, `.jsonld`, `.trig`), one document per subject | implemented | ci | |
 | RDF from a SPARQL endpoint | implemented | ci | tested against Oxigraph |
 | Web pages, sitemaps and bounded same-host crawl, robots.txt respected | implemented | ci | private addresses refused, responses size-capped |
+| Scraper rules for web sources (CSS content, title, fields) | implemented | ci | |
 | RSS and Atom feeds | implemented | ci | articles that roll off the feed are kept |
+| Hypothesis annotations as a source (`hypothesis`) | experimental | ci (mock service) | token masked |
+| Mastodon public timelines (`mastodon`) | experimental | ci (mock server) | X/Twitter out of scope |
 | S3-compatible buckets | implemented | ci | tested against MinIO |
 | Scheduled sources (cron or `every 15m`) and deletion detection | implemented | ci | deletes only after a complete run that saw at least half the documents; a failed run deletes nothing; a deleted document comes back when its source has it again (ADR-0013) |
 | One run per source at a time | implemented | ci | a second start answers 409; a run that lost its source never deletes |
@@ -48,7 +55,12 @@ implemented has none, or names a test that does not exist.
 | Capability | State | Tests | Notes |
 |---|---|---|---|
 | Pages and chunks (`structure`) | implemented | ci | |
-| Patterns: emails, URLs, phone numbers, amounts, hashtags | implemented | ci | |
+| Patterns: emails, URLs, phone numbers, amounts, hashtags | implemented | ci | plus IBAN, law, currency and regex lists (`oss_pipeline.extractors`) |
+| OCR later (`ocr` set to now, later or off): text layer first, OCR on a low-priority pass | implemented | ci | pending documents counted in `/api/stats` and by `oss stats` and `oss doctor` |
+| IBANs with check-digit validation (`iban_ss`) | implemented | ci | |
+| Legal references (`law_ss`, `LegalReference` entities), configurable patterns | implemented | ci | |
+| Amounts with ISO 4217 currency (`currency_ss`, `amount_ss`) | implemented | ci | |
+| User regex lists per collection (RE2, `x_<name>_ss`) | implemented | ci | |
 | Dictionary tagging against packs, hierarchical facet per scheme (`tag`) | implemented | quality | precision 1.00, recall 0.98 on the demo golden set; long texts are paged: windows overlap at a space, a request at the tagger's 5,000 cap is continued, offsets converted from UTF-16 |
 | Named entities, spaCy on CPU | implemented | bench | English and multilingual small models; fills the persons, organisations, places and events facets |
 | Named entities, GLiNER2 zero-shot on GPU, pack classes as labels | experimental | ci (parser), bench | measured on an RTX 3090 |

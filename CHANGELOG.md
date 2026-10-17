@@ -75,6 +75,14 @@ and the project follows semantic versioning.
 
 ### Added
 
+- OCR later (`settings.pipeline.ocr: now|later|off`): documents are indexed
+  from their text layer at once and scans are OCRed afterwards on a
+  low-priority task (ADR-0014). New connectors: `warc` (web archives),
+  `hypothesis` (annotations), `mastodon` (public timelines) and `pst` (Outlook
+  PST/OST through the optional LGPL `pst` extra, ADR-0015). Scraper rules for
+  web sources; sidecar metadata files (`.meta.json`, `.xmp`); pattern
+  extractors for IBANs, legal references, amounts with currency and
+  per-collection RE2 regex lists; `oss watch` and a `watch` compose profile.
 - `./oss upload`, `pack import|diff|validate`, `eval` and `export --out`
   work with files on the host; `./oss init` works without uv. `oss doctor`
   checks PostgreSQL, Valkey, the Solr collections and SolrCloud mode,
@@ -208,6 +216,8 @@ and the project follows semantic versioning.
 
 ### Fixed
 
+- The `pst` extra installed an unrelated package and pulled in astropy, dask
+  and zarr.
 - Tagging no longer drops matches: a request at the tagger's 5,000-match cap
   is continued, window edges overlap at a space, and UTF-16 offsets are
   converted, so spans after an emoji stay on their words. NER events reach
